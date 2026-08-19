@@ -67,14 +67,19 @@ async def db_session(clean_db, migrated_db) -> AsyncSession:
 
 
 @pytest.fixture
-async def client(clean_db, monkeypatch, tmp_path):
+async def app(clean_db, monkeypatch, tmp_path):
+    """測試用 app 實例 — 讓測試能設定 app.dependency_overrides(例如換 FakeInitializer)。"""
     monkeypatch.setenv("WORKSPACES_DIR", str(tmp_path / "ws"))
     monkeypatch.setenv("BOOTSTRAP_ADMIN_EMAIL", "admin@test.local")
     monkeypatch.setenv("BOOTSTRAP_ADMIN_PASSWORD", "admin-pass-123")
     get_settings.cache_clear()
     await reset_engine()          # env 變了,共享 engine 必須重建
     auth_routes._LOGIN_ATTEMPTS.clear()  # 模組級速率限制會跨測試殘留(同 IP 累計 → 429)
-    app = create_app()
+    return create_app()
+
+
+@pytest.fixture
+async def client(app):
     # httpx 的 ASGITransport **不會**觸發 lifespan。少了 LifespanManager,
     # bootstrap_admin() 不會執行、app.state.graphrag_version 不存在
     # → 之後每個 task 的登入測試都會 401。
