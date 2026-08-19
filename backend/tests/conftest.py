@@ -1,5 +1,6 @@
 import os
 
+import email_validator
 import pytest
 from alembic import command
 from alembic.config import Config
@@ -13,6 +14,14 @@ from graphrag_ui.adapters.db import make_engine, make_session_factory, reset_eng
 from graphrag_ui.adapters.models import Base
 from graphrag_ui.config import get_settings
 from graphrag_ui.main import create_app
+
+# pydantic EmailStr 底層的 email-validator 把 .local 視為 special-use domain
+# (RFC 6762 mDNS)一律拒絕 — 已驗證至 2.3.0 的所有版本皆如此。測試的
+# admin@test.local 需要此 domain,僅在測試環境放寬(validate 時透過
+# `from . import` 重新讀取,module 屬性 patch 會生效);正式環境維持嚴格驗證。
+
+email_validator.SPECIAL_USE_DOMAIN_NAMES = [
+    d for d in email_validator.SPECIAL_USE_DOMAIN_NAMES if d != "local"]
 
 
 @pytest.fixture(scope="session")
