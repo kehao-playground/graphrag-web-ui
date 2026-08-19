@@ -319,5 +319,5 @@ backend/
 |---|---|---|---|
 | 1 | `graphrag update` 的輸出落點 | **已由原始碼確認**:`DEFAULT_UPDATE_OUTPUT_BASE_DIR="update_output"`,`run_pipeline` 建立 `update_output/<timestamp>/{delta,previous}`(previous 為舊索引備份)後 merge 回 `output/`。仍需以真實語料確認 merge 後 `output/` 完整性與失敗中途的恢復行為,否則 Phase 4/5 會讀到過期資料 | **Phase 3(Indexing)開工前**,以真實小語料實測 |
 | 2 | stats 檔位置與增量寫入節奏 | `jobs.stats` 與進度條依賴;index 的 `output/stats.json` 已由原始碼確認,update 的落點與 merge 後回寫行為待實測 | 同上 |
-| 3 | 目標 graphrag 版本鎖定 | CLI 介面與 `graphrag.api` 簽章皆隨版本變動;需在 pyproject 鎖定並記錄於此 | Phase 1 |
+| 3 | 目標 graphrag 版本鎖定 | CLI 介面與 `graphrag.api` 簽章皆隨版本變動;需在 pyproject 鎖定並記錄於此 | **已鎖定 `graphrag==3.1.0`**(Phase 1,2026-08-19):`backend/pyproject.toml` pin `==3.1.0`。最新版 3.1.1 因 `graphrag-vectors` 硬依賴 `lancedb~=0.34.0`(無 macOS x86_64 wheel、無 sdist)無法在 Intel Mac 開發機安裝,故取 3.1.x 線中可跨平台安裝的最新版(lancedb 0.24.1 有 mac x86_64/arm64 + linux wheel) |
 | 4 | indexing 記憶體峰值(以團隊實際語料量測) | 決定容器 limits 與查詢快取上限的分配 | Phase 3 |
