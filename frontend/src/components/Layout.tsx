@@ -9,8 +9,13 @@ export default function Layout() {
 
   const items = [
     { key: "/projects", label: "專案" },
-    ...(user?.role === "admin" ? [{ key: "/admin/users", label: "管理者 — 使用者" }] : []),
+  ...(user?.role === "admin" ? [{ key: "/admin/users", label: "管理者 — 使用者" }] : []),
   ];
+
+  // /projects/:id 也要亮「專案」;admin 前綴同理
+  const selectedKey = location.pathname.startsWith("/projects") ? "/projects"
+    : location.pathname.startsWith("/admin") ? "/admin/users"
+    : location.pathname;
 
   return (
     <AntLayout style={{ minHeight: "100vh" }}>
@@ -19,7 +24,7 @@ export default function Layout() {
         <Menu
           theme="dark"
           mode="inline"
-          selectedKeys={[location.pathname]}
+          selectedKeys={[selectedKey]}
           items={items}
           onClick={({ key }) => navigate(key)}
         />
