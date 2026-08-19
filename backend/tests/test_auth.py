@@ -48,6 +48,8 @@ async def test_me_returns_current_user(client):
     # must_change_password 為真時,/me 與 change-password 以外的端點應被擋
     assert (await client.get("/api/auth/me", headers=hdr)).json()["email"] == "admin@test.local"
     assert (await client.get("/api/admin/users", headers=hdr)).status_code == 403
+    # 未掛路由的路徑由全域 middleware 擋 403(而非 404)— 證明 guard 有註冊
+    assert (await client.get("/api/no-such-route", headers=hdr)).status_code == 403
 
 
 async def test_logout_revokes(client):
