@@ -12,6 +12,7 @@ from testcontainers.postgres import PostgresContainer
 
 from graphrag_ui.adapters.db import make_engine, make_session_factory, reset_engine
 from graphrag_ui.adapters.models import Base
+from graphrag_ui.api import auth_routes
 from graphrag_ui.config import get_settings
 from graphrag_ui.main import create_app
 
@@ -72,6 +73,7 @@ async def client(clean_db, monkeypatch, tmp_path):
     monkeypatch.setenv("BOOTSTRAP_ADMIN_PASSWORD", "admin-pass-123")
     get_settings.cache_clear()
     await reset_engine()          # env 變了,共享 engine 必須重建
+    auth_routes._LOGIN_ATTEMPTS.clear()  # 模組級速率限制會跨測試殘留(同 IP 累計 → 429)
     app = create_app()
     # httpx 的 ASGITransport **不會**觸發 lifespan。少了 LifespanManager,
     # bootstrap_admin() 不會執行、app.state.graphrag_version 不存在
