@@ -201,7 +201,7 @@ async def local_search(config, entities, communities, community_reports,
 
 ### 6.5 檔案輸入格式
 
-GraphRAG 的 `input.file_type` 是單一型別 + pattern,一個 root 的 `input/` 不能任意混放格式。因此:
+GraphRAG 的 `input.type` 是單一型別 + `input.file_pattern`(regex),一個 root 的 `input/` 不能任意混放格式。完整 enum 為 text/csv/json/jsonl/markitdown/parquet(原始碼 `graphrag_input/input_config.py`;本產品鎖定 text/csv/json)。注意 `InputConfig` 為 `extra="allow"`,**寫錯鍵名會被靜默忽略**,寫入後必須解析驗證。因此:
 
 - 專案建立時選定 `input_file_type`(text / csv / json),寫入 `projects` 並同步 settings.yaml
 - 上傳白名單依專案設定收斂(text → txt/md;csv → csv;json → json)
