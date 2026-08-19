@@ -29,9 +29,5 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(title="GraphRAG Web UI", lifespan=lifespan)
-    register_health_routes(
-        app,
-        db_ok=lambda: True,
-        graphrag_version=None,  # Task 2 改讀 app.state
-    )
+    register_health_routes(app)
     return app
