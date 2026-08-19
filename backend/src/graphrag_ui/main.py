@@ -35,15 +35,14 @@ async def lifespan(app: FastAPI):
     yield
 
 
-# must_change_password 的檢查路徑集合統一定義在 deps.MUST_CHANGE_ALLOWED_PATHS
 
 
 def _register_must_change_guard(app: FastAPI) -> None:
     """強制改密碼的全域防護(spec:後端也要擋,不能只靠前端 Modal)。
 
     get_current_user(deps.py)在每個受保護端點做同樣檢查,但它只在
-    「路由存在且宣告該依賴」時執行;尚未實作/未掛依賴的路徑(例如
-    後續 task 的 /api/admin/*)會在此提前收到 403,而不是 404 洩漏路由。
+    「路由存在且宣告該依賴」時執行;尚未掛 get_current_user 依賴的路徑
+    會在此提前收到 403,而不是 404 洩漏路由。
     token 無效時不攔,交給端點的 get_current_user 回 401。
     """
 
@@ -65,4 +64,5 @@ def create_app() -> FastAPI:
     register_health_routes(app)
     register_auth_routes(app)
     register_users_routes(app)
+    _register_must_change_guard(app)
     return app
