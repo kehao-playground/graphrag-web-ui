@@ -209,7 +209,7 @@ GraphRAG 的 `input.type` 是單一型別 + `input.file_pattern`(regex),一個 r
 
 ## 7. 前端設計
 
-- **技術棧**:React 18 + Vite + TypeScript、Ant Design 5(管理台表格/表單密集,最穩)、TanStack Query、React Router、Zustand(auth state)
+- **技術棧**:React 19 + Vite + TypeScript、Ant Design 6(管理台表格/表單密集)、TanStack Query v5、React Router v7、Zustand(auth state)。*(2026-08-19 修訂:原定 React 18 + AntD 5 + Router 6,實作時 npm 已上 stable 最新 majors 且 build/tsc/test 全綠,經需求方確認保留新版)*
 - **頁面**:登入、專案列表、專案詳情(tab:Overview / Files / Settings / Jobs / Query / Explore)、Admin 使用者管理
 - **日誌 viewer**:虛擬捲動 + 自動跟隨 + 暫停;斷線以 `Last-Event-ID` 續傳
 - **查詢介面**:SSE 串流逐字顯示,答案下方以可展開卡片呈現 citations(對應 §6.4 解析結果)
