@@ -12,8 +12,13 @@ from graphrag_ui.config import get_settings
 
 _bearer = HTTPBearer(auto_error=False)
 
-# must_change_password 為真時仍可存取的路徑(前端改密碼 Modal 需要這兩個)
-_MUST_CHANGE_ALLOWED_PATHS = frozenset({"/api/auth/change-password", "/api/auth/me"})
+# must_change_password 為真時仍可存取的完整路徑集合(改密碼流程 + 無需登入的端點)。
+# 單一來源:main.py 的全域 middleware 與 get_current_user 共用,兩處不得各自漂移。
+MUST_CHANGE_ALLOWED_PATHS = frozenset({
+    "/api/auth/login", "/api/auth/refresh", "/api/auth/logout",
+    "/api/auth/change-password", "/api/auth/me",
+    "/api/health", "/api/ready",
+})
 
 
 async def get_db():
@@ -55,6 +60,6 @@ async def get_current_user(
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or expired token")
     # 後端也要擋強制改密碼,不能只靠前端 Modal
-    if user.must_change_password and request.url.path not in _MUST_CHANGE_ALLOWED_PATHS:
+    if user.must_change_password and request.url.path not in MUST_CHANGE_ALLOWED_PATHS:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "password change required")
     return user

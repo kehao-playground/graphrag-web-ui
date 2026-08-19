@@ -7,8 +7,9 @@ from fastapi.responses import JSONResponse
 
 from graphrag_ui.adapters.db import get_session_factory
 from graphrag_ui.api.auth_routes import register_auth_routes
-from graphrag_ui.api.deps import resolve_access_user
+from graphrag_ui.api.deps import MUST_CHANGE_ALLOWED_PATHS, resolve_access_user
 from graphrag_ui.api.health_routes import register_health_routes
+from graphrag_ui.api.users_routes import register_users_routes
 from graphrag_ui.services.auth import bootstrap_admin
 
 
@@ -34,12 +35,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-# must_change_password 使用者可用的完整路徑集合(改密碼流程 + 無需登入的端點)
-_MUST_CHANGE_ALLOWED_PATHS = frozenset({
-    "/api/auth/login", "/api/auth/refresh", "/api/auth/logout",
-    "/api/auth/change-password", "/api/auth/me",
-    "/api/health", "/api/ready",
-})
+# must_change_password 的檢查路徑集合統一定義在 deps.MUST_CHANGE_ALLOWED_PATHS
 
 
 def _register_must_change_guard(app: FastAPI) -> None:
@@ -55,7 +51,7 @@ def _register_must_change_guard(app: FastAPI) -> None:
     async def must_change_password_guard(request: Request, call_next):
         path = request.url.path
         auth = request.headers.get("Authorization", "")
-        if (path.startswith("/api") and path not in _MUST_CHANGE_ALLOWED_PATHS
+        if (path.startswith("/api") and path not in MUST_CHANGE_ALLOWED_PATHS
                 and auth.startswith("Bearer ")):
             async with get_session_factory()() as session:
                 user = await resolve_access_user(auth[7:], session)
@@ -68,5 +64,5 @@ def create_app() -> FastAPI:
     app = FastAPI(title="GraphRAG Web UI", lifespan=lifespan)
     register_health_routes(app)
     register_auth_routes(app)
-    _register_must_change_guard(app)
+    register_users_routes(app)
     return app
