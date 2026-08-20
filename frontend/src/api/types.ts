@@ -14,3 +14,8 @@ export interface Member { user_id: string; email: string; display_name: string; 
 // GET /api/projects/{id}/files (Task 2): files are sorted by name.
 export interface FileEntry { name: string; size: number; modified_at: string }
 export interface FilesOut { files: FileEntry[]; usage_bytes: number; quota_bytes: number }
+// Settings tab (Task 3/4/5 APIs): content + hash for optimistic locking
+export interface SettingsOut { content: string; content_hash: string }
+export interface SettingsVersionOut { id: number; content_hash: string; saved_by: string; created_at: string }
+export interface SettingsVersionDetail extends SettingsVersionOut { content: string }
+export interface EnvKeyOut { key: string; masked: string }

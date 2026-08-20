@@ -9,6 +9,7 @@ import { api } from "../api/client";
 import type { Member, Project, UserBrief } from "../api/types";
 import { useAuth } from "../stores/auth";
 import FilesPanel from "../components/FilesPanel";
+import SettingsPanel from "../components/SettingsPanel";
 
 // Grantable roles only: owner is fixed to the creator (single-owner policy) and
 // cannot be assigned when adding members; owner rows in the table still render it.
@@ -16,7 +17,6 @@ const ROLES = ["editor", "viewer"] as const;
 type Role = (typeof ROLES)[number];
 const ROLE_OPTIONS = ROLES.map((r) => ({ label: r, value: r }));
 const DISABLED_TABS = [
-  { key: "settings", label: "Settings" },
   { key: "jobs", label: "Jobs" },
   { key: "query", label: "Query" },
   { key: "explore", label: "Explore" },
@@ -234,6 +234,11 @@ export default function ProjectDetail() {
           </Card>
         </Space>
       ),
+    },
+    {
+      key: "settings",
+      label: "Settings",
+      children: <SettingsPanel projectId={id} canEdit={canEditContent} />,
     },
     {
       key: "files",
