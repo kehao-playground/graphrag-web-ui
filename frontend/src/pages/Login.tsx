@@ -31,7 +31,12 @@ export default function Login() {
     });
     setChanging(false);
     if (!r.ok) {
-      changeForm.setFields([{ name: "new_password", errors: ["修改密碼失敗,請確認原密碼是否正確"] }]);
+      // 400 = 原密碼錯誤;422 = 新密碼未過後端驗證(min_length=8) — 兩者分開提示
+      if (r.status === 400) {
+        changeForm.setFields([{ name: "current_password", errors: ["原密碼錯誤"] }]);
+      } else {
+        changeForm.setFields([{ name: "new_password", errors: ["新密碼不符合規定(至少 8 個字元)"] }]);
+      }
       return;
     }
     setUser({ user: { ...useAuth.getState().user!, must_change_password: false } });
@@ -62,7 +67,10 @@ export default function Login() {
           <Form.Item label="目前密碼" name="current_password" rules={[{ required: true }]}>
             <Input.Password />
           </Form.Item>
-          <Form.Item label="新密碼" name="new_password" rules={[{ required: true }]}>
+          <Form.Item label="新密碼" name="new_password" rules={[
+            { required: true, message: "請輸入新密碼" },
+            { min: 8, message: "新密碼至少 8 個字元" },
+          ]}>
             <Input.Password />
           </Form.Item>
           <Button type="primary" htmlType="submit" loading={changing} block>送出</Button>

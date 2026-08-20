@@ -34,7 +34,7 @@ export default function Layout() {
           selectable={false}
           style={{ marginTop: "auto" }}
           items={[{ key: "logout", label: "登出" }]}
-          onClick={() => { logout().then(() => navigate("/login")); }}
+          onClick={() => { logout().catch(() => {}).finally(() => navigate("/login")); }}
         />
       </AntLayout.Sider>
       <AntLayout.Content style={{ padding: 24 }}>

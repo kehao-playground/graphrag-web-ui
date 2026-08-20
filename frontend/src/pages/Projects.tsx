@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert, Button, Card, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message,
 } from "antd";
 import type { TableProps } from "antd";
 import { api } from "../api/client";
-import type { Member, Project } from "../api/types";
+import type { Project, UserBrief } from "../api/types";
 import { useAuth } from "../stores/auth";
 
 const FILE_TYPES: Project["input_file_type"][] = ["text", "csv", "json"];
@@ -47,28 +47,27 @@ export default function Projects() {
     if (error) message.error(error.message);
   }, [error]);
 
-  // Project 只有 owner_id;成員表裡 role === "owner" 的那列就是擁有者。
-  // 非 admin 沒有任何可解析 user_id 的端點(/api/admin/users 是 admin only),
-  // 而列表可見的專案目前使用者必看得到成員表,所以在這裡逐一解析。
-  const memberQueries = useQueries({
-    queries: (projects ?? []).map((p) => ({
-      queryKey: ["projects", p.id, "members"],
-      queryFn: async () => {
-        const r = await api(`/api/projects/${p.id}/members`);
-        if (!r.ok) throw new Error(String(r.status));
-        return (await r.json()) as Member[];
-      },
-      retry: false,
-    })),
+  // Project 只有 owner_id;GET /api/users 是所有已登入者可用的窄清單,
+  // 直接以同一個 ['users'] query 解析擁有者(同 ProjectDetail 的用法),
+  // 不必再逐一打每個專案的 members(N+1)。
+  const users = useQuery({
+    queryKey: ["users"],
+    queryFn: async () => {
+      const r = await api("/api/users");
+      if (!r.ok) throw new Error(await detailOf(r, `載入使用者失敗(${r.status})`));
+      return (await r.json()) as UserBrief[];
+    },
+    retry: false,
   });
-  const ownerById = useMemo(() => {
-    const m = new Map<string, Member>();
-    projects?.forEach((p, i) => {
-      const owner = memberQueries[i]?.data?.find((x) => x.role === "owner");
-      if (owner) m.set(p.id, owner);
-    });
-    return m;
-  }, [projects, memberQueries]);
+
+  useEffect(() => {
+    if (users.error) message.error(users.error.message);
+  }, [users.error]);
+
+  const ownerById = useMemo(
+    () => new Map((users.data ?? []).map((u) => [u.id, u] as const)),
+    [users.data],
+  );
 
   const create = useMutation({
     mutationFn: async (v: CreateForm) => {
