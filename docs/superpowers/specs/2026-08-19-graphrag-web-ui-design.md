@@ -116,6 +116,8 @@ CREATE UNIQUE INDEX jobs_one_active_per_project
 | 啟動任務/取消 | ✓ | ✓ | ✓ | |
 | 查詢/看結果與日誌 | ✓ | ✓ | ✓ | ✓ |
 
+- 擁有者為單一且固定(建立者);成員角色僅可授予 editor/viewer(2026-08-20 需求方裁定)
+
 **成本護欄**(查詢與索引都會實際花錢,權限之外另設):
 
 - 查詢:per-user + per-project 速率限制(可設定,預設 30 次/小時/人)

@@ -25,6 +25,8 @@ externalDatabase:
 
 postgresql:
   enabled: true        # false 時必須設定 externalDatabase.url
+  # Align with tests (testcontainers postgres:16-alpine); bitnami chart 18.x accepts PG16 tags
+  image: { tag: "16.8.0" }
   auth: { username: graphrag, password: "", database: graphrag }
   # 內建 DB 注意:DATABASE_URL 於 render 時組出,密碼取自 auth.password —
   # 啟用內建 DB 時請明確設定 auth.password(留空則組出的 URL 沒有密碼,上線後連不上)

@@ -78,3 +78,60 @@ async def test_delete_project_removes_workspace(client, app, tmp_path):
     assert (tmp_path / "ws" / pid).exists()
     await client.delete(f"/api/projects/{pid}", headers=alice)
     assert not (tmp_path / "ws" / pid).exists()
+
+
+async def test_delete_project_cascades_members(client, app, db_session):
+    # Regression: deleting a project must clear project_members via FK CASCADE.
+    app.dependency_overrides[get_initializer] = FakeInitializer
+    from sqlalchemy import select
+
+    from graphrag_ui.adapters.models import ProjectMember
+    admin = await _setup_two_users(client)
+    alice = await _activate(client, "alice@test.local", "alice-pass-1", "alice-pass-2")
+    pid = (await client.post("/api/projects", headers=alice, json={
+        "name": "Cascade", "input_file_type": "text"})).json()["id"]
+    users = (await client.get("/api/admin/users", headers=admin)).json()
+    bob_id = next(u["id"] for u in users if u["email"] == "bob@test.local")
+    await client.put(f"/api/projects/{pid}/members/{bob_id}", headers=alice,
+                     json={"role": "viewer"})
+    assert (await db_session.execute(
+        select(ProjectMember).where(ProjectMember.project_id == pid))).scalars().all(), \
+        "precondition: members exist"
+    db_session.expire_all()  # detach cache so cascade is observed fresh
+    await client.delete(f"/api/projects/{pid}", headers=alice)
+    rows = (await db_session.execute(
+        select(ProjectMember).where(ProjectMember.project_id == pid))).scalars().all()
+    assert rows == []
+
+
+async def test_init_failure_leaves_no_row(client, app, monkeypatch):
+    # Regression: graphrag init failure must roll back the project row.
+    from graphrag_ui.adapters.workspace import WorkspaceInitError
+
+    class ExplodingInitializer:
+        async def init(self, root, input_file_type):
+            raise WorkspaceInitError("simulated graphrag init failure")
+
+    app.dependency_overrides[get_initializer] = lambda: ExplodingInitializer()
+    await _setup_two_users(client)
+    alice = await _activate(client, "alice@test.local", "alice-pass-1", "alice-pass-2")
+    r = await client.post("/api/projects", headers=alice, json={
+        "name": "Exploder", "input_file_type": "text"})
+    assert r.status_code == 500
+    assert r.json() == {"detail": "graphrag init failed"}
+    names = [p["name"] for p in (await client.get("/api/projects", headers=alice)).json()]
+    assert "Exploder" not in names  # rollback left no residual row
+
+
+async def test_owner_role_not_grantable(client, app):
+    # Single-owner policy: owner is fixed to the creator and not grantable via API.
+    app.dependency_overrides[get_initializer] = FakeInitializer
+    admin = await _setup_two_users(client)
+    alice = await _activate(client, "alice@test.local", "alice-pass-1", "alice-pass-2")
+    pid = (await client.post("/api/projects", headers=alice, json={
+        "name": "Solo", "input_file_type": "text"})).json()["id"]
+    users = (await client.get("/api/admin/users", headers=admin)).json()
+    bob_id = next(u["id"] for u in users if u["email"] == "bob@test.local")
+    r = await client.put(f"/api/projects/{pid}/members/{bob_id}", headers=alice,
+                         json={"role": "owner"})
+    assert r.status_code == 422  # owner is fixed to the creator (single-owner policy)

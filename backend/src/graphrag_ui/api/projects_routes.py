@@ -56,7 +56,8 @@ class ProjectOut(BaseModel):
 
 
 class MemberIn(BaseModel):
-    role: Literal["owner", "editor", "viewer"]
+    # Single-owner policy: owner is fixed to the creator and not grantable via API.
+    role: Literal["editor", "viewer"]
 
 
 class MemberOut(BaseModel):

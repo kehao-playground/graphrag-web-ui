@@ -97,3 +97,23 @@ async def test_open_user_list_accessible_to_non_admin(client):
         "email": "cc@test.local", "password": "pass-12345"})
     cc_tok = {"Authorization": f"Bearer {login2.json()['access_token']}"}
     assert (await client.get("/api/users", headers=cc_tok)).status_code == 403
+
+
+async def test_cannot_deactivate_last_active_admin(client):
+    """Second admin exists but is inactive → deactivating the original must 400."""
+    hdr = await _admin_token(client)
+    r = await client.post("/api/admin/users", headers=hdr, json={
+        "email": "adm2@test.local", "display_name": "Admin Two", "password": "pass-12345"})
+    uid2 = r.json()["id"]
+    # second admin via PATCH, then deactivated — original is the only active admin left
+    await client.patch(f"/api/admin/users/{uid2}", headers=hdr, json={"role": "admin"})
+    await client.patch(f"/api/admin/users/{uid2}", headers=hdr, json={"is_active": False})
+    users = (await client.get("/api/admin/users", headers=hdr)).json()
+    original = next(u for u in users if u["email"] == "admin@test.local")
+    r2 = await client.patch(f"/api/admin/users/{original['id']}", headers=hdr,
+                            json={"is_active": False})
+    assert r2.status_code == 400
+    # system must not be locked out: the original admin stays active
+    users_after = (await client.get("/api/admin/users", headers=hdr)).json()
+    original_after = next(u for u in users_after if u["email"] == "admin@test.local")
+    assert original_after["is_active"] is True
