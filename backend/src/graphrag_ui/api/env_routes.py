@@ -30,6 +30,13 @@ class EnvOut(BaseModel):
     keys: list[EnvKeyOut]
 
 
+# Cap on a PATCHed value: .env holds API keys and connection strings, and a
+# value is also bounded below by the single-line rule — 64 KiB is far beyond
+# any legitimate secret. Enforced inside the manual-parse path so the error
+# stays a fixed message that never echoes the value.
+_MAX_VALUE_BYTES = 64 * 1024
+
+
 async def _secret_body(request: Request) -> dict:
     """{"key": str, "value": str} with fixed-message errors only."""
     try:
@@ -39,6 +46,8 @@ async def _secret_body(request: Request) -> dict:
     if (not isinstance(body, dict) or not isinstance(body.get("key"), str)
             or not isinstance(body.get("value"), str)):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "key and value are required")
+    if len(body["value"].encode()) > _MAX_VALUE_BYTES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "value too large")
     return body
 
 

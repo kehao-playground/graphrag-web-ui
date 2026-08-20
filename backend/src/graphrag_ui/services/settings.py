@@ -21,6 +21,11 @@ from graphrag_ui.services.projects import _ws_path
 # Versions list endpoint caps the returned rows (display history, not an archive)
 VERSIONS_PAGE_CAP = 50
 
+# Cap on editor-submitted content: settings.yaml is a hand-maintained config
+# and every write also snapshots a settings_versions row — anything beyond
+# 1 MiB can only be a mistake or abuse, never a real configuration.
+MAX_CONTENT_BYTES = 1024 * 1024
+
 
 class SettingsConflictError(Exception):
     """expected_hash does not match the file on disk — routes map to 409 with
@@ -48,13 +53,16 @@ async def write_settings(session: AsyncSession, project: Project, content: str,
 
     Raises SettingsConflictError when the disk hash differs from expected_hash
     (checked first — a stale editor must resync before any validation), and
-    ValueError when the content is not parseable YAML.
+    ValueError when the content exceeds MAX_CONTENT_BYTES or is not parseable
+    YAML.
     """
     path = _ws_path(project.id) / "settings.yaml"
     current_content, current_hash = read_settings(project)
     if current_hash != expected_hash:
         raise SettingsConflictError(current_content, current_hash)
 
+    if len(content.encode()) > MAX_CONTENT_BYTES:
+        raise ValueError("settings content too large")
     try:
         yaml.safe_load(content)
     except yaml.YAMLError as e:
