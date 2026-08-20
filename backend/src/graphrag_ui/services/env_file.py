@@ -1,0 +1,83 @@
+"""Per-key workspace .env management with masked reads (task brief 4).
+
+Values in .env are secrets: list_env returns masked forms only, and
+error messages must never include a value (routes rely on that).
+"""
+
+import re
+
+from graphrag_ui.adapters.models import Project
+from graphrag_ui.services.projects import _ws_path
+
+# dotenv keys we manage: UPPER_SNAKE (graphrag's GRAPHRAG_API_KEY etc.)
+_KEY_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
+
+
+def _mask(value: str) -> str:
+    return (value[:2] + "****") if len(value) >= 6 else "****"
+
+
+def _env_path(project: Project):
+    return _ws_path(project.id) / ".env"
+
+
+def _read_lines(project: Project) -> list[str]:
+    # graphrag init creates the .env; a workspace without one reads as empty
+    path = _env_path(project)
+    return path.read_text().splitlines() if path.exists() else []
+
+
+def _key_of(line: str) -> str:
+    return line.partition("=")[0].strip()
+
+
+def _atomic_write(project: Project, lines: list[str]) -> None:
+    # atomic write (same pattern as settings.py): a crash mid-write never
+    # leaves a half-written .env behind
+    path = _env_path(project)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text("\n".join(lines) + "\n")
+    tmp.replace(path)
+
+
+def list_env(project: Project) -> list[dict]:
+    """[{key, masked}] from the workspace .env; missing file → []."""
+    entries = []
+    for raw in _read_lines(project):
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        entries.append({"key": key, "masked": _mask(value)})
+    return entries
+
+
+def set_env_key(project: Project, key: str, value: str) -> None:
+    """Upsert `key=value` on one line; all other lines keep their order.
+
+    Raises ValueError for keys outside _KEY_RE, or for a multi-line value
+    (the file format is line-based). Messages never contain the value.
+    """
+    if not _KEY_RE.fullmatch(key):
+        raise ValueError(f"invalid key: {key}")
+    if "\n" in value or "\r" in value:
+        raise ValueError("value must be a single line")
+    out, replaced = [], False
+    for line in _read_lines(project):
+        if "=" in line and _key_of(line) == key:
+            out.append(f"{key}={value}")
+            replaced = True
+        else:
+            out.append(line)
+    if not replaced:
+        out.append(f"{key}={value}")
+    _atomic_write(project, out)
+
+
+def delete_env_key(project: Project, key: str) -> None:
+    """Remove the key's line; missing key → KeyError (route maps to 404)."""
+    lines = _read_lines(project)
+    out = [line for line in lines if not ("=" in line and _key_of(line) == key)]
+    if len(out) == len(lines):
+        raise KeyError(key)
+    _atomic_write(project, out)
