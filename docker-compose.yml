@@ -17,6 +17,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://graphrag:graphrag@postgres:5432/graphrag
       WORKSPACES_DIR: /data/workspaces
       JWT_SECRET: ${JWT_SECRET:?set in .env}
+      # ⚠ 必須是真實可路由網域,不可用 .local — 登入驗證拒絕 special-use domains
       BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:?}
       BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:?}
     volumes: [workspaces:/data/workspaces]

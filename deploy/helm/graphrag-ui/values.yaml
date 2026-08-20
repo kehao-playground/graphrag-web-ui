@@ -37,5 +37,7 @@ existingSecret: ""     # 非 "" 時不建立 chart 自己的 Secret,改引用既
                        # 該 Secret 需含 4 個 key:DATABASE_URL / JWT_SECRET / BOOTSTRAP_ADMIN_EMAIL / BOOTSTRAP_ADMIN_PASSWORD
 
 bootstrapAdmin:
+  # ⚠ email 必須是真實可路由網域,不可用 .local — 登入驗證拒絕 special-use
+  #   domains,帳號建立了也登不進去(422),首次部署即無 admin 可用
   email: ""            # 首次啟動建立的 admin 帳號(空字串 = 不建立)
   password: ""
