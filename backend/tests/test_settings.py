@@ -62,7 +62,7 @@ async def test_put_with_correct_hash_writes_disk_and_version(client, app, db_ses
     me = (await client.get("/api/auth/me", headers=alice)).json()["id"]
 
     got = (await client.get(f"/api/projects/{pid}/settings", headers=alice)).json()
-    new_content = "input:\n  type: text\n  file_pattern: '.*\\.md$'\n"
+    new_content = "input:\n  type: text\n  file_pattern: '.*\\.md$$'\n"
     r = await client.put(f"/api/projects/{pid}/settings", headers=alice,
                          json={"content": new_content,
                                "expected_hash": got["content_hash"]})
@@ -113,11 +113,11 @@ async def test_restore_flow_via_versions(client, app, db_session):
     v0 = (await client.get(f"/api/projects/{pid}/settings", headers=alice)).json()
 
     # save v1, then v2 (the brief's restore flow: 3 writes → 3 version rows)
-    v1_content = "input:\n  type: text\n  file_pattern: '.*\\.md$'\n"
+    v1_content = "input:\n  type: text\n  file_pattern: '.*\\.md$$'\n"
     h1 = (await client.put(f"/api/projects/{pid}/settings", headers=alice,
                            json={"content": v1_content,
                                  "expected_hash": v0["content_hash"]})).json()["content_hash"]
-    v2_content = "input:\n  type: text\n  file_pattern: '.*\\.csv$'\n"
+    v2_content = "input:\n  type: text\n  file_pattern: '.*\\.csv$$'\n"
     h2 = (await client.put(f"/api/projects/{pid}/settings", headers=alice,
                            json={"content": v2_content,
                                  "expected_hash": h1})).json()["content_hash"]
@@ -206,3 +206,44 @@ async def test_versions_list_newest_first_and_detail_keys(client, app):
     # unknown version id → 404
     assert (await client.get(f"/api/projects/{pid}/settings/versions/999999",
                              headers=alice)).status_code == 404
+
+
+async def test_put_stray_dollar_placeholder_is_400(client, app, db_session):
+    """A lone $ passes yaml.safe_load but breaks graphrag's strict Template
+    substitution (runs BEFORE yaml parse in graphrag 3.1.0), so the write
+    must be rejected before it reaches disk."""
+    alice = await _alice(client, app)
+    pid = await _make_project(client, alice)
+    got = (await client.get(f"/api/projects/{pid}/settings", headers=alice)).json()
+
+    r = await client.put(f"/api/projects/{pid}/settings", headers=alice,
+                         json={"content": 'x: "a$"\n',
+                               "expected_hash": got["content_hash"]})
+    assert r.status_code == 400
+
+    # a ${...} reference with no matching env key is just as unloadable
+    r = await client.put(f"/api/projects/{pid}/settings", headers=alice,
+                         json={"content": "x: ${MISSING_KEY}\n",
+                               "expected_hash": got["content_hash"]})
+    assert r.status_code == 400
+
+    assert _settings_path(pid).read_text() == got["content"]
+    assert await _versions(db_session, pid) == []
+
+
+async def test_put_with_env_backed_placeholder_succeeds(client, app, db_session):
+    """${GRAPHRAG_API_KEY} resolves when the workspace .env provides it —
+    substitution mirrors graphrag load_config.py: os.environ overlaid by the
+    workspace .env."""
+    alice = await _alice(client, app)
+    pid = await _make_project(client, alice)
+    got = (await client.get(f"/api/projects/{pid}/settings", headers=alice)).json()
+    (_ws_path(pid) / ".env").write_text("GRAPHRAG_API_KEY=sk-123456789\n")
+
+    content = "models:\n  api_key: ${GRAPHRAG_API_KEY}\n"
+    r = await client.put(f"/api/projects/{pid}/settings", headers=alice,
+                         json={"content": content,
+                               "expected_hash": got["content_hash"]})
+    assert r.status_code == 200, r.text
+    assert _settings_path(pid).read_text() == content
+    assert len(await _versions(db_session, pid)) == 1
