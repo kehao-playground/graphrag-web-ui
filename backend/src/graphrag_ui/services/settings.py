@@ -6,6 +6,8 @@ bytes so trailing-newline or encoding drift never fools the lock.
 """
 
 import hashlib
+import os
+import string
 import uuid
 
 import yaml
@@ -57,6 +59,27 @@ async def write_settings(session: AsyncSession, project: Project, content: str,
         yaml.safe_load(content)
     except yaml.YAMLError as e:
         raise ValueError(f"invalid yaml: {e}") from e
+
+    # graphrag 3.1.0 runs STRICT string.Template substitution on settings.yaml
+    # BEFORE parsing it (load_config.py): a lone "$" or an undefined
+    # ${PLACEHOLDER} makes the CLI unable to load the workspace. Validate the
+    # same way here — os.environ overlaid by the workspace .env KEY=VALUE
+    # pairs, mirroring graphrag's env loading order.
+    env = dict(os.environ)
+    env_path = _ws_path(project.id) / ".env"
+    if env_path.exists():
+        for raw in env_path.read_text().splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            env[key.strip()] = value.strip()
+    try:
+        string.Template(content).substitute(env)
+    except (ValueError, KeyError) as e:
+        # KeyError: ${X} with X in neither environ nor .env — equally
+        # unloadable by the CLI; same 400 as an invalid "$".
+        raise ValueError("invalid $ placeholder in settings") from e
 
     data = content.encode()
     new_hash = _hash_bytes(data)
