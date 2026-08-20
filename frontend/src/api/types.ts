@@ -11,3 +11,6 @@ export interface Project {
   input_file_type: "text" | "csv" | "json"; owner_id: string; created_at: string;
 }
 export interface Member { user_id: string; email: string; display_name: string; role: string }
+// GET /api/projects/{id}/files (Task 2): files are sorted by name.
+export interface FileEntry { name: string; size: number; modified_at: string }
+export interface FilesOut { files: FileEntry[]; usage_bytes: number; quota_bytes: number }
