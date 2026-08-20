@@ -28,7 +28,7 @@ spec:
             - name: http
               containerPort: 8000
           env:
-            # 五個固定環境變數(spec §8.3),與 docker-compose 共用同一組名稱
+            # Seven fixed env vars (spec §8.3), same names shared with docker-compose
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef: { name: {{ include "graphrag-ui.secretName" . }}, key: DATABASE_URL }
@@ -43,6 +43,11 @@ spec:
             - name: BOOTSTRAP_ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef: { name: {{ include "graphrag-ui.secretName" . }}, key: BOOTSTRAP_ADMIN_PASSWORD }
+            # Upload/quota limits are plain values, not secrets
+            - name: UPLOAD_MAX_FILE_MB
+              value: {{ .Values.uploadMaxFileMb | quote }}
+            - name: PROJECT_QUOTA_MB
+              value: {{ .Values.projectQuotaMb | quote }}
           volumeMounts:
             - name: workspaces
               mountPath: /data/workspaces

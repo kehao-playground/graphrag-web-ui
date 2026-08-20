@@ -59,7 +59,7 @@ def register_files_routes(app):
         except FileServiceError as e:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from None
         except (FileTooLargeError, QuotaExceededError) as e:
-            # 413 for both single-file cap and project quota (spec §9 錯誤處理)
+            # 413 for both single-file cap and project quota (spec §9 error handling)
             raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, str(e)) from None
         await audit(db, user.id, "file.uploaded", "project", str(pid),
                     {"name": name, "size": len(data)})

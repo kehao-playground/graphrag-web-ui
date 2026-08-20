@@ -1,6 +1,6 @@
 # GraphRAG Web UI Helm values(spec §8.2)
 # 環境差異全部走環境變數(spec §8.3),與 docker-compose 共用同一組變數名:
-# DATABASE_URL / WORKSPACES_DIR / JWT_SECRET / BOOTSTRAP_ADMIN_EMAIL / BOOTSTRAP_ADMIN_PASSWORD
+# DATABASE_URL / WORKSPACES_DIR / JWT_SECRET / BOOTSTRAP_ADMIN_EMAIL / BOOTSTRAP_ADMIN_PASSWORD / UPLOAD_MAX_FILE_MB / PROJECT_QUOTA_MB
 
 api:
   image: {}            # repository/tag,例 { repository: registry.example.com/graphrag-ui/api, tag: "0.1.0" };空 = 本地測試用預設名
@@ -46,3 +46,6 @@ bootstrapAdmin:
   #   domains,帳號建立了也登不進去(422),首次部署即無 admin 可用
   email: ""            # 首次啟動建立的 admin 帳號(空字串 = 不建立)
   password: ""
+
+uploadMaxFileMb: 50    # UPLOAD_MAX_FILE_MB — single-file upload limit in MiB; exceed → 413
+projectQuotaMb: 5000   # PROJECT_QUOTA_MB — per-project storage quota in MiB (input/+output/); exceed → 413

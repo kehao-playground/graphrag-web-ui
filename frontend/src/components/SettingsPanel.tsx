@@ -285,7 +285,7 @@ export default function SettingsPanel({ projectId, canEdit }: {
         ) : (
           <Space direction="vertical" style={{ width: "100%" }}>
             {base === null && (
-              <Alert type="warning" showIcon message="設定 YAML 為空或非物件結構,無法以表單編輯;請切回 YAML 模式" />
+              <Alert type="warning" showIcon message="設定 YAML 為空或非物件結構，無法以表單編輯；請切回 YAML 模式" />
             )}
             {[
               ["completion_models.default_completion_model", "模型 (model)"],
