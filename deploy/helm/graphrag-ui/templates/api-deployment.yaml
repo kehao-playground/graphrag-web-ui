@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "graphrag-ui.fullname" . }}-api
+  labels:
+    {{- include "graphrag-ui.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  replicas: {{ .Values.api.replicas }}
+  strategy:
+    type: {{ .Values.api.strategy }}
+  selector:
+    matchLabels:
+      {{- include "graphrag-ui.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      labels:
+        {{- include "graphrag-ui.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: api
+    spec:
+      terminationGracePeriodSeconds: {{ .Values.api.terminationGracePeriodSeconds }}
+      # spec §8.2 另規劃 preStop hook 讓任務收尾 — 待 Phase 3 reconciler 上線後補上可呼叫的端點
+      containers:
+        - name: api
+          image: "{{ .Values.api.image.repository | default "graphrag-ui-api" }}:{{ .Values.api.image.tag | default .Chart.AppVersion }}"
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            # 五個固定環境變數(spec §8.3),與 docker-compose 共用同一組名稱
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef: { name: {{ include "graphrag-ui.secretName" . }}, key: DATABASE_URL }
+            - name: WORKSPACES_DIR
+              value: /data/workspaces
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef: { name: {{ include "graphrag-ui.secretName" . }}, key: JWT_SECRET }
+            - name: BOOTSTRAP_ADMIN_EMAIL
+              valueFrom:
+                secretKeyRef: { name: {{ include "graphrag-ui.secretName" . }}, key: BOOTSTRAP_ADMIN_EMAIL }
+            - name: BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: {{ include "graphrag-ui.secretName" . }}, key: BOOTSTRAP_ADMIN_PASSWORD }
+          volumeMounts:
+            - name: workspaces
+              mountPath: /data/workspaces
+          livenessProbe:              # spec §8.2:/api/health 作 liveness
+            httpGet: { path: /api/health, port: 8000 }
+            initialDelaySeconds: 30   # 容器啟動先跑 alembic migration,給足首次時間
+            periodSeconds: 10
+            failureThreshold: 5
+          readinessProbe:             # spec §8.2:/api/ready 作 readiness(會檢查 DB 連線)
+            httpGet: { path: /api/ready, port: 8000 }
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+      volumes:
+        - name: workspaces
+          persistentVolumeClaim:
+            claimName: {{ include "graphrag-ui.fullname" . }}-workspaces
