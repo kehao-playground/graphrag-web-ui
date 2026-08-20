@@ -16,3 +16,13 @@ if (typeof window.matchMedia !== "function") {
     }),
   });
 }
+
+// jsdom also lacks ResizeObserver, which AntD v6 Table/Tabs measurement needs
+class ResizeObserverStub {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+if (typeof globalThis.ResizeObserver === "undefined") {
+  globalThis.ResizeObserver = ResizeObserverStub as unknown as typeof ResizeObserver;
+}
