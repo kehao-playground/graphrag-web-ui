@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.adapters.models import User
 from graphrag_ui.api.deps import get_current_user, get_db
-from graphrag_ui.api.schemas import UserOut
+from graphrag_ui.api.schemas import UserBriefOut, UserOut
 from graphrag_ui.services.users import create_user, reset_password, update_user
 
 
@@ -95,3 +95,14 @@ def register_users_routes(app):
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     app.include_router(router)
+
+    # 所有已登入 active 使用者可用的窄清單(spec §5:成員管理是專案 owner 的權限,
+    # 非 admin owner 也需要能解析 email → user_id 來加成員;管理欄位不外洩)
+    open_router = APIRouter(prefix="/api/users", dependencies=[Depends(get_current_user)])
+
+    @open_router.get("", response_model=list[UserBriefOut])
+    async def list_users_brief(db: Annotated[AsyncSession, Depends(get_db)]):
+        users = (await db.execute(select(User).order_by(User.email))).scalars().all()
+        return [UserBriefOut.model_validate(u) for u in users]
+
+    app.include_router(open_router)

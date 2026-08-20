@@ -34,6 +34,22 @@ class UserOut(BaseModel):
         return str(v) if isinstance(v, UUID) else v
 
 
+class UserBriefOut(BaseModel):
+    """給所有已登入使用者的窄清單(成員管理選人用)。
+    刻意不含 role / must_change_password 等管理資訊。"""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    email: EmailStr
+    display_name: str
+    is_active: bool
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def _uuid_to_str(cls, v: object) -> object:
+        return str(v) if isinstance(v, UUID) else v
+
+
 class LoginOut(BaseModel):
     access_token: str
     refresh_token: str

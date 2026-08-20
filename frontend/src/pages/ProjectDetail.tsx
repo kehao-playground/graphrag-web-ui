@@ -6,7 +6,7 @@ import {
 } from "antd";
 import type { TableProps } from "antd";
 import { api } from "../api/client";
-import type { Member, Project, User } from "../api/types";
+import type { Member, Project, UserBrief } from "../api/types";
 import { useAuth } from "../stores/auth";
 
 const ROLES = ["owner", "editor", "viewer"] as const;
@@ -70,17 +70,16 @@ export default function ProjectDetail() {
   const myRole = members.data?.find((m) => m.user_id === user?.id)?.role;
   const canManage = !!user && (user.role === "admin" || myRole === "owner");
 
-  // 新增成員需要 user_id;只有系統 admin 拿得到使用者清單
-  // (非 admin owner 沒有任何可解析 email → user_id 的端點,後續任務補)
-  const isAdmin = user?.role === "admin";
+  // 新增成員需要 user_id;GET /api/users 是所有已登入使用者可用的窄清單,
+  // 非 admin owner 也能選人(停用者由前端過濾)
   const users = useQuery({
     queryKey: ["users"],
     queryFn: async () => {
-      const r = await api("/api/admin/users");
+      const r = await api("/api/users");
       if (!r.ok) throw new Error(await detailOf(r, `載入使用者失敗(${r.status})`));
-      return (await r.json()) as User[];
+      return (await r.json()) as UserBrief[];
     },
-    enabled: isAdmin,
+    enabled: canManage,
     retry: false,
   });
 
@@ -169,7 +168,7 @@ export default function ProjectDetail() {
     },
   ];
 
-  const addableUsers = (users.data ?? []).filter((u) => !memberIds.has(u.id));
+  const addableUsers = (users.data ?? []).filter((u) => u.is_active && !memberIds.has(u.id));
 
   const items = [
     {
@@ -192,7 +191,7 @@ export default function ProjectDetail() {
             ]}
           />
           <Card title="成員" size="small">
-            {canManage && isAdmin && (
+            {canManage && (
               <Space style={{ marginBottom: 16 }} title="新增成員">
                 <Select
                   showSearch

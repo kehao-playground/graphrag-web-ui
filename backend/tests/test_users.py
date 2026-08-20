@@ -53,3 +53,47 @@ async def test_non_admin_forbidden(client):
     user_tok = {"Authorization": f"Bearer {r2.json()['access_token']}"}
     r3 = await client.get("/api/admin/users", headers=user_tok)
     assert r3.status_code == 403
+
+
+async def test_open_user_list_accessible_to_non_admin(client):
+    """GET /api/users:成員管理選人用的窄清單 — 非 admin 可用、未登入 401、
+    只含 id/email/display_name/is_active、依 email 排序。"""
+    hdr = await _admin_token(client)
+    await client.post("/api/admin/users", headers=hdr, json={
+        "email": "aa@test.local", "display_name": "AA", "password": "pass-12345"})
+    r = await client.post("/api/admin/users", headers=hdr, json={
+        "email": "bb@test.local", "display_name": "BB", "password": "pass-12345"})
+    # bb 停用狀態也要列出(前端負責過濾),is_active 標記就是為此
+    await client.patch(f"/api/admin/users/{r.json()['id']}", headers=hdr,
+                       json={"is_active": False})
+
+    # 未登入 → 401
+    assert (await client.get("/api/users")).status_code == 401
+
+    # 非 admin(已完成改密碼)→ 200
+    login = await client.post("/api/auth/login", json={
+        "email": "aa@test.local", "password": "pass-12345"})
+    tok = {"Authorization": f"Bearer {login.json()['access_token']}"}
+    await client.post("/api/auth/change-password", headers=tok, json={
+        "current_password": "pass-12345", "new_password": "aa-pass-6789"})
+    relogin = await client.post("/api/auth/login", json={
+        "email": "aa@test.local", "password": "aa-pass-6789"})
+    user_tok = {"Authorization": f"Bearer {relogin.json()['access_token']}"}
+
+    r2 = await client.get("/api/users", headers=user_tok)
+    assert r2.status_code == 200
+    users = r2.json()
+    assert [u["email"] for u in users] == [
+        "aa@test.local", "admin@test.local", "bb@test.local"]  # ORDER BY email
+    assert {u["is_active"] for u in users} == {True, False}
+    for u in users:  # 窄 schema:不得外洩管理欄位
+        assert set(u) == {"id", "email", "display_name", "is_active"}
+
+
+    # must_change_password 未完成 → guard 照常擋(用 active 的新使用者 cc)
+    await client.post("/api/admin/users", headers=hdr, json={
+        "email": "cc@test.local", "display_name": "CC", "password": "pass-12345"})
+    login2 = await client.post("/api/auth/login", json={
+        "email": "cc@test.local", "password": "pass-12345"})
+    cc_tok = {"Authorization": f"Bearer {login2.json()['access_token']}"}
+    assert (await client.get("/api/users", headers=cc_tok)).status_code == 403
