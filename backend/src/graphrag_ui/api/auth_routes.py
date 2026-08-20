@@ -24,21 +24,36 @@ from graphrag_ui.services.auth import (
     verify_password,
 )
 
-# login per-IP 速率限制:記憶體滑動視窗,>10 次/分 → 429(模組級 = 單一 worker 內共享)
-_LOGIN_ATTEMPTS: dict[str, deque[datetime]] = {}
+# login 速率限制:記憶體滑動視窗,key = (ip, email 小寫),只計**失敗**嘗試 —
+# 成功登入不佔桶(否則團隊尖峰會誤觸 429),桶也以 email 區分,
+# 攻擊者灌爆單一桶不影響其他人(模組級 = 單一 worker 內共享)。
+_LOGIN_FAILURES: dict[tuple[str, str], deque[datetime]] = {}
 _LOGIN_WINDOW = timedelta(minutes=1)
 _LOGIN_MAX_ATTEMPTS = 10
 
 
-def _enforce_login_rate_limit(request: Request) -> None:
+def _login_rate_key(request: Request, email: str) -> tuple[str, str]:
+    # 部署拓撲中 api 一律在 web nginx 後面(nginx 轉發 X-Forwarded-For、
+    # uvicorn 開 --proxy-headers),request.client.host 才會是真實客戶端 IP,
+    # 而非整個團隊共享的 web 容器 IP
     ip = request.client.host if request.client else "unknown"
+    return (ip, email.lower())
+
+
+def _check_login_rate_limit(request: Request, email: str) -> None:
+    attempts = _LOGIN_FAILURES.get(_login_rate_key(request, email))
+    if not attempts:
+        return
     now = datetime.now(UTC)
-    attempts = _LOGIN_ATTEMPTS.setdefault(ip, deque())
     while attempts and now - attempts[0] > _LOGIN_WINDOW:
         attempts.popleft()
-    attempts.append(now)  # 成功與失敗都計數
-    if len(attempts) > _LOGIN_MAX_ATTEMPTS:
+    if len(attempts) >= _LOGIN_MAX_ATTEMPTS:
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "too many attempts")
+
+
+def _record_login_failure(request: Request, email: str) -> None:
+    _LOGIN_FAILURES.setdefault(_login_rate_key(request, email), deque()).append(
+        datetime.now(UTC))
 
 
 def register_auth_routes(app):
@@ -47,9 +62,10 @@ def register_auth_routes(app):
 
     @router.post("/login", response_model=LoginOut)
     async def login(body: LoginIn, request: Request, db: DbSession):
-        _enforce_login_rate_limit(request)
+        _check_login_rate_limit(request, body.email)
         user = await authenticate(db, body.email, body.password)
         if user is None:
+            _record_login_failure(request, body.email)
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid email or password")
         return LoginOut(
             access_token=create_access_token(user),

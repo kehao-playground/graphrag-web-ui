@@ -72,9 +72,11 @@ async def app(clean_db, monkeypatch, tmp_path):
     monkeypatch.setenv("WORKSPACES_DIR", str(tmp_path / "ws"))
     monkeypatch.setenv("BOOTSTRAP_ADMIN_EMAIL", "admin@test.local")
     monkeypatch.setenv("BOOTSTRAP_ADMIN_PASSWORD", "admin-pass-123")
+    # ≥32 bytes 的測試 secret — 太短會觸發 PyJWT InsecureKeyLengthWarning
+    monkeypatch.setenv("JWT_SECRET", "test-jwt-secret-0123456789abcdef0123456789abcd")
     get_settings.cache_clear()
     await reset_engine()          # env 變了,共享 engine 必須重建
-    auth_routes._LOGIN_ATTEMPTS.clear()  # 模組級速率限制會跨測試殘留(同 IP 累計 → 429)
+    auth_routes._LOGIN_FAILURES.clear()  # 模組級速率限制會跨測試殘留(同桶累計 → 429)
     return create_app()
 
 

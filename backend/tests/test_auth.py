@@ -21,6 +21,29 @@ async def test_login_wrong_password(client):
     assert r.status_code == 401
 
 
+async def test_login_rate_limit_blocks_after_ten_failures_per_email(client):
+    for _ in range(10):
+        r = await client.post("/api/auth/login", json={
+            "email": "admin@test.local", "password": "wrong"})
+        assert r.status_code == 401
+    # 第 11 次:即使密碼正確也 429(桶以 (ip, email) 計,只累積失敗)
+    r = await client.post("/api/auth/login", json={
+        "email": "admin@test.local", "password": "admin-pass-123"})
+    assert r.status_code == 429
+    # 其他 email 的桶不受影響(仍是 401 而非 429)
+    r2 = await client.post("/api/auth/login", json={
+        "email": "other@test.local", "password": "nope"})
+    assert r2.status_code == 401
+
+
+async def test_successful_logins_do_not_count_toward_rate_limit(client):
+    # 成功登入不佔桶:一分鐘內超過 10 次成功登入也不得 429
+    for _ in range(12):
+        r = await client.post("/api/auth/login", json={
+            "email": "admin@test.local", "password": "admin-pass-123"})
+        assert r.status_code == 200
+
+
 async def test_refresh_rotation_invalidates_old(client):
     body = (await client.post("/api/auth/login", json={
         "email": "admin@test.local", "password": "admin-pass-123"})).json()
