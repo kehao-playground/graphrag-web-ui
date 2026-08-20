@@ -1,0 +1,37 @@
+GraphRAG Web UI 已部署為 release "{{ .Release.Name }}"。
+
+1. 取得入口
+{{- if .Values.ingress.enabled }}
+   Ingress 已啟用{{ with .Values.ingress.host }} — https://{{ . }}{{ end }}(確認 ingressClassName 對應叢集上的 controller)
+{{- else }}
+   Ingress 未啟用,先 port-forward 前端:
+     kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "graphrag-ui.fullname" . }}-web 8080:80
+   → 開啟 http://localhost:8080(/api/ 由 nginx 反代到 api service)
+{{- end }}
+
+2. 首次登入(bootstrap admin)
+   以 values 的 bootstrapAdmin.email / bootstrapAdmin.password 登入
+   (兩者皆為空字串 = 不建立帳號,屆時沒有任何使用者可登入,務必擇一提供)。
+
+3. 檢查
+     kubectl get pods,svc,pvc -n {{ .Release.Namespace }}
+{{- if and .Values.postgresql.enabled (not .Values.postgresql.auth.password) }}
+
+⚠ 內建 PostgreSQL 已啟用但 postgresql.auth.password 為空 —
+   DATABASE_URL 在 render 時由 auth 值拼接,沒有密碼會連不上。
+   請 --set postgresql.auth.password=<密碼> 後 helm upgrade。
+{{- end }}
+{{- if and (not .Values.postgresql.enabled) (not .Values.externalDatabase.url) }}
+
+⚠ postgresql.enabled=false 且 externalDatabase.url 未設定 — render 應已失敗,請檢查 values。
+{{- end }}
+{{- if and (not .Values.existingSecret) (not .Values.jwtSecret) }}
+
+⚠ jwtSecret 未設定 — JWT 將以空字串簽章,僅限本地測試;正式環境請 --set jwtSecret=<隨機長字串>。
+{{- end }}
+{{- if not .Values.api.image.repository }}
+
+ℹ api.image / web.image 未指定 repository — 使用本地測試用預設名
+  (graphrag-ui-api / graphrag-ui-web,tag 預設 chart appVersion {{ .Chart.AppVersion }})。
+  正式部署請在 values 指定 registry repository/tag。
+{{- end }}

@@ -1,0 +1,49 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      # testcontainers 需要 docker — GitHub ubuntu runner 內建
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --dev
+      - run: uv run ruff check
+      - run: uv run pytest
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+
+  helm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # charts/ 內含已 vendor 的 bitnami/postgresql,不需額外 helm repo
+      - run: helm lint deploy/helm/graphrag-ui
+      - run: helm template deploy/helm/graphrag-ui > /dev/null
+      - run: |
+          helm template deploy/helm/graphrag-ui --set postgresql.enabled=false \
+            --set externalDatabase.url=postgresql+asyncpg://u:p@h:5432/d \
+            | grep -q 'postgresql+asyncpg://u:p@h:5432/d' && echo "external DB wired"
