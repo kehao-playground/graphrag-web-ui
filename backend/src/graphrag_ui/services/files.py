@@ -34,6 +34,7 @@ class QuotaExceededError(Exception):
 
 
 _MIB = 1024 * 1024
+_CHUNK_BYTES = _MIB  # streaming read granularity for uploads (bounded memory)
 
 
 def _safe_name(project_input_file_type: str, filename: str) -> str:
@@ -51,7 +52,9 @@ def _safe_name(project_input_file_type: str, filename: str) -> str:
     if filename.startswith("."):
         raise FileServiceError("filename must not start with '.'")
     allowed = ALLOWED_EXTENSIONS.get(project_input_file_type, set())
-    ext = Path(filename).suffix
+    # Compare lowercased: Windows clients commonly send .MD / .Txt. The
+    # stored name keeps its original case (only the match is case-blind).
+    ext = Path(filename).suffix.lower()
     if ext not in allowed:
         raise FileServiceError(
             f"extension '{ext or '(none)'}' not allowed for "
@@ -80,29 +83,45 @@ def usage_bytes(project: Project) -> int:
     return _dir_size(root / "input") + _dir_size(root / "output")
 
 
-async def save_file(project: Project, filename: str, data: bytes) -> str:
-    """Write data to input/<name>; returns the stored name.
+async def save_file(project: Project, filename: str, source) -> tuple[str, int]:
+    """Stream `source` (any reader with `async read(n)`, e.g. UploadFile) to
+    input/<name> in fixed chunks; returns (stored name, byte size).
 
-    Overwriting an existing name is allowed (idempotent re-upload).
+    The upload is never materialized in memory: the single-file cap is
+    enforced while streaming (abort as soon as the running total passes
+    max_file_bytes), so an arbitrarily large request body costs at most one
+    chunk of RAM (spec §8.2 — uploads share the pod's memory budget with the
+    indexer). Overwriting an existing name is allowed (idempotent re-upload).
     """
     name = _safe_name(project.input_file_type, filename)
-    if len(data) > max_file_bytes():
-        raise FileTooLargeError(
-            f"file exceeds the {get_settings().upload_max_file_mb} MiB upload limit")
-    if usage_bytes(project) + len(data) > quota_bytes():
-        raise QuotaExceededError(
-            f"project storage quota of {get_settings().project_quota_mb} MiB exceeded")
+    # Usage snapshot BEFORE the tmp file appears in input/: the quota check
+    # runs after streaming (it needs the final size) and must not count the
+    # in-flight tmp file itself. Snapshot-first matches the old
+    # check-then-write semantics, overwrite case included (existing file counted).
+    base_usage = usage_bytes(project)
     input_dir = _ws_path(project.id) / "input"
     input_dir.mkdir(parents=True, exist_ok=True)
     # tmp+replace keeps writes atomic: readers never see a partial file. The
     # tmp name is dot-prefixed so a concurrent listing never surfaces it.
     tmp = input_dir / f".tmp-{uuid.uuid4().hex}"
+    size = 0
     try:
-        tmp.write_bytes(data)
+        with tmp.open("wb") as out:
+            while chunk := await source.read(_CHUNK_BYTES):
+                size += len(chunk)
+                if size > max_file_bytes():
+                    raise FileTooLargeError(
+                        f"file exceeds the {get_settings().upload_max_file_mb} MiB upload limit")
+                out.write(chunk)
+        # Quota check needs the final size, so it runs after the stream is
+        # fully consumed, against the pre-write usage snapshot.
+        if base_usage + size > quota_bytes():
+            raise QuotaExceededError(
+                f"project storage quota of {get_settings().project_quota_mb} MiB exceeded")
         os.replace(tmp, input_dir / name)
     finally:
         tmp.unlink(missing_ok=True)  # no-op after a successful replace
-    return name
+    return name, size
 
 
 async def list_files(project: Project) -> list[dict]:
