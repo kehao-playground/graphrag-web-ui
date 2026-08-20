@@ -13,7 +13,7 @@ from graphrag_ui.adapters.workspace import (
     WorkspaceInitError,
     WorkspaceInitializer,
 )
-from graphrag_ui.api.deps import get_current_user, get_db
+from graphrag_ui.api.deps import CurrentUser, DbSession, get_current_user
 from graphrag_ui.domain.permissions import Action, can
 from graphrag_ui.services.projects import (
     create_project,
@@ -92,14 +92,14 @@ def register_projects_routes(app):
             raise _forbidden()
 
     @router.get("", response_model=list[ProjectOut])
-    async def list_all(db: Annotated[AsyncSession, Depends(get_db)],
-                       user: Annotated[User, Depends(get_current_user)]):
+    async def list_all(db: DbSession,
+                       user: CurrentUser):
         return [ProjectOut.model_validate(p) for p in await list_projects(db, user)]
 
     @router.post("", response_model=ProjectOut, status_code=status.HTTP_201_CREATED)
     async def post_project(body: ProjectIn,
-                           db: Annotated[AsyncSession, Depends(get_db)],
-                           user: Annotated[User, Depends(get_current_user)],
+                           db: DbSession,
+                           user: CurrentUser,
                            initializer: Annotated[WorkspaceInitializer,
                                                   Depends(get_initializer)]):
         try:
@@ -115,16 +115,16 @@ def register_projects_routes(app):
 
     @router.get("/{project_id}", response_model=ProjectOut)
     async def get_one(project_id: uuid.UUID,
-                      db: Annotated[AsyncSession, Depends(get_db)],
-                      user: Annotated[User, Depends(get_current_user)]):
+                      db: DbSession,
+                      user: CurrentUser):
         project = await _project_or_404(db, project_id)
         await _require(db, project, user, Action.view_project)
         return ProjectOut.model_validate(project)
 
     @router.patch("/{project_id}", response_model=ProjectOut)
     async def patch_one(project_id: uuid.UUID, body: ProjectUpdateIn,
-                        db: Annotated[AsyncSession, Depends(get_db)],
-                        user: Annotated[User, Depends(get_current_user)]):
+                        db: DbSession,
+                        user: CurrentUser):
         project = await _project_or_404(db, project_id)
         await _require(db, project, user, Action.update_project)
         project = await update_project(db, project, name=body.name,
@@ -133,8 +133,8 @@ def register_projects_routes(app):
 
     @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
     async def delete_one(project_id: uuid.UUID,
-                         db: Annotated[AsyncSession, Depends(get_db)],
-                         user: Annotated[User, Depends(get_current_user)]):
+                         db: DbSession,
+                         user: CurrentUser):
         project = await _project_or_404(db, project_id)
         await _require(db, project, user, Action.delete_project)
         await delete_project(db, project, actor_id=user.id)
@@ -142,8 +142,8 @@ def register_projects_routes(app):
 
     @router.get("/{project_id}/members", response_model=list[MemberOut])
     async def list_members(project_id: uuid.UUID,
-                           db: Annotated[AsyncSession, Depends(get_db)],
-                           user: Annotated[User, Depends(get_current_user)]):
+                           db: DbSession,
+                           user: CurrentUser):
         project = await _project_or_404(db, project_id)
         await _require(db, project, user, Action.view_project)
         # join users 帶出 email/display_name;明確排序,不依賴 DB 隱含順序
@@ -157,8 +157,8 @@ def register_projects_routes(app):
 
     @router.put("/{project_id}/members/{user_id}", response_model=MemberOut)
     async def put_member(project_id: uuid.UUID, user_id: uuid.UUID, body: MemberIn,
-                         db: Annotated[AsyncSession, Depends(get_db)],
-                         user: Annotated[User, Depends(get_current_user)]):
+                         db: DbSession,
+                         user: CurrentUser):
         project = await _project_or_404(db, project_id)
         await _require(db, project, user, Action.manage_members)
         target = await db.get(User, user_id)
@@ -173,8 +173,8 @@ def register_projects_routes(app):
 
     @router.delete("/{project_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
     async def delete_member(project_id: uuid.UUID, user_id: uuid.UUID,
-                            db: Annotated[AsyncSession, Depends(get_db)],
-                            user: Annotated[User, Depends(get_current_user)]):
+                            db: DbSession,
+                            user: CurrentUser):
         project = await _project_or_404(db, project_id)
         await _require(db, project, user, Action.manage_members)
         try:

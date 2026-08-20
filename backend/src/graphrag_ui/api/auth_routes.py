@@ -1,12 +1,10 @@
 from collections import deque
 from datetime import UTC, datetime, timedelta
-from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, HTTPException, Request, Response, status
 
 from graphrag_ui.adapters.models import User
-from graphrag_ui.api.deps import get_current_user, get_db
+from graphrag_ui.api.deps import CurrentUser, DbSession
 from graphrag_ui.api.schemas import (
     ChangePasswordIn,
     LoginIn,
@@ -48,7 +46,7 @@ def register_auth_routes(app):
     router = APIRouter(prefix="/api/auth")
 
     @router.post("/login", response_model=LoginOut)
-    async def login(body: LoginIn, request: Request, db: Annotated[AsyncSession, Depends(get_db)]):
+    async def login(body: LoginIn, request: Request, db: DbSession):
         _enforce_login_rate_limit(request)
         user = await authenticate(db, body.email, body.password)
         if user is None:
@@ -60,7 +58,7 @@ def register_auth_routes(app):
         )
 
     @router.post("/refresh", response_model=RefreshOut)
-    async def refresh(body: RefreshIn, db: Annotated[AsyncSession, Depends(get_db)]):
+    async def refresh(body: RefreshIn, db: DbSession):
         rotated = await rotate_refresh(db, body.refresh_token)
         if rotated is None:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid refresh token")
@@ -71,15 +69,15 @@ def register_auth_routes(app):
         return RefreshOut(access_token=create_access_token(user), refresh_token=new_refresh)
 
     @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-    async def logout(body: RefreshIn, db: Annotated[AsyncSession, Depends(get_db)]):
+    async def logout(body: RefreshIn, db: DbSession):
         await revoke_refresh(db, body.refresh_token)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
     async def change_password(
         body: ChangePasswordIn,
-        user: Annotated[User, Depends(get_current_user)],
-        db: Annotated[AsyncSession, Depends(get_db)],
+        user: CurrentUser,
+        db: DbSession,
     ):
         if not verify_password(body.current_password, user.password_hash):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "incorrect current password")
@@ -90,7 +88,7 @@ def register_auth_routes(app):
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @router.get("/me", response_model=UserOut)
-    async def me(user: Annotated[User, Depends(get_current_user)]):
+    async def me(user: CurrentUser):
         return UserOut.model_validate(user)
 
     app.include_router(router)
