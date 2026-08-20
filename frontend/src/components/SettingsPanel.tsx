@@ -173,16 +173,22 @@ export default function SettingsPanel({ projectId, canEdit }: {
       await qc.invalidateQueries({ queryKey: ["projects", projectId, "env"] });
     },
   });
-  // Form mode parses the current YAML; invalid YAML (typed in YAML mode)
-  // falls back to an empty doc instead of crashing the render.
-  function safeLoad(text: string): Record<string, unknown> {
+  // Form mode parses the current YAML. Empty content parses to undefined and
+  // "~" to null (no throw), and scalars/arrays parse fine but are not maps —
+  // treat every non-plain-object base as broken: degrade the display instead
+  // of crashing the render.
+  function plainObject(text: string): Record<string, unknown> | null {
     try {
-      return yamlLoad(text) as Record<string, unknown>;
+      const v = yamlLoad(text);
+      return v !== null && typeof v === "object" && !Array.isArray(v)
+        ? (v as Record<string, unknown>)
+        : null;
     } catch {
-      return {};
+      return null;
     }
   }
-  const parsed = mode === "form" ? safeLoad(content) : {};
+  const base = mode === "form" ? plainObject(content) : null;
+  const parsed = base ?? {};
   const diskHash = settings.data?.content_hash ?? "";
 
   function formValue(section: string, leaf: string): string {
@@ -190,7 +196,13 @@ export default function SettingsPanel({ projectId, canEdit }: {
     return String((s as Record<string, unknown> | undefined)?.[leaf] ?? "");
   }
 
-  const [formDraft, setFormDraft] = useState<Record<string, string>>({});
+  // Draft keyed by the server hash it was typed against (same pattern as the
+  // YAML editor): a new server hash (save, reload, restore, concurrent edit)
+  // discards the draft so stale values cannot be written back.
+  const [draft, setDraft] = useState<{ hash: string; values: Record<string, string> }>({ hash: "", values: {} });
+  const formDraft = draft.hash === diskHash ? draft.values : {};
+  const setFormDraft = (updater: (d: Record<string, string>) => Record<string, string>) =>
+    setDraft({ hash: diskHash, values: updater(formDraft) });
   const formField = (section: string, leaf: string) => ({
     value: formDraft[`${section}.${leaf}`] ?? formValue(section, leaf),
     onChange: (e: { target: { value: string } }) =>
@@ -201,12 +213,8 @@ export default function SettingsPanel({ projectId, canEdit }: {
   function applyFormEdits(): string | null {
     // A form save must never silently rebuild the doc from a broken base —
     // refuse instead of dropping everything outside the form fields.
-    let doc: Record<string, unknown>;
-    try {
-      doc = yamlLoad(content) as Record<string, unknown>;
-    } catch {
-      return null;
-    }
+    const doc = plainObject(content);
+    if (doc === null) return null;
     const sections: Array<[string, string[]]> = [
       ["completion_models.default_completion_model", [...COMPLETION_PATHS]],
       ["embedding_models.default_embedding_model", [...COMPLETION_PATHS]],
@@ -232,7 +240,7 @@ export default function SettingsPanel({ projectId, canEdit }: {
     if (mode === "form") {
       const merged = applyFormEdits();
       if (merged === null) {
-        message.error("YAML 內容無法解析,請切回 YAML 模式修正後再儲存");
+        message.error("YAML 內容無法解析，請切回 YAML 模式修正後再儲存");
         return;
       }
       save.mutate({ content: merged, expectedHash: diskHash });
@@ -276,6 +284,9 @@ export default function SettingsPanel({ projectId, canEdit }: {
           />
         ) : (
           <Space direction="vertical" style={{ width: "100%" }}>
+            {base === null && (
+              <Alert type="warning" showIcon message="設定 YAML 為空或非物件結構,無法以表單編輯;請切回 YAML 模式" />
+            )}
             {[
               ["completion_models.default_completion_model", "模型 (model)"],
               ["embedding_models.default_embedding_model", "嵌入模型 (model)"],
@@ -289,8 +300,8 @@ export default function SettingsPanel({ projectId, canEdit }: {
               </Descriptions>
             ))}
             <Descriptions title="chunking" size="small" bordered column={2}>
-              <Descriptions.Item label="size"><Input {...formField("chunking", "size")} /></Descriptions.Item>
-              <Descriptions.Item label="overlap"><Input {...formField("chunking", "overlap")} /></Descriptions.Item>
+              <Descriptions.Item label="size"><Input aria-label="chunk-size" {...formField("chunking", "size")} /></Descriptions.Item>
+              <Descriptions.Item label="overlap"><Input aria-label="chunk-overlap" {...formField("chunking", "overlap")} /></Descriptions.Item>
             </Descriptions>
             <Descriptions title="input (建立時鎖定,spec §6.5)" size="small" bordered column={2}>
               <Descriptions.Item label="type"><Text>{formValue("input", "type")}</Text></Descriptions.Item>
