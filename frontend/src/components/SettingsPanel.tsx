@@ -173,9 +173,16 @@ export default function SettingsPanel({ projectId, canEdit }: {
       await qc.invalidateQueries({ queryKey: ["projects", projectId, "env"] });
     },
   });
-  // Form mode: parse the YAML once; edits are applied on save and
-  // re-serialized with yaml.dump (never round-tripped silently).
-  const parsed = mode === "form" ? yamlLoad(content) as Record<string, unknown> : {};
+  // Form mode parses the current YAML; invalid YAML (typed in YAML mode)
+  // falls back to an empty doc instead of crashing the render.
+  function safeLoad(text: string): Record<string, unknown> {
+    try {
+      return yamlLoad(text) as Record<string, unknown>;
+    } catch {
+      return {};
+    }
+  }
+  const parsed = mode === "form" ? safeLoad(content) : {};
   const diskHash = settings.data?.content_hash ?? "";
 
   function formValue(section: string, leaf: string): string {
@@ -191,8 +198,15 @@ export default function SettingsPanel({ projectId, canEdit }: {
     disabled: !canEdit,
   });
 
-  function applyFormEdits(): string {
-    const doc = yamlLoad(content) as Record<string, unknown>;
+  function applyFormEdits(): string | null {
+    // A form save must never silently rebuild the doc from a broken base —
+    // refuse instead of dropping everything outside the form fields.
+    let doc: Record<string, unknown>;
+    try {
+      doc = yamlLoad(content) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
     const sections: Array<[string, string[]]> = [
       ["completion_models.default_completion_model", [...COMPLETION_PATHS]],
       ["embedding_models.default_embedding_model", [...COMPLETION_PATHS]],
@@ -215,7 +229,16 @@ export default function SettingsPanel({ projectId, canEdit }: {
   }
 
   function saveCurrent() {
-    save.mutate({ content: mode === "form" ? applyFormEdits() : content, expectedHash: diskHash });
+    if (mode === "form") {
+      const merged = applyFormEdits();
+      if (merged === null) {
+        message.error("YAML 內容無法解析,請切回 YAML 模式修正後再儲存");
+        return;
+      }
+      save.mutate({ content: merged, expectedHash: diskHash });
+      return;
+    }
+    save.mutate({ content, expectedHash: diskHash });
   }
 
   const envColumns: TableProps<EnvKeyOut>["columns"] = [
