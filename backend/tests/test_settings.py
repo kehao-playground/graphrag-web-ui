@@ -155,6 +155,25 @@ async def test_put_invalid_yaml_is_400_and_leaves_disk_intact(client, app, db_se
     assert await _versions(db_session, pid) == []
 
 
+async def test_put_oversized_content_is_400_and_leaves_disk_intact(
+        client, app, db_session):
+    """Content above the 1 MiB cap is rejected before any write — neither
+    settings.yaml nor settings_versions may change."""
+    alice = await _alice(client, app)
+    pid = await _make_project(client, alice)
+    got = (await client.get(f"/api/projects/{pid}/settings", headers=alice)).json()
+
+    big = "k: " + "v" * (1024 * 1024)   # valid YAML, 3 bytes past the cap
+    r = await client.put(f"/api/projects/{pid}/settings", headers=alice,
+                         json={"content": big, "expected_hash": got["content_hash"]})
+    assert r.status_code == 400
+    assert r.json()["detail"] == "settings content too large"
+
+    after = (await client.get(f"/api/projects/{pid}/settings", headers=alice)).json()
+    assert after["content_hash"] == got["content_hash"]   # disk untouched
+    assert await _versions(db_session, pid) == []         # no version row
+
+
 async def test_viewer_can_read_but_not_write(client, app):
     admin = await _setup_two_users(client)
     app.dependency_overrides[get_initializer] = FakeInitializer

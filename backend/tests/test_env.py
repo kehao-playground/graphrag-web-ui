@@ -146,6 +146,20 @@ async def test_invalid_key_is_400_without_leaking_value(client, app):
     assert not _env_path(pid).exists()   # rejected before touching disk
 
 
+async def test_patch_oversized_value_is_400_and_leaves_disk_unchanged(client, app):
+    """A value past the 64 KiB cap is rejected with a fixed message — the
+    value must appear nowhere in the response, and never reach the disk."""
+    alice = await _alice(client, app)
+    pid = await _make_project(client, alice)
+    value = "v" * (64 * 1024 + 1)
+
+    r = await _set(client, alice, pid, "GRAPHRAG_API_KEY", value)
+    assert r.status_code == 400, r.text
+    assert r.json()["detail"] == "value too large"
+    assert value not in r.text          # error payload never echoes the value
+    assert not _env_path(pid).exists()  # rejected before touching disk
+
+
 async def test_viewer_reads_but_cannot_write(client, app):
     admin = await _setup_two_users(client)
     app.dependency_overrides[get_initializer] = FakeInitializer
