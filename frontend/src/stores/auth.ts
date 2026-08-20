@@ -29,11 +29,15 @@ export const useAuth = create<AuthState>((set) => ({
   },
   logout: async () => {
     const t = localStorage.getItem(REFRESH_KEY);
-    if (t) await fetch("/api/auth/logout", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh_token: t }) });
-    localStorage.removeItem(REFRESH_KEY);
-    set({ user: null, accessToken: null });
+    try {
+      if (t) await fetch("/api/auth/logout", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: t }) });
+    } finally {
+      // 網路錯也必須清本地 session,否則使用者永遠登不出去
+      localStorage.removeItem(REFRESH_KEY);
+      set({ user: null, accessToken: null });
+    }
   },
   refresh: async () => {
     const t = localStorage.getItem(REFRESH_KEY);
