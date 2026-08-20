@@ -65,13 +65,20 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
   const customRequest: UploadProps["customRequest"] = async ({ file, onSuccess, onError }) => {
     const fd = new FormData();
     fd.append("file", file);
-    const r = await api(`/api/projects/${projectId}/files`, { method: "POST", body: fd });
-    if (r.ok) {
-      onSuccess?.(await r.json(), file);
-      message.success(`已上傳 ${(file as File).name}`);
-      qc.invalidateQueries({ queryKey: ["projects", projectId, "files"] });
-    } else {
-      const error = new Error(await detailOf(r, `上傳失敗(${r.status})`));
+    try {
+      const r = await api(`/api/projects/${projectId}/files`, { method: "POST", body: fd });
+      if (r.ok) {
+        onSuccess?.(await r.json(), file);
+        message.success(`已上傳 ${(file as File).name}`);
+        qc.invalidateQueries({ queryKey: ["projects", projectId, "files"] });
+      } else {
+        const error = new Error(await detailOf(r, `上傳失敗(${r.status})`));
+        onError?.(error);
+        message.error(error.message);
+      }
+    } catch (e) {
+      // api() rethrows network-level failures; surface them like HTTP errors
+      const error = e instanceof Error ? e : new Error("上傳失敗");
       onError?.(error);
       message.error(error.message);
     }
