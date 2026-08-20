@@ -7,14 +7,21 @@ import FilesPanel from "../FilesPanel";
 // Same mock discipline as Projects.test.tsx: branch by URL so a lookup-key
 // mistake (wrong endpoint) cannot silently pass on another call's payload.
 vi.mock("../../api/client", () => ({
-  api: vi.fn(async () => new Response(JSON.stringify({
-    files: [
-      { name: "notes.txt", size: 1024, modified_at: "2026-08-19T00:00:00Z" },
-      { name: "readme.md", size: 512, modified_at: "2026-08-19T01:00:00Z" },
-    ],
-    usage_bytes: 1536,
-    quota_bytes: 10240,
-  }), { status: 200 })),
+  api: vi.fn(async (path: string) => {
+    // Route by URL like Projects.test.tsx: the FilesOut fixture is only
+    // served on the /files endpoint, so a wrong-path query starves the panel.
+    if (path === "/api/projects/p1/files") {
+      return new Response(JSON.stringify({
+        files: [
+          { name: "notes.txt", size: 1024, modified_at: "2026-08-19T00:00:00Z" },
+          { name: "readme.md", size: 512, modified_at: "2026-08-19T01:00:00Z" },
+        ],
+        usage_bytes: 1536,
+        quota_bytes: 10240,
+      }), { status: 200 });
+    }
+    return new Response(JSON.stringify({}), { status: 200 });
+  }),
 }))
 
 test("renders file names and quota percent from GET files", async () => {
