@@ -14,6 +14,7 @@ GraphRAG Web UI 已部署為 release "{{ .Release.Name }}"。
 2. 首次登入(bootstrap admin)
    以 values 的 bootstrapAdmin.email / bootstrapAdmin.password 登入
    (兩者皆為空字串 = 不建立帳號,屆時沒有任何使用者可登入,務必擇一提供)。
+   ⚠ email 必須是真實可路由網域,不可用 .local — 登入驗證拒絕 special-use domains。
 
 3. 檢查
      kubectl get pods,svc,pvc -n {{ .Release.Namespace }}
