@@ -5,11 +5,14 @@ slow test — because the files endpoints must work against the real workspace
 layout (per task brief: no FakeInitializer in this module).
 """
 
+import uuid
+
 import pytest
 from sqlalchemy import select
 
 from graphrag_ui.adapters.models import AuditLog
 from graphrag_ui.config import get_settings
+from graphrag_ui.services.projects import _ws_path
 from tests.test_projects import _activate, _setup_two_users
 
 
@@ -112,6 +115,55 @@ async def test_upload_too_large(client):
     assert (await _list(client, alice, pid))["files"] == []
 
 
+async def test_upload_too_large_without_content_length_streams_to_413(client):
+    """Chunked upload (no Content-Length header): the streaming cap in
+    save_file must abort at the limit instead of materializing the body
+    (spec §8.2 — uploads share the pod's memory budget with the indexer)."""
+    alice = await _alice(client)
+    pid = await _make_project(client, alice)
+
+    # hand-rolled multipart over an async generator: httpx cannot precompute
+    # a length, so the request carries no Content-Length header at all
+    async def multipart():
+        yield (b"--B\r\nContent-Disposition: form-data; "
+               b'name="file"; filename="big.md"\r\n\r\n')
+        chunk = b"x" * (1024 * 1024)
+        for _ in range(60):  # 60 MiB, comfortably past the 50 MiB cap
+            yield chunk
+        yield b"\r\n--B--\r\n"
+
+    r = await client.post(f"/api/projects/{pid}/files",
+                          headers={**alice,
+                                   "Content-Type": "multipart/form-data; boundary=B"},
+                          content=multipart())
+    assert r.status_code == 413
+    assert (await _list(client, alice, pid))["files"] == []
+    input_dir = _ws_path(uuid.UUID(pid)) / "input"
+    residue = list(input_dir.iterdir()) if input_dir.exists() else []
+    assert residue == []  # no partial file, no dot-tmp residue
+
+
+async def test_upload_rejects_oversized_content_length_before_read(
+        client, monkeypatch):
+    """A present, over-cap Content-Length is refused before any read — a
+    declared multi-GB body must never reach the parser or the workspace."""
+    from graphrag_ui.services import files as files_service
+
+    async def _fail(*args, **kwargs):
+        raise AssertionError("save_file must not run when Content-Length is over the cap")
+
+    monkeypatch.setattr(files_service, "save_file", _fail)
+    alice = await _alice(client)
+    pid = await _make_project(client, alice)
+
+    # 51 MiB clears the 50 MiB cap plus the multipart-framing slack; httpx
+    # sets the real Content-Length for a bytes body
+    r = await _upload(client, alice, pid, "big.md", b"x" * (51 * 1024 * 1024))
+    assert r.status_code == 413
+    assert r.json()["detail"] == "file exceeds the 50 MiB upload limit"
+    assert (await _list(client, alice, pid))["files"] == []
+
+
 async def test_quota_exceeded(client, monkeypatch):
     monkeypatch.setenv("PROJECT_QUOTA_MB", "1")
     get_settings.cache_clear()  # lru_cache: env change needs a fresh Settings
@@ -159,13 +211,15 @@ def test_safe_name_accepts_whitelisted():
     assert _safe_name("text", "notes.md") == "notes.md"
     assert _safe_name("csv", "data.csv") == "data.csv"
     assert _safe_name("json", "dump.json") == "dump.json"
+    assert _safe_name("text", "NOTES.MD") == "NOTES.MD"   # Windows-style uppercase
+    assert _safe_name("text", "report.Txt") == "report.Txt"
 
 
 @pytest.mark.parametrize("ftype,name", [
     ("text", "script.py"),      # extension outside the whitelist
     ("csv", "data.txt"),        # text extension on a csv project
     ("json", "dump.csv"),       # csv extension on a json project
-    ("text", "notes.MD"),       # whitelist match is case-sensitive
+    ("csv", "data.TXT"),       # uppercase ext of another type is still wrong
     ("text", ""),               # empty
     ("text", ".hidden.md"),     # leading dot
     ("text", "noext"),          # no extension
