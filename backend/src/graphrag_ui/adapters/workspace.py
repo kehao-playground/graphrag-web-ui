@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import subprocess
 from pathlib import Path
 from typing import Protocol
@@ -15,7 +16,10 @@ _ALLOWED = set(_FILE_PATTERNS)
 # /容器)時 click 讀到 EOF 會直接 Abort(已實測)。必須顯式傳值才能非互動執行;
 # 值 = graphrag 3.1.0 的 graphrag.config.defaults 預設(gpt-4.1 / text-embedding-3-large)。
 _INIT_MODEL = "gpt-4.1"
+
 _INIT_EMBEDDING = "text-embedding-3-large"
+
+_logger = logging.getLogger(__name__)
 
 
 class WorkspaceInitError(RuntimeError):
@@ -41,9 +45,16 @@ class GraphragInitInitializer:
             subprocess.run(
                 ["graphrag", "init", "--root", str(root),
                  "--model", _INIT_MODEL, "--embedding", _INIT_EMBEDDING],
-                check=True, capture_output=True, timeout=120)
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired,
-                FileNotFoundError) as e:   # FileNotFoundError = CLI 不在 PATH
+                # 實測約 7s(滿載 ~10s);300s 對負載尖峰仍保險,同時兜住 hung CLI
+                check=True, capture_output=True, timeout=300)
+        except subprocess.CalledProcessError as e:
+            # str(e) 只有 exit code;真正的根因在 stderr — 記 log 供診斷
+            #(HTTP 一律 500 不帶細節,避免洩漏內部資訊給客戶端)
+            _logger.error("graphrag init failed (exit %s): %s", e.returncode,
+                          (e.stderr or b"").decode(errors="replace").strip())
+            raise WorkspaceInitError(str(e)) from e
+        except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+            _logger.error("graphrag init failed: %r", e)  # FileNotFoundError = CLI 不在 PATH
             raise WorkspaceInitError(str(e)) from e
         settings_path = root / "settings.yaml"
         data = yaml.safe_load(settings_path.read_text())

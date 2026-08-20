@@ -63,3 +63,18 @@ async def get_current_user(
     if user.must_change_password and request.url.path not in MUST_CHANGE_ALLOWED_PATHS:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "password change required")
     return user
+
+
+# 端點參數共用的依賴型別(FastAPI 慣例的 Annotated alias,
+# 免得每個端點重複一長串 Annotated[...] 宣告)
+DbSession = Annotated[AsyncSession, Depends(get_db)]
+CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+async def require_admin(user: CurrentUser) -> User:
+    if user.role != "admin":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "admin only")
+    return user
+
+
+AdminUser = Annotated[User, Depends(require_admin)]

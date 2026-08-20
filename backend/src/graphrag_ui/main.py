@@ -36,8 +36,6 @@ async def lifespan(app: FastAPI):
     yield
 
 
-
-
 def _register_must_change_guard(app: FastAPI) -> None:
     """強制改密碼的全域防護(spec:後端也要擋,不能只靠前端 Modal)。
 
