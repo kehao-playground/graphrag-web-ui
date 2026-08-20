@@ -121,7 +121,7 @@ export default function Projects() {
     {
       title: "擁有者",
       render: (_, p) => {
-        const o = ownerById.get(p.id);
+        const o = ownerById.get(p.owner_id);
         return o ? (
           <span>
             {o.display_name} <Typography.Text type="secondary">{o.email}</Typography.Text>
