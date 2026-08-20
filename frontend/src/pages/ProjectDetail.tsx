@@ -8,6 +8,7 @@ import type { TableProps } from "antd";
 import { api } from "../api/client";
 import type { Member, Project, UserBrief } from "../api/types";
 import { useAuth } from "../stores/auth";
+import FilesPanel from "../components/FilesPanel";
 
 // Grantable roles only: owner is fixed to the creator (single-owner policy) and
 // cannot be assigned when adding members; owner rows in the table still render it.
@@ -15,7 +16,6 @@ const ROLES = ["editor", "viewer"] as const;
 type Role = (typeof ROLES)[number];
 const ROLE_OPTIONS = ROLES.map((r) => ({ label: r, value: r }));
 const DISABLED_TABS = [
-  { key: "files", label: "Files" },
   { key: "settings", label: "Settings" },
   { key: "jobs", label: "Jobs" },
   { key: "query", label: "Query" },
@@ -72,6 +72,8 @@ export default function ProjectDetail() {
   const myRole = members.data?.find((m) => m.user_id === user?.id)?.role;
   const canManage = !!user && (user.role === "admin" || myRole === "owner");
 
+  // Content editing (upload/delete files): admin or owner/editor (Task 2 permissions)
+  const canEditContent = !!user && (user.role === "admin" || myRole === "owner" || myRole === "editor");
   // 新增成員需要 user_id;GET /api/users 是所有已登入使用者可用的窄清單,
   // 非 admin owner 也能選人(停用者由前端過濾)
   const users = useQuery({
@@ -232,6 +234,11 @@ export default function ProjectDetail() {
           </Card>
         </Space>
       ),
+    },
+    {
+      key: "files",
+      label: "Files",
+      children: <FilesPanel projectId={id} inputFileType={p.input_file_type} canEdit={canEditContent} />,
     },
     ...DISABLED_TABS.map((t) => ({
       key: t.key,

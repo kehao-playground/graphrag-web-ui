@@ -5,7 +5,9 @@ export async function api(path: string, init: RequestInit = {}, retried = false)
   const r = await fetch(path, {
     ...init,
     headers: {
-      ...(init.body ? { "Content-Type": "application/json" } : {}),
+      // JSON only for string bodies; FormData must keep the browser-set
+      // multipart boundary, so never force a Content-Type there.
+      ...(typeof init.body === "string" ? { "Content-Type": "application/json" } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...init.headers,
     },
