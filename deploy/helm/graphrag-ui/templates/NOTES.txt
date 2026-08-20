@@ -6,7 +6,9 @@ GraphRAG Web UI 已部署為 release "{{ .Release.Name }}"。
 {{- else }}
    Ingress 未啟用,先 port-forward 前端:
      kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "graphrag-ui.fullname" . }}-web 8080:80
-   → 開啟 http://localhost:8080(/api/ 由 nginx 反代到 api service)
+   → 開啟 http://localhost:8080:SPA 由 web pod 提供;/api/ 由 web 的 nginx 反代,
+     上游名稱 `api` 經 chart 建立的 ExternalName alias service 解析到
+     {{ include "graphrag-ui.fullname" . }}-api(直接除錯 API 可另外 port-forward 該 svc)
 {{- end }}
 
 2. 首次登入(bootstrap admin)

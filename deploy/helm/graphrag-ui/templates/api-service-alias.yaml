@@ -1,0 +1,18 @@
+# nginx.conf(brief 釘死)以靜態上游 http://api:8000 反代 /api/ —
+# nginx 在 config load 當下就解析上游名稱,K8s namespace 內預設沒有 `api` 這個 DNS 名稱;
+# 沒有這個 alias 時 web 容器會 [emerg] 退出、crash-loop(與是否啟用 ingress 無關)。
+# ExternalName 讓 `api` CNAME 到 <fullname>-api;8000 埠由 api-service.yaml 另外加開。
+# 注意:名稱 `api` 由 nginx.conf 決定,同一 namespace 僅支援單一 release。
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  labels:
+    {{- include "graphrag-ui.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  type: ExternalName
+  externalName: {{ include "graphrag-ui.fullname" . }}-api.{{ .Release.Namespace }}.svc.cluster.local
+  ports:
+    - name: http
+      port: 8000
