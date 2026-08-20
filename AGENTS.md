@@ -40,7 +40,7 @@ briefs; their Global Constraints always apply.
 
 ```bash
 # backend (Python 3.12, uv; Docker required for testcontainers)
-cd backend && uv run pytest -v          # 30 tests; the slow one forks the real graphrag CLI
+cd backend && uv run pytest -v          # 79 tests; slow-marked ones fork the real graphrag CLI
 cd backend && uv run ruff check
 
 # frontend (Node 20+)
