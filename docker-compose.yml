@@ -20,6 +20,8 @@ services:
       # ⚠ 必須是真實可路由網域,不可用 .local — 登入驗證拒絕 special-use domains
       BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:?}
       BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:?}
+      UPLOAD_MAX_FILE_MB: ${UPLOAD_MAX_FILE_MB:-50}    # single-file upload limit, MiB (default 50)
+      PROJECT_QUOTA_MB: ${PROJECT_QUOTA_MB:-5000}      # per-project storage quota, MiB (default 5000)
     volumes: [workspaces:/data/workspaces]
     depends_on:
       postgres: { condition: service_healthy }
