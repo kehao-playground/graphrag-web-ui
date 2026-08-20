@@ -8,6 +8,7 @@ class Action(StrEnum):
     update_project = "update_project"
     delete_project = "delete_project"
     manage_members = "manage_members"
+    edit_content = "edit_content"
 
 
 _PROJECT_ACTIONS: dict[Action, set[str]] = {
@@ -15,6 +16,7 @@ _PROJECT_ACTIONS: dict[Action, set[str]] = {
     Action.update_project: {"owner", "editor"},
     Action.delete_project: {"owner"},
     Action.manage_members: {"owner"},
+    Action.edit_content: {"owner", "editor"},
 }
 
 

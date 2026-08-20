@@ -13,7 +13,8 @@ class Settings(BaseSettings):
     bootstrap_admin_password: str = ""
     access_token_minutes: int = 15
     refresh_token_days: int = 7
-
+    upload_max_file_mb: int = 50
+    project_quota_mb: int = 5000
 
 @lru_cache
 def get_settings() -> Settings:

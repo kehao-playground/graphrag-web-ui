@@ -76,15 +76,18 @@ def _forbidden() -> HTTPException:
     return HTTPException(status.HTTP_403_FORBIDDEN, "forbidden")
 
 
+async def _project_or_404(db: AsyncSession, project_id: uuid.UUID) -> Project:
+    # module-level so files_routes (and later task routers) can share the
+    # same lookup — never duplicate the query per router
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "project not found")
+    return project
+
+
 def register_projects_routes(app):
     # router 建在函式內(同 users_routes):create_app() 在測試會被重複呼叫
     router = APIRouter(prefix="/api/projects", dependencies=[Depends(get_current_user)])
-
-    async def _project_or_404(db: AsyncSession, project_id: uuid.UUID) -> Project:
-        project = await db.get(Project, project_id)
-        if project is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "project not found")
-        return project
 
     async def _require(db: AsyncSession, project: Project, user: User,
                        action: Action) -> None:
