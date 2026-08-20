@@ -10,16 +10,19 @@ from graphrag_ui.domain.permissions import Action, can
     (Action.view_project, "owner", True),
     (Action.update_project, "owner", True),
     (Action.delete_project, "owner", True),
+    (Action.edit_content, "owner", True),
     (Action.manage_members, "owner", True),
     (Action.manage_users, "owner", False),
     # editor
     (Action.view_project, "editor", True),
     (Action.update_project, "editor", True),
+    (Action.edit_content, "editor", True),
     (Action.delete_project, "editor", False),
     (Action.manage_members, "editor", False),
     # viewer
     (Action.view_project, "viewer", True),
     (Action.update_project, "viewer", False),
+    (Action.edit_content, "viewer", False),
     (Action.manage_members, "viewer", False),
     # 非成員
     (Action.view_project, None, False),

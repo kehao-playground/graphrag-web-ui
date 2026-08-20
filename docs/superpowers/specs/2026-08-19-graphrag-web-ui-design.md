@@ -238,7 +238,7 @@ GraphRAG 的 `input.type` 是單一型別 + `input.file_pattern`(regex),一個 r
 
 ### 8.3 設定
 
-所有環境差異走環境變數(DATABASE_URL、WORKSPACES_DIR、MAX_CONCURRENT_JOBS、JWT secret、上傳上限、保留天數、專案配額、查詢快取上限等),兩種部署共用同一組變數名。
+所有環境差異走環境變數(DATABASE_URL、WORKSPACES_DIR、MAX_CONCURRENT_JOBS、JWT secret、上傳上限(UPLOAD_MAX_FILE_MB)、保留天數、專案配額(PROJECT_QUOTA_MB)、查詢快取上限等),兩種部署共用同一組變數名。
 
 首任 admin 由 `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD` 於首次啟動建立,建立後強制改密碼。
 
