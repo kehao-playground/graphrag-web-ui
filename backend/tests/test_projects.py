@@ -104,7 +104,7 @@ async def test_delete_project_cascades_members(client, app, db_session):
     assert rows == []
 
 
-async def test_init_failure_leaves_no_row(client, app, monkeypatch):
+async def test_init_failure_leaves_no_row(client, app):
     # Regression: graphrag init failure must roll back the project row.
     from graphrag_ui.adapters.workspace import WorkspaceInitError
 

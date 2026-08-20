@@ -25,7 +25,10 @@ externalDatabase:
 
 postgresql:
   enabled: true        # false 時必須設定 externalDatabase.url
-  # Align with tests (testcontainers postgres:16-alpine); bitnami chart 18.x accepts PG16 tags
+  # Align with tests (testcontainers postgres:16-alpine); bitnami chart 18.x accepts PG16 tags.
+  # Registry caveat: since Bitnami's 2025 reorg, Docker Hub has no public semver tags
+  # (bitnami/postgresql:16.8.0 → 404 → ImagePullBackOff). Configure a registry mirror or
+  # point image.registry/repository at a reachable source (e.g. repository: bitnamilegacy/postgresql).
   image: { tag: "16.8.0" }
   auth: { username: graphrag, password: "", database: graphrag }
   # 內建 DB 注意:DATABASE_URL 於 render 時組出,密碼取自 auth.password —

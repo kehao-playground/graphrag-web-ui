@@ -113,6 +113,8 @@ async def test_cannot_deactivate_last_active_admin(client):
     r2 = await client.patch(f"/api/admin/users/{original['id']}", headers=hdr,
                             json={"is_active": False})
     assert r2.status_code == 400
+    # the 400 here is raised by the self-modification guard; the dedicated
+    # last-active-admin branch is unreachable via PATCH (acting admin always counts)
     # system must not be locked out: the original admin stays active
     users_after = (await client.get("/api/admin/users", headers=hdr)).json()
     original_after = next(u for u in users_after if u["email"] == "admin@test.local")
