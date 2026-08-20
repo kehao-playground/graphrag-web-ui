@@ -62,3 +62,18 @@ class ProjectMember(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
     role: Mapped[str] = mapped_column(String(20))  # owner|editor|viewer
+
+
+class SettingsVersion(Base):
+    """Snapshot of settings.yaml written by write_settings(); restore re-snapshots."""
+    __tablename__ = "settings_versions"
+    # project FK CASCADE follows project_members: deleting the project drops its history
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    content: Mapped[str] = mapped_column(Text)
+    content_hash: Mapped[str] = mapped_column(String(64))  # sha256 hex
+    saved_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True),
+                                                ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),
+                                                 server_default=func.now())
