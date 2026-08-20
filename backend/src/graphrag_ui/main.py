@@ -11,6 +11,7 @@ from graphrag_ui.api.deps import MUST_CHANGE_ALLOWED_PATHS, resolve_access_user
 from graphrag_ui.api.files_routes import register_files_routes
 from graphrag_ui.api.health_routes import register_health_routes
 from graphrag_ui.api.projects_routes import register_projects_routes
+from graphrag_ui.api.settings_routes import register_settings_routes
 from graphrag_ui.api.users_routes import register_users_routes
 from graphrag_ui.services.auth import bootstrap_admin
 
@@ -66,5 +67,6 @@ def create_app() -> FastAPI:
     register_users_routes(app)
     register_projects_routes(app)
     register_files_routes(app)
+    register_settings_routes(app)
     _register_must_change_guard(app)
     return app
