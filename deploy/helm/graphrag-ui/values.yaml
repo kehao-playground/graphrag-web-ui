@@ -9,7 +9,11 @@ api:
   replicas: 1          # 固定 1(spec §8.2):runner 與 workspace PVC(RWO)綁定,不做水平擴展
   strategy: Recreate   # RWO PVC:rolling update 期間兩個 pod 會搶同一份 workspace,必須 Recreate
   terminationGracePeriodSeconds: 120  # 讓進行中的 indexing 任務有機會收尾或乾淨標記中斷(spec §8.2)
-  resources: {}        # 註解:indexing 子程序與查詢快取共用同一 limit;Phase 3 實測後給建議值
+  # Measured peak RSS during full indexing ≈ 566 MiB (2026-08-21 final review);
+  # spec §13 row 3 guidance: limit ≥ 2 GiB headroom above the measured peak.
+  resources:
+    requests: { cpu: 100m, memory: 1Gi }
+    limits: { cpu: 500m, memory: 2Gi }
 
 web:
   image: {}            # repository/tag,同 api.image
