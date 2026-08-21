@@ -22,6 +22,12 @@ services:
       BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:?}
       UPLOAD_MAX_FILE_MB: ${UPLOAD_MAX_FILE_MB:-50}    # single-file upload limit, MiB (default 50)
       PROJECT_QUOTA_MB: ${PROJECT_QUOTA_MB:-5000}      # per-project storage quota, MiB (default 5000)
+      MAX_CONCURRENT_JOBS: ${MAX_CONCURRENT_JOBS:-2}   # concurrent indexing jobs; 0 disables the runner
+      JOB_LOG_RETENTION_DAYS: ${JOB_LOG_RETENTION_DAYS:-30}          # days to keep succeeded job logs
+      JOB_LOG_FAILED_RETENTION_DAYS: ${JOB_LOG_FAILED_RETENTION_DAYS:-90}  # days to keep failed job logs
+      UPDATE_OUTPUT_KEEP_LATEST: ${UPDATE_OUTPUT_KEEP_LATEST:-2}     # update_output timestamp dirs kept
+      CACHE_QUOTA_MB: ${CACHE_QUOTA_MB:-2048}         # cache volume quota reported by preflight, MiB
+      DISK_WATERMARK_MB: ${DISK_WATERMARK_MB:-2048}   # min free MiB on workspaces volume; below → refuse
     volumes: [workspaces:/data/workspaces]
     depends_on:
       postgres: { condition: service_healthy }

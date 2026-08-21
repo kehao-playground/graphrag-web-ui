@@ -43,11 +43,23 @@ spec:
             - name: BOOTSTRAP_ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef: { name: {{ include "graphrag-ui.secretName" . }}, key: BOOTSTRAP_ADMIN_PASSWORD }
-            # Upload/quota limits are plain values, not secrets
+            # Upload/quota/retention limits are plain values, not secrets
             - name: UPLOAD_MAX_FILE_MB
               value: {{ .Values.uploadMaxFileMb | quote }}
             - name: PROJECT_QUOTA_MB
               value: {{ .Values.projectQuotaMb | quote }}
+            - name: MAX_CONCURRENT_JOBS
+              value: {{ .Values.maxConcurrentJobs | quote }}
+            - name: JOB_LOG_RETENTION_DAYS
+              value: {{ .Values.jobLogRetentionDays | quote }}
+            - name: JOB_LOG_FAILED_RETENTION_DAYS
+              value: {{ .Values.jobLogFailedRetentionDays | quote }}
+            - name: UPDATE_OUTPUT_KEEP_LATEST
+              value: {{ .Values.updateOutputKeepLatest | quote }}
+            - name: CACHE_QUOTA_MB
+              value: {{ .Values.cacheQuotaMb | quote }}
+            - name: DISK_WATERMARK_MB
+              value: {{ .Values.diskWatermarkMb | quote }}
           volumeMounts:
             - name: workspaces
               mountPath: /data/workspaces

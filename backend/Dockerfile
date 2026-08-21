@@ -8,6 +8,9 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 COPY . .
 RUN uv sync --frozen --no-dev
+# Bake NLTK corpora (brown/treebank/tagger/punkt): fast-method NLP extraction
+# downloads these at runtime otherwise (verified 2026-08-21).
+RUN ./.venv/bin/python -c "import nltk; [nltk.download(p, quiet=True) for p in ('brown','treebank','averaged_perceptron_tagger_eng','punkt','punkt_tab')]"
 EXPOSE 8000
 # main.py 只有 create_app(),沒有模組級 app → 必須 --factory
 # --proxy-headers:api 兩種拓撲(compose/K8s)都只在 web nginx 後面可達
