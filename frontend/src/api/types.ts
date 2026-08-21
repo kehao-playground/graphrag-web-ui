@@ -19,3 +19,35 @@ export interface SettingsOut { content: string; content_hash: string }
 export interface SettingsVersionOut { id: number; content_hash: string; saved_by: string; created_at: string }
 export interface SettingsVersionDetail extends SettingsVersionOut { content: string }
 export interface EnvKeyOut { key: string; masked: string }
+// Jobs tab (Task 7): mirror backend api/schemas.py JobOut/LastRunOut/PreflightOut.
+export interface Job {
+  id: string; project_id: string;
+  type: "index" | "update"; method: "standard" | "fast";
+  status: string; display_status: string;
+  cancel_requested_at: string | null;
+  exit_code: number | null; error: string | null;
+  stats: Record<string, unknown> | null;
+  queued_by: string; queued_at: string;
+  started_at: string | null; finished_at: string | null;
+  argv: string[];
+}
+export interface LastRun {
+  type: string; status: string; finished_at: string | null;
+  total_runtime_seconds: number | null; num_documents: number | null;
+  update_documents: number | null;
+}
+export interface Preflight {
+  active_job: Job | null; last_run: LastRun | null;
+  cache_bytes: number; cache_quota_mb: number;
+  disk_free_mb: number; disk_watermark_mb: number;
+}
+// display_status → antd Tag color; unknown statuses fall back to "default".
+export const JobStatusColor: Record<string, string> = {
+  queued: "blue",
+  running: "gold",
+  cancelling: "orange",
+  succeeded: "green",
+  failed: "red",
+  "failed(interrupted)": "volcano",
+  cancelled: "default",
+};
