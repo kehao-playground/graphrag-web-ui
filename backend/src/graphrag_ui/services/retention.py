@@ -9,6 +9,7 @@ from pathlib import Path
 from sqlalchemy import select
 
 from graphrag_ui.adapters.db import get_session_factory
+from graphrag_ui.adapters.index_runner import log_path_for
 from graphrag_ui.adapters.models import Job
 from graphrag_ui.config import get_settings
 from graphrag_ui.domain.jobs import TERMINAL_STATUSES
@@ -39,7 +40,11 @@ async def sweep_job_logs(session, now: datetime) -> dict:
                     if status != "succeeded" else settings.job_log_retention_days)
             if finished_at + timedelta(days=days) >= now:
                 continue
-            log = _ws_path(project_id) / "logs" / "jobs" / f"{job_id}.log"
+            # log_path_for mkdirs parents — skip deleted projects so the
+            # sweep never recreates their workspace dirs.
+            if not _ws_path(project_id).is_dir():
+                continue
+            log = log_path_for(_ws_path(project_id), job_id)
             if log.is_file():
                 log.unlink()
                 deleted += 1
