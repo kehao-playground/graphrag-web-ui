@@ -1,5 +1,6 @@
 import asyncio
 import importlib.metadata
+import logging
 import shutil
 from contextlib import asynccontextmanager, suppress
 
@@ -34,6 +35,21 @@ def _graphrag_version() -> str:
         return "not-installed"
 
 
+async def _retention_loop(stop: asyncio.Event) -> None:
+    """Daily retention sweep (spec §6.3): once at startup, then every 24h.
+    A failing sweep logs and waits for the next cycle; the stop event ends
+    the loop promptly on shutdown."""
+    while not stop.is_set():
+        try:
+            from graphrag_ui.services.retention import sweep_all
+            await sweep_all()
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "retention sweep failed", exc_info=True)
+        with suppress(TimeoutError):
+            await asyncio.wait_for(stop.wait(), timeout=24 * 3600)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.graphrag_version = _graphrag_version()  # 啟動偵測一次後快取(spec §6.1)
@@ -42,8 +58,16 @@ async def lifespan(app: FastAPI):
     from graphrag_ui.services.runner_loop import run_loop
     app.state.runner_stop = asyncio.Event()
     app.state.runner_task = asyncio.create_task(run_loop(app.state.runner_stop))
+    # Same stop event as the runner: setting it wakes both loops at shutdown.
+    app.state.retention_task = asyncio.create_task(
+        _retention_loop(app.state.runner_stop))
     yield
     app.state.runner_stop.set()
+    # Cancel cleanly even if a sweep is mid-flight; the next daily pass
+    # reclaims whatever this one skipped.
+    app.state.retention_task.cancel()
+    with suppress(asyncio.CancelledError):
+        await app.state.retention_task
     # In-flight subprocesses are NOT drained here (they keep writing to the
     # job log/DB); the next boot's stale reconcile finalizes them (spec §10).
     with suppress(asyncio.TimeoutError):
