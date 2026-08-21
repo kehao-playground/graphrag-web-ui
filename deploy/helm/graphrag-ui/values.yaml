@@ -1,6 +1,8 @@
 # GraphRAG Web UI Helm values(spec §8.2)
 # 環境差異全部走環境變數(spec §8.3),與 docker-compose 共用同一組變數名:
-# DATABASE_URL / WORKSPACES_DIR / JWT_SECRET / BOOTSTRAP_ADMIN_EMAIL / BOOTSTRAP_ADMIN_PASSWORD / UPLOAD_MAX_FILE_MB / PROJECT_QUOTA_MB
+# DATABASE_URL / WORKSPACES_DIR / JWT_SECRET / BOOTSTRAP_ADMIN_EMAIL / BOOTSTRAP_ADMIN_PASSWORD /
+# UPLOAD_MAX_FILE_MB / PROJECT_QUOTA_MB / MAX_CONCURRENT_JOBS / JOB_LOG_RETENTION_DAYS /
+# JOB_LOG_FAILED_RETENTION_DAYS / UPDATE_OUTPUT_KEEP_LATEST / CACHE_QUOTA_MB / DISK_WATERMARK_MB
 
 api:
   image: {}            # repository/tag,例 { repository: registry.example.com/graphrag-ui/api, tag: "0.1.0" };空 = 本地測試用預設名
@@ -49,3 +51,9 @@ bootstrapAdmin:
 
 uploadMaxFileMb: 50    # UPLOAD_MAX_FILE_MB — single-file upload limit in MiB; exceed → 413
 projectQuotaMb: 5000   # PROJECT_QUOTA_MB — per-project storage quota in MiB (input/+output/); exceed → 413
+maxConcurrentJobs: 2   # MAX_CONCURRENT_JOBS — concurrent indexing jobs; 0 disables the runner loop
+jobLogRetentionDays: 30        # JOB_LOG_RETENTION_DAYS — days to keep succeeded job log files
+jobLogFailedRetentionDays: 90  # JOB_LOG_FAILED_RETENTION_DAYS — days to keep failed job log files
+updateOutputKeepLatest: 2      # UPDATE_OUTPUT_KEEP_LATEST — update_output timestamp dirs kept per project
+cacheQuotaMb: 2048     # CACHE_QUOTA_MB — cache volume quota reported by preflight, MiB
+diskWatermarkMb: 2048  # DISK_WATERMARK_MB — min free MiB on workspaces volume; below → enqueue refused

@@ -34,7 +34,10 @@ briefs; their Global Constraints always apply.
   by hand. `adapters/db.py` engine is lazy — never build engines at module
   import time.
 - Environment variable names are fixed: `DATABASE_URL`, `WORKSPACES_DIR`,
-  `JWT_SECRET`, `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_PASSWORD`.
+  `JWT_SECRET`, `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_PASSWORD`,
+  `UPLOAD_MAX_FILE_MB`, `PROJECT_QUOTA_MB`, `MAX_CONCURRENT_JOBS`,
+  `JOB_LOG_RETENTION_DAYS`, `JOB_LOG_FAILED_RETENTION_DAYS`,
+  `UPDATE_OUTPUT_KEEP_LATEST`, `CACHE_QUOTA_MB`, `DISK_WATERMARK_MB`.
 
 ## Commands
 
