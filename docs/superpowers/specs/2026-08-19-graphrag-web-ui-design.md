@@ -121,7 +121,7 @@ CREATE UNIQUE INDEX jobs_one_active_per_project
 **成本護欄**(查詢與索引都會實際花錢,權限之外另設):
 
 - 查詢:per-user + per-project 速率限制(可設定,預設 30 次/小時/人)
-- 啟動 index/update:前端二次確認,並顯示上一次 `stats.json` 的 token 用量作為預期成本參考
+- 啟動 index/update:前端二次確認,並顯示上一次執行的 runtime 與文件數作為參考(**2026-08-21 實測**:3.1.0 的 `stats.json` 只有 runtime/記憶體/文件數,**沒有 token 用量欄位**,原設計不可行)
 
 ## 6. 後端設計
 
@@ -166,7 +166,7 @@ CREATE UNIQUE INDEX jobs_one_active_per_project
   | update | standard | `graphrag update --root <ws> --method standard`(內部執行 standard-update pipeline) |
   | update | fast | `graphrag update --root <ws> --method fast`(內部執行 fast-update pipeline) |
   | dry_run | — | `graphrag index --root <ws> --dry-run`(同步,不進隊列) |
-- stdout/stderr 即時寫入該 job 的 log 檔;結束時記錄 exit_code、掃描 stats 檔進 stats 欄位。**stats 檔路徑依 job.type**:index → `output/stats.json`;update → `update_output/<timestamp>/delta/stats.json`(原始碼確認;update merge 完成後是否回寫 `output/stats.json` 保留實測,見 §13)。**stats.json 在每個 workflow 完成後增量寫入**,Indexing 階段可據此做真實進度(已完成 workflow 數 / 總數),不必只靠日誌行數
+- stdout/stderr 即時寫入該 job 的 log 檔;結束時記錄 exit_code、掃描 stats 檔進 stats 欄位。**stats 檔路徑依 job.type**(2026-08-21 實測定案,見 §13 實測表):index → `output/stats.json`;update → `update_output/<timestamp>/delta/stats.json`(**merge 後 `output/stats.json` 不回寫**)。**stats.json 在每個 workflow 完成後增量寫入**,Indexing 階段可據此做真實進度(已完成 workflow 數 / 總數),不必只靠日誌行數
 - **heartbeat**:running 期間每 10s 更新 `jobs.heartbeat_at` 與 `worker_id`
 - **啟動時 reconcile**:DB 為 running 但 `heartbeat_at` 逾時(預設 60s)→ `failed(interrupted)`
 - **取消**:迴圈每 5s 檢查自己持有的 job 是否被設定 `cancel_requested_at` → SIGTERM → 30s 寬限 → SIGKILL → 標記 `cancelled`
@@ -323,3 +323,12 @@ backend/
 | 2 | stats 檔位置與增量寫入節奏 | `jobs.stats` 與進度條依賴;index 的 `output/stats.json` 已由原始碼確認,update 的落點與 merge 後回寫行為待實測 | 同上 |
 | 3 | 目標 graphrag 版本鎖定 | CLI 介面與 `graphrag.api` 簽章皆隨版本變動;需在 pyproject 鎖定並記錄於此 | **已鎖定 `graphrag==3.1.0`**(Phase 1,2026-08-19):`backend/pyproject.toml` pin `==3.1.0`。最新版 3.1.1 因 `graphrag-vectors` 硬依賴 `lancedb~=0.34.0`(無 macOS x86_64 wheel、無 sdist)無法在 Intel Mac 開發機安裝,故取 3.1.x 線中可跨平台安裝的最新版(lancedb 0.24.1 有 mac x86_64/arm64 + linux wheel) |
 | 4 | indexing 記憶體峰值(以團隊實際語料量測) | 決定容器 limits 與查詢快取上限的分配 | Phase 3 |
+
+### 2026-08-21 Phase 3 開工前實測(真實語料,graphrag 3.1.0,gpt-4o-mini)
+
+| # | 項目 | 實測結果 |
+|---|---|---|
+| 1 | `graphrag update` 輸出落點 | `update_output/<ts>/{delta,previous}` 確認:delta 含 6 parquet + context.json + stats.json;previous 含 6 parquet。merge 回 `output/` 正確(documents 3→4,含新增檔) |
+| 2 | stats 位置與節奏 | index → `output/stats.json`、update → `update_output/<ts>/delta/stats.json`,**每個 workflow 完成後增量寫入**(實測 349b→798b→1870b→3647b→4102b)。**merge 後 `output/stats.json` 不回寫**(仍為上次 index 內容)→ `jobs.stats` 依 job.type 取路徑;Phase 4/5 不得以 `output/stats.json` 判斷新舊 |
+| 3 | 記憶體峰值初值 | 560B 語料:standard 572MB、fast 644MB(RSS)→ api pod limit 建議 ≥ 2GB;真實語料量測留 Phase 3 Task 內執行 |
+| 4 | fast method 邊角 | `extract_graph_nlp` 在微語料失敗:「Graph Pruning failed. No entities remain.」EXIT 1(錯誤路徑可依賴);fast 首跑會**即時下載 NLTK 資料** → 容器 image 需預載 `nltk_data` |
