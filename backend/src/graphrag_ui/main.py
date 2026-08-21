@@ -12,6 +12,7 @@ from graphrag_ui.api.dry_run_routes import register_dry_run_routes
 from graphrag_ui.api.env_routes import register_env_routes
 from graphrag_ui.api.files_routes import register_files_routes
 from graphrag_ui.api.health_routes import register_health_routes
+from graphrag_ui.api.jobs_routes import register_jobs_routes
 from graphrag_ui.api.projects_routes import register_projects_routes
 from graphrag_ui.api.settings_routes import register_settings_routes
 from graphrag_ui.api.users_routes import register_users_routes
@@ -53,8 +54,11 @@ def _register_must_change_guard(app: FastAPI) -> None:
     async def must_change_password_guard(request: Request, call_next):
         path = request.url.path
         auth = request.headers.get("Authorization", "")
-        if (path.startswith("/api") and path not in MUST_CHANGE_ALLOWED_PATHS
-                and auth.startswith("Bearer ")):
+        if (
+            path.startswith("/api")
+            and path not in MUST_CHANGE_ALLOWED_PATHS
+            and auth.startswith("Bearer ")
+        ):
             async with get_session_factory()() as session:
                 user = await resolve_access_user(auth[7:], session)
             if user is not None and user.must_change_password:
@@ -71,6 +75,7 @@ def create_app() -> FastAPI:
     register_files_routes(app)
     register_env_routes(app)
     register_settings_routes(app)
+    register_jobs_routes(app)
     register_dry_run_routes(app)
     _register_must_change_guard(app)
     return app
