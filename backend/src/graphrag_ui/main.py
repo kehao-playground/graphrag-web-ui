@@ -1,6 +1,7 @@
+import asyncio
 import importlib.metadata
 import shutil
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -38,7 +39,15 @@ async def lifespan(app: FastAPI):
     app.state.graphrag_version = _graphrag_version()  # 啟動偵測一次後快取(spec §6.1)
     async with get_session_factory()() as s:
         await bootstrap_admin(s)
+    from graphrag_ui.services.runner_loop import run_loop
+    app.state.runner_stop = asyncio.Event()
+    app.state.runner_task = asyncio.create_task(run_loop(app.state.runner_stop))
     yield
+    app.state.runner_stop.set()
+    # In-flight subprocesses are NOT drained here (they keep writing to the
+    # job log/DB); the next boot's stale reconcile finalizes them (spec §10).
+    with suppress(asyncio.TimeoutError):
+        await asyncio.wait_for(app.state.runner_task, timeout=5)
 
 
 def _register_must_change_guard(app: FastAPI) -> None:

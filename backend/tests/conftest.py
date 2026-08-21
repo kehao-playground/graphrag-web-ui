@@ -74,6 +74,11 @@ async def app(clean_db, monkeypatch, tmp_path):
     monkeypatch.setenv("BOOTSTRAP_ADMIN_PASSWORD", "admin-pass-123")
     # ≥32 bytes 的測試 secret — 太短會觸發 PyJWT InsecureKeyLengthWarning
     monkeypatch.setenv("JWT_SECRET", "test-jwt-secret-0123456789abcdef0123456789abcd")
+    # Disable the runner loop for every app test: the lifespan starts it, and
+    # the default cap of 2 would auto-execute queued jobs against the real
+    # graphrag CLI. Runner-loop tests call _execute/run_loop directly with
+    # their own MAX_CONCURRENT_JOBS override.
+    monkeypatch.setenv("MAX_CONCURRENT_JOBS", "0")
     get_settings.cache_clear()
     await reset_engine()          # env 變了,共享 engine 必須重建
     auth_routes._LOGIN_FAILURES.clear()  # 模組級速率限制會跨測試殘留(同桶累計 → 429)
