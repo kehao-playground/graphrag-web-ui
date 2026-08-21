@@ -2,10 +2,15 @@
 streaming route). Permission split: start/cancel = editor+ (edit_content),
 read/list/logs = viewer+."""
 
+import json
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi.responses import StreamingResponse
 
+from graphrag_ui.adapters.db import get_session_factory
+from graphrag_ui.adapters.index_runner import log_path_for
+from graphrag_ui.adapters.job_logs import tail_log
 from graphrag_ui.adapters.models import Job
 from graphrag_ui.api.deps import CurrentUser, DbSession, get_current_user
 from graphrag_ui.api.projects_routes import _forbidden, _project_or_404
@@ -14,11 +19,11 @@ from graphrag_ui.api.schemas import (
     JobOut,
     PreflightOut,
 )
-from graphrag_ui.domain.jobs import display_status
+from graphrag_ui.domain.jobs import TERMINAL_STATUSES, display_status
 from graphrag_ui.domain.permissions import Action, can
 from graphrag_ui.services import jobs as jobs_service
 from graphrag_ui.services.jobs import DiskWatermarkError, JobConflictError
-from graphrag_ui.services.projects import get_project_role
+from graphrag_ui.services.projects import _ws_path, get_project_role
 
 
 def job_out(j: Job) -> dict:
@@ -109,5 +114,46 @@ def register_jobs_routes(app):
         if not await jobs_service.cancel(db, job):
             raise HTTPException(status.HTTP_409_CONFLICT, "任務已結束")
         return {"detail": "已請求取消"}
+
+    @router.get("/jobs/{job_id}/logs")
+    async def job_logs(
+        job_id: uuid.UUID,
+        db: DbSession,
+        user: CurrentUser,
+        last_event_id: str | None = Header(default=None),
+        offset: int = -1,
+    ):
+        job = await _job_or_404(db, job_id)
+        if not can(user.role, user.is_active, Action.view_project, await _job_role(db, user, job)):
+            raise _forbidden()
+        # ?offset= (tests) wins over the Last-Event-ID header; -1 = not given.
+        try:
+            start = offset if offset >= 0 else int(last_event_id or 0)
+        except ValueError:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid Last-Event-ID") from None
+        log_path = log_path_for(_ws_path(job.project_id), job.id)
+
+        async def gen():
+            # NOTE: db session is request-scoped and may close once the
+            # response starts streaming — poll liveness in a fresh session.
+            async def finished() -> bool:
+                async with get_session_factory()() as s:
+                    fresh = await jobs_service.get(s, job_id)
+                return fresh is None or fresh.status in TERMINAL_STATUSES
+
+            pos = start
+            async for pos, chunk in tail_log(log_path, start, finished=finished):
+                # SSE data lines are single-line; json.dumps escapes newlines
+                yield f"id: {pos}\nevent: log\ndata: {json.dumps(chunk.decode(errors='replace'))}\n\n"
+            async with get_session_factory()() as s:
+                final = await jobs_service.get(s, job_id)
+            status_str = final.status if final is not None else "terminal"
+            yield f"event: done\ndata: {json.dumps({'offset': pos, 'status': status_str})}\n\n"
+
+        return StreamingResponse(
+            gen(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     app.include_router(router)
