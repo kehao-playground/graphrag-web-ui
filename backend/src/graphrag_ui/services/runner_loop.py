@@ -77,16 +77,21 @@ async def _execute(job_id: uuid.UUID) -> None:
     async def watch() -> None:
         """Owns the DB-side cadence: beat every _HEARTBEAT_S, poll
         cancel_requested_at every _CANCEL_POLL_S. IndexRunner's heartbeat
-        param is awaited only once inside run(); the cadence lives here."""
+        parameter is never invoked by run() — the lambda passed below is a
+        placeholder its signature requires; all cadence lives here."""
         last_beat = float("-inf")  # force a beat on the first iteration
         loop = asyncio.get_running_loop()
         while not hb_stop.is_set():
-            if loop.time() - last_beat >= _HEARTBEAT_S:
-                async with get_session_factory()() as s:
-                    await jobs_repo.heartbeat(s, job_id, wid)
-                last_beat = loop.time()
-            if await _cancel_requested_in_db(job_id):
-                state["cancelled"] = True
+            try:
+                if loop.time() - last_beat >= _HEARTBEAT_S:
+                    async with get_session_factory()() as s:
+                        await jobs_repo.heartbeat(s, job_id, wid)
+                    last_beat = loop.time()
+                if await _cancel_requested_in_db(job_id):
+                    state["cancelled"] = True
+            except Exception:  # one failed poll must not kill the watcher
+                logger.warning("watch poll failed for job %s", job_id,
+                               exc_info=True)
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(hb_stop.wait(), timeout=_CANCEL_POLL_S)
 
@@ -95,7 +100,7 @@ async def _execute(job_id: uuid.UUID) -> None:
         res = await IndexRunner().run(
             argv=argv, root=root, log_path=log_path_for(root, job_id),
             job_type=job_type,
-            heartbeat=lambda: asyncio.sleep(0),
+            heartbeat=lambda: asyncio.sleep(0),  # placeholder: run() never awaits it
             cancel_requested=lambda: state["cancelled"])
     except Exception as exc:  # the job must reach a terminal state regardless
         logger.exception("job execution crashed: %s", job_id)
@@ -104,8 +109,12 @@ async def _execute(job_id: uuid.UUID) -> None:
     finally:
         hb_stop.set()
         hb_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
+        try:
             await hb_task
+        except asyncio.CancelledError:
+            pass
+        except Exception:  # a dead watcher must not block finish()
+            logger.warning("watch task ended with an error", exc_info=True)
     async with get_session_factory()() as s:
         await jobs_repo.finish(s, job_id, res.status,
                                exit_code=res.exit_code, error=res.error,
@@ -124,6 +133,11 @@ async def run_loop(stop: asyncio.Event) -> None:
             if last_reconcile is None or now - last_reconcile >= _RECONCILE_EVERY_S:
                 await reconcile_stale()
                 last_reconcile = loop.time()
+            # count-then-claim is not atomic across pods: during a rolling
+            # update the global cap can be exceeded transiently by up to
+            # pods-1 jobs. Per pod it is exact, and the per-project mutex is
+            # DB-enforced (partial unique index), so transient over-cap is a
+            # resource blip, never a correctness issue.
             async with get_session_factory()() as s:
                 running = await jobs_repo.count_running(s)
                 job = (await jobs_repo.claim_next(s, worker_id())

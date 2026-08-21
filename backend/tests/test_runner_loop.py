@@ -18,14 +18,15 @@ class FakeRunner:
     """Records kwargs; simulates a subprocess result without forking."""
 
     def __init__(self, result: RunResult | None = None,
-                 exc: Exception | None = None):
+                 exc: Exception | None = None, sleep_s: float = 0.05):
         self.result = result
         self.exc = exc
+        self.sleep_s = sleep_s
         self.calls: list[dict] = []
 
     async def run(self, **kw):
         self.calls.append(kw)
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(self.sleep_s)
         if self.exc is not None:
             raise self.exc
         return self.result
@@ -169,3 +170,25 @@ async def test_reconcile_leaves_fresh_running(app):
     await _claim(job_id, "w-alive")
     assert await runner_loop.reconcile_stale() == 0
     assert (await _get(job_id)).status == "running"
+
+
+async def test_execute_survives_watch_poll_failure(app, monkeypatch):
+    fake = FakeRunner(_ok(), sleep_s=1.5)  # span ≥2 watch iterations
+    monkeypatch.setattr(runner_loop, "IndexRunner", lambda: fake)
+    real_heartbeat = jobs_repo.heartbeat
+    flaky_calls = {"n": 0}
+
+    async def flaky_heartbeat(session, job_id, worker_id, pid=None):
+        flaky_calls["n"] += 1
+        if flaky_calls["n"] == 1:
+            raise RuntimeError("db blip")
+        return await real_heartbeat(session, job_id, worker_id, pid)
+
+    monkeypatch.setattr(jobs_repo, "heartbeat", flaky_heartbeat)
+    job_id = await _seed_job()
+    await _claim(job_id)
+    await runner_loop._execute(job_id)
+    job = await _get(job_id)
+    assert flaky_calls["n"] >= 2  # first beat raised, watcher retried and recovered
+    assert job.status == "succeeded"
+    assert job.worker_id == runner_loop.worker_id()  # recovered beat landed
