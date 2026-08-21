@@ -330,5 +330,5 @@ backend/
 |---|---|---|
 | 1 | `graphrag update` 輸出落點 | `update_output/<ts>/{delta,previous}` 確認:delta 含 6 parquet + context.json + stats.json;previous 含 6 parquet。merge 回 `output/` 正確(documents 3→4,含新增檔) |
 | 2 | stats 位置與節奏 | index → `output/stats.json`、update → `update_output/<ts>/delta/stats.json`,**每個 workflow 完成後增量寫入**(實測 349b→798b→1870b→3647b→4102b)。**merge 後 `output/stats.json` 不回寫**(仍為上次 index 內容)→ `jobs.stats` 依 job.type 取路徑;Phase 4/5 不得以 `output/stats.json` 判斷新舊 |
-| 3 | 記憶體峰值初值 | 560B 語料:standard 572MB、fast 644MB(RSS)→ api pod limit 建議 ≥ 2GB;真實語料量測留 Phase 3 Task 內執行 |
+| 3 | 記憶體峰值初值 | 560B 語料:standard 572MB、fast 644MB(RSS)→ api pod limit 建議 ≥ 2GB;真實語料量測留 Phase 3 Task 內執行。**Phase 3 Task 8 補測(2026-08-21,真實小語料標準管線)**:3 篇真實事實 .txt(約 1KB)經 app 完整管線(runner loop + `index`/`update --method standard`,gpt-4o-mini + text-embedding-3-small),每 2s 取樣 graphrag 子程序 RSS — index 峰值 566MiB、update 峰值 565MiB,與開工前初值一致,limit ≥ 2GB 建議不變 |
 | 4 | fast method 邊角 | `extract_graph_nlp` 在微語料失敗:「Graph Pruning failed. No entities remain.」EXIT 1(錯誤路徑可依賴);fast 首跑會**即時下載 NLTK 資料** → 容器 image 需預載 `nltk_data` |
