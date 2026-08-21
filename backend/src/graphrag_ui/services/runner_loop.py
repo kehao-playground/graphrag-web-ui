@@ -20,6 +20,7 @@ from graphrag_ui.adapters.index_runner import IndexRunner, RunResult, log_path_f
 from graphrag_ui.adapters.models import Job
 from graphrag_ui.config import get_settings
 from graphrag_ui.services.projects import _ws_path
+from graphrag_ui.services.retention import prune_update_output
 
 _HEARTBEAT_S = 10.0
 _STALE_AFTER_S = 60.0
@@ -119,6 +120,10 @@ async def _execute(job_id: uuid.UUID) -> None:
         await jobs_repo.finish(s, job_id, res.status,
                                exit_code=res.exit_code, error=res.error,
                                stats=res.stats)
+    if job_type == "update" and res.status == "succeeded":
+        # Retention (spec §6.3): the merge already consumed older deltas;
+        # keep only the newest update_output runs on disk.
+        prune_update_output(root, get_settings().update_output_keep_latest)
 
 
 async def run_loop(stop: asyncio.Event) -> None:
