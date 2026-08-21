@@ -179,15 +179,21 @@ async def test_sse_token_query_param_invalid_401(client, app):
 async def test_sse_token_must_change_password_403(client, app):
     """must-change-password user with a valid ?token= is still 403: the
     _sse_user mirror is the only guard on this path (the global middleware
-    only inspects Authorization headers)."""
+    only inspects Authorization headers). The user is a project VIEWER, so
+    without this gate the stream would be 200 — the test discriminates."""
     hdr = await _owner(client, app)
-    _, job = await _queued_job(client, hdr, "sse-token-must-change")
+    pid, job = await _queued_job(client, hdr, "sse-token-must-change")
     r = await client.post("/api/admin/users", headers=hdr,
                           json={"email": "mcp-user@example.com", "display_name": "mcp",
                                 "password": "mcp-pass-123"})
     assert r.status_code == 201, r.text
+    viewer_id = r.json()["id"]
+    r = await client.put(f"/api/projects/{pid}/members/{viewer_id}",
+                         headers=hdr, json={"role": "viewer"})
+    assert r.status_code in (200, 201), r.text
     r = await client.post("/api/auth/login",
                           json={"email": "mcp-user@example.com", "password": "mcp-pass-123"})
     token = r.json()["access_token"]
     r = await client.get(f"/api/jobs/{job['id']}/logs?token={token}")
     assert r.status_code == 403
+    assert r.json()["detail"] == "password change required"
