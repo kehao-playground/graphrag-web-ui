@@ -15,6 +15,13 @@ class Settings(BaseSettings):
     refresh_token_days: int = 7
     upload_max_file_mb: int = 50
     project_quota_mb: int = 5000
+    max_concurrent_jobs: int = 2
+    job_log_retention_days: int = 30
+    job_log_failed_retention_days: int = 90
+    update_output_keep_latest: int = 2
+    cache_quota_mb: int = 2048
+    disk_watermark_mb: int = 2048
+
 
 @lru_cache
 def get_settings() -> Settings:
