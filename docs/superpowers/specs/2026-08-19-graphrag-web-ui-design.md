@@ -169,7 +169,7 @@ CREATE UNIQUE INDEX jobs_one_active_per_project
 - stdout/stderr 即時寫入該 job 的 log 檔;結束時記錄 exit_code、掃描 stats 檔進 stats 欄位。**stats 檔路徑依 job.type**(2026-08-21 實測定案,見 §13 實測表):index → `output/stats.json`;update → `update_output/<timestamp>/delta/stats.json`(**merge 後 `output/stats.json` 不回寫**)。**stats.json 在每個 workflow 完成後增量寫入**,Indexing 階段可據此做真實進度(已完成 workflow 數 / 總數),不必只靠日誌行數
 - **heartbeat**:running 期間每 10s 更新 `jobs.heartbeat_at` 與 `worker_id`
 - **啟動時 reconcile**:DB 為 running 但 `heartbeat_at` 逾時(預設 60s)→ `failed(interrupted)`
-- **取消**:迴圈每 5s 檢查自己持有的 job 是否被設定 `cancel_requested_at` → SIGTERM → 30s 寬限 → SIGKILL → 標記 `cancelled`
+- **取消**:迴圈每 1s 檢查自己持有的 job 是否被設定 `cancel_requested_at` → SIGTERM → 30s 寬限 → SIGKILL → 標記 `cancelled`(2026-08-21 實作裁定:1s 輪詢,加快取消且查詢成本可忽略)
 
 ### 6.4 查詢服務
 
