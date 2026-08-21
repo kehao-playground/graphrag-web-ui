@@ -155,3 +155,22 @@ async def test_sse_unknown_job_404(client, app):
     hdr = await _owner(client, app)
     r = await client.get(f"/api/jobs/{uuid.uuid4()}/logs", headers=hdr)
     assert r.status_code == 404
+
+
+async def test_sse_token_query_param_streams(client, app):
+    """?token= auth (EventSource cannot send headers) yields the same stream."""
+    hdr = await _owner(client, app)
+    pid, job = await _queued_job(client, hdr, "sse-query-token")
+    token = hdr["Authorization"].split(" ", 1)[1]
+    _log_of(pid, job["id"]).write_text("token path\n", encoding="utf-8")
+    await _finish(job["id"])
+    body = await _stream_body(client, f"/api/jobs/{job['id']}/logs?token={token}")
+    assert "token path" in body
+    assert "event: done" in body
+
+
+async def test_sse_token_query_param_invalid_401(client, app):
+    hdr = await _owner(client, app)
+    _, job = await _queued_job(client, hdr, "sse-bad-token")
+    r = await client.get(f"/api/jobs/{job['id']}/logs?token=not-a-token")
+    assert r.status_code == 401
