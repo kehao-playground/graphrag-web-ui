@@ -15,13 +15,21 @@ from graphrag_ui.domain.jobs import (
 def test_build_argv_matrix():
     root = Path("/ws/x")
     assert build_argv("index", "standard", root) == [
-        "index", "--root", "/ws/x", "--method", "standard"]
-    assert build_argv("index", "fast", root) == [
-        "index", "--root", "/ws/x", "--method", "fast"]
+        "index",
+        "--root",
+        "/ws/x",
+        "--method",
+        "standard",
+    ]
+    assert build_argv("index", "fast", root) == ["index", "--root", "/ws/x", "--method", "fast"]
     assert build_argv("update", "standard", root) == [
-        "update", "--root", "/ws/x", "--method", "standard"]
-    assert build_argv("update", "fast", root) == [
-        "update", "--root", "/ws/x", "--method", "fast"]
+        "update",
+        "--root",
+        "/ws/x",
+        "--method",
+        "standard",
+    ]
+    assert build_argv("update", "fast", root) == ["update", "--root", "/ws/x", "--method", "fast"]
 
 
 @pytest.mark.parametrize("t,m", [("bogus", "standard"), ("index", "turbo")])
@@ -32,6 +40,7 @@ def test_build_argv_rejects_unknown(t, m):
 
 def test_oom_annotation():
     assert "OOM" in error_annotation(137)
+    assert "OOM" in (error_annotation(-9) or "")
     assert error_annotation(0) is None
     assert error_annotation(1) is None
 
