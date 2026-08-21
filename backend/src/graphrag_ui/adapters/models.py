@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -77,3 +77,31 @@ class SettingsVersion(Base):
                                                 ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),
                                                  server_default=func.now())
+
+
+class Job(Base):
+    """One queued/executed graphrag index|update run (spec §5).
+
+    Per-project mutual exclusion is enforced by the partial unique index
+    jobs_one_active_per_project (migration); application logic never
+    checks-and-inserts (race-prone) — it inserts and maps IntegrityError.
+    """
+    __tablename__ = "jobs"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    type: Mapped[str] = mapped_column(String(10))  # index|update
+    method: Mapped[str] = mapped_column(String(16))  # standard|fast
+    argv: Mapped[list] = mapped_column(JSONB)
+    status: Mapped[str] = mapped_column(String(20), default="queued", index=True)
+    queued_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    worker_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    pid: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancel_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    stats: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    queued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
