@@ -1,5 +1,6 @@
 """Pure job rules: CLI argv mapping, exit-code annotation, status display.
 No I/O, no graphrag imports (AGENTS.md layering)."""
+
 from pathlib import Path
 
 JOB_TYPES = ("index", "update")
@@ -21,9 +22,9 @@ def build_argv(job_type: str, method: str, root: Path) -> list[str]:
 
 
 def error_annotation(exit_code: int) -> str | None:
-    # exit 137 = 128+SIGKILL; under a container memory limit the kernel's
-    # OOM killer is the usual sender (spec §5)
-    return "疑似記憶體不足(OOM)" if exit_code == 137 else None
+    # exit 137 = 128+SIGKILL; asyncio proc.wait() reports signal deaths as
+    # negative POSIX signal codes, so -9 is the same kernel OOM kill (spec §5)
+    return "疑似記憶體不足(OOM)" if exit_code in (137, -9) else None
 
 
 def display_status(status: str, cancel_requested: bool) -> str:
