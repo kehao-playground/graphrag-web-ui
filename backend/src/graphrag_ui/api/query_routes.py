@@ -66,7 +66,7 @@ def register_query_routes(app):
         ):
             raise _forbidden()
         try:
-            return await run_query(db, project, user, body.method, body.query, body.response_type)
+            return await run_query(project, user, body.method, body.query, body.response_type)
         except (QueryRateLimitedError, WorkspaceNotIndexedError, QueryError) as exc:
             raise _query_error_http(exc) from None
 
@@ -92,7 +92,7 @@ def register_query_routes(app):
         # Prime the generator so pre-stream failures (rate limit, config,
         # frames, adapter) raise HERE as plain JSON HTTP errors — the 200 +
         # text/event-stream response must not have started yet.
-        agen = stream_query(db, project, user, method, query, response_type)
+        agen = stream_query(project, user, method, query, response_type)
         try:
             first = await anext(agen, None)
         except (QueryRateLimitedError, WorkspaceNotIndexedError, QueryError) as exc:

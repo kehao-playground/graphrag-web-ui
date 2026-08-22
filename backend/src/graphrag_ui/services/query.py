@@ -13,7 +13,6 @@ import logging
 import time
 
 import pandas as pd
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.adapters.frame_cache import WorkspaceNotIndexedError, get_frame_cache, tables_for
 from graphrag_ui.adapters.graphrag_search import GraphragSearchAdapter, load_config
@@ -105,7 +104,7 @@ def _frame_texts(df: pd.DataFrame) -> dict[int, str | None]:
 
 
 async def run_query(
-    session: AsyncSession, project: Project, user: User, method: str, query: str,
+    project: Project, user: User, method: str, query: str,
     response_type: str | None = None,
 ) -> dict:
     """Run one four-mode query; returns the API response body (never raises HTTP)."""
@@ -159,7 +158,7 @@ async def run_query(
 
 
 async def stream_query(
-    session: AsyncSession, project: Project, user: User, method: str, query: str,
+    project: Project, user: User, method: str, query: str,
     response_type: str | None = None,
 ):
     """Streaming variant of run_query: an async generator yielding
