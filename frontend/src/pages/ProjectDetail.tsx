@@ -11,6 +11,7 @@ import { useAuth } from "../stores/auth";
 import FilesPanel from "../components/FilesPanel";
 import SettingsPanel from "../components/SettingsPanel";
 import JobsPanel from "../components/JobsPanel";
+import QueryPanel from "../components/QueryPanel";
 
 // Grantable roles only: owner is fixed to the creator (single-owner policy) and
 // cannot be assigned when adding members; owner rows in the table still render it.
@@ -18,7 +19,6 @@ const ROLES = ["editor", "viewer"] as const;
 type Role = (typeof ROLES)[number];
 const ROLE_OPTIONS = ROLES.map((r) => ({ label: r, value: r }));
 const DISABLED_TABS = [
-  { key: "query", label: "Query" },
   { key: "explore", label: "Explore" },
 ] as const;
 
@@ -249,6 +249,13 @@ export default function ProjectDetail() {
       key: "files",
       label: "Files",
       children: <FilesPanel projectId={id} inputFileType={p.input_file_type} canEdit={canEditContent} />,
+    },
+    {
+      key: "query",
+      label: "Query",
+      // Tab visible to every member; the backend still enforces viewer+ on
+      // the stream (canUse is viewer+ — currently always true).
+      children: <QueryPanel projectId={id} canUse />,
     },
     ...DISABLED_TABS.map((t) => ({
       key: t.key,
