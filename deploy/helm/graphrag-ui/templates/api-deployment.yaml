@@ -60,6 +60,10 @@ spec:
               value: {{ .Values.cacheQuotaMb | quote }}
             - name: DISK_WATERMARK_MB
               value: {{ .Values.diskWatermarkMb | quote }}
+            - name: QUERY_CACHE_MB
+              value: {{ .Values.queryCacheMb | quote }}
+            - name: QUERY_RATE_LIMIT_PER_HOUR
+              value: {{ .Values.queryRateLimitPerHour | quote }}
           volumeMounts:
             - name: workspaces
               mountPath: /data/workspaces
