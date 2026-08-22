@@ -28,7 +28,11 @@ briefs; their Global Constraints always apply.
     `HTTPException`; own the transaction boundary (`audit()` adds, services
     commit; `flush → external work → commit` with rollback on failure).
   - `adapters/` — Postgres repos, FS workspace, graphrag integration.
-    All graphrag touchpoints live here (subprocess CLI only).
+    All graphrag touchpoints live here: subprocess CLI for indexing
+    (adapters), and in-process `graphrag.api` imports ONLY via
+    `adapters/graphrag_search.py` (env-shielded — litellm runs
+    load_dotenv at import time and leaks the nearest .env into
+    os.environ); no other graphrag import sites.
   - `api/` — FastAPI routes/schemas/auth; translate service errors to HTTP.
 - DB schema changes go through alembic migrations only. Never edit tables
   by hand. `adapters/db.py` engine is lazy — never build engines at module
@@ -44,7 +48,7 @@ briefs; their Global Constraints always apply.
 
 ```bash
 # backend (Python 3.12, uv; Docker required for testcontainers)
-cd backend && uv run pytest -v          # 181 tests with GRAPHRAG_API_KEY (177 fast); 4 slow tests fork the real graphrag CLI and need the key; fast only: uv run pytest -m "not slow"
+cd backend && uv run pytest -v          # 184 tests with GRAPHRAG_API_KEY (180 fast); 4 slow tests fork the real graphrag CLI and need the key; fast only: uv run pytest -m "not slow"
 cd backend && uv run ruff check
 
 # frontend (Node 20+)
