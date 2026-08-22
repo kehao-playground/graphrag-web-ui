@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import {
-  Alert, Descriptions, Drawer, Empty, Input, InputNumber, Segmented, Select, Space, Spin, Table, Typography, message,
+  Alert, Descriptions, Drawer, Input, InputNumber, Segmented, Select, Space, Spin, Table, Typography, message,
 } from "antd";
 import type { TableProps } from "antd";
 import { fetchArtifactDetail, fetchArtifacts } from "../api/client";
 import type { ArtifactTableName } from "../api/types";
+import GraphView from "./GraphView";
 
 type Row = Record<string, unknown>;
 type Mode = "graph" | "table";
@@ -139,15 +140,16 @@ export default function ExplorePanel({ projectId, canUse }: { projectId: string;
 
   return (
     <Space orientation="vertical" size="large" style={{ width: "100%" }}>
-      {/* Shown in both modes while an index job makes results incomplete. */}
-      {list.data?.stale && <Alert type="warning" showIcon message="索引進行中,結果可能不完整" />}
+      {/* Shown in both modes while an index job makes results incomplete —
+          each mode surfaces it from its own query (GraphView in 圖譜 mode). */}
+      {mode === "table" && list.data?.stale && <Alert type="warning" showIcon message="索引進行中,結果可能不完整" />}
       <Segmented
         value={mode}
         onChange={(v) => setMode(v as Mode)}
         options={[{ label: "圖譜", value: "graph" }, { label: "資料表", value: "table" }]}
       />
       {mode === "graph" ? (
-        <Empty description="圖譜模式將於下一步提供" />
+        <GraphView projectId={projectId} canUse={canUse} />
       ) : (
         <>
           <Space wrap>
