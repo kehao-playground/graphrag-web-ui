@@ -16,13 +16,16 @@ from graphrag_ui.domain.permissions import Action, can
 from graphrag_ui.services.explore import (
     ExploreReadError,
     UnknownTableError,
+    UnsupportedFilterError,
     artifact_detail,
     knowledge_graph,
     list_artifacts,
 )
 from graphrag_ui.services.projects import get_project_role
 
-_ExploreErrors = (UnknownTableError, ArtifactsNotIndexedError, ExploreReadError)
+_ExploreErrors = (
+    UnknownTableError, ArtifactsNotIndexedError, ExploreReadError, UnsupportedFilterError,
+)
 
 
 def _explore_error_http(exc: Exception) -> HTTPException:
@@ -31,6 +34,8 @@ def _explore_error_http(exc: Exception) -> HTTPException:
         return HTTPException(status.HTTP_404_NOT_FOUND, "未知的資料表")
     if isinstance(exc, ArtifactsNotIndexedError):
         return HTTPException(status.HTTP_409_CONFLICT, "尚未建立索引,請先執行索引任務")
+    if isinstance(exc, UnsupportedFilterError):
+        return HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "此資料表不支援該篩選條件")
     # detail (exception tail) stays server-side; fixed message only
     return HTTPException(status.HTTP_502_BAD_GATEWAY, "讀取索引輸出失敗")
 

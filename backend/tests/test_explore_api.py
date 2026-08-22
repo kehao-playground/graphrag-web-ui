@@ -162,6 +162,24 @@ async def test_keyword_type_community_filters(client, app):
     assert r.status_code == 200 and r.json()["total"] == 1
 
 
+async def test_unsupported_filter_422(client, app):
+    """API 誠實性:relationships 無 type 篩選、documents 無 community 篩選 → 422
+    (entities?type= 的 200 已由 test_keyword_type_community_filters 證明)。"""
+    pid, alice, _, _ = await _indexed_project(client, app)
+    r = await client.get(
+        f"/api/projects/{pid}/artifacts/relationships",
+        headers=alice, params={"type": "x"},
+    )
+    assert r.status_code == 422
+    assert r.json() == {"detail": "此資料表不支援該篩選條件"}
+    r = await client.get(
+        f"/api/projects/{pid}/artifacts/documents",
+        headers=alice, params={"community": 0},
+    )
+    assert r.status_code == 422
+    assert r.json() == {"detail": "此資料表不支援該篩選條件"}
+
+
 async def test_limit_offset_returns_exactly_second_row(client, app):
     pid, alice, _, _ = await _indexed_project(client, app)
     r = await client.get(
