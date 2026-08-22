@@ -144,7 +144,11 @@ CREATE UNIQUE INDEX jobs_one_active_per_project
 - `/api/projects/{id}/query`:method(local/global/drift/basic)+ query + 參數
   - `POST .../query` 一次性回覆(短查詢)
   - `GET .../query/stream` SSE 串流(預設路徑;global search 常見 30–90s,見 §6.4)
-- `/api/projects/{id}/artifacts/{table}`:entities/relationships/communities/community_reports/text_units/documents;分頁 + 篩選(社群、類型、關鍵字)。專案有 running 索引任務時,回應標記 `stale: true`,前端顯示「索引進行中,結果可能不完整」
+- `/api/projects/{id}/artifacts/*`(Phase 5,2026-08-22 定案:DuckDB 讀取路徑):
+  - `GET .../artifacts/{table}`:table ∈ entities/relationships/communities/community_reports/text_units/documents;伺服器端分頁(`limit/offset`)+ 篩選(關鍵字 `q`、`type`、`community`)。**列投影白名單**(documents 列表不含 `text`/`raw_data`、community_reports 列表不含 `full_content`),DuckDB 直查 parquet(predicate/projection pushdown),不整表載入記憶體,與查詢路徑 FrameCache 各自獨立
+  - `GET .../artifacts/{table}/{hrid}`:單行全欄(詳情 Drawer 用)
+  - `GET .../artifacts/graph?level=`:`{nodes:[{title,type,degree,frequency,community}], edges:[{source,target,weight}]}`;community 由 `communities(level)` 的 `entity_ids` 反查(entities 表無 community 欄,§13 實測),預設 level=MAX(level),懸空邊剃除
+  - 專案有 running 索引任務時,回應標記 `stale: true`,前端顯示「索引進行中,結果可能不完整」;無 `output/` 索引輸出 → 404 + zh-TW 錯誤訊息
 - `GET /api/health`:輕量 liveness(僅檢查行程與 DB);`GET /api/ready`:readiness,含 graphrag 版本與 workspace 掛載檢查。**graphrag 版本在啟動時偵測一次後快取**,不在每次 probe fork 子程序
 
 ### 6.2 設定檔編輯器(雙模式)
@@ -216,7 +220,7 @@ GraphRAG 的 `input.type` 是單一型別 + `input.file_pattern`(regex),一個 r
 - **日誌 viewer**:虛擬捲動 + 自動跟隨 + 暫停;斷線以 `Last-Event-ID` 續傳
 - **查詢介面**:SSE 串流逐字顯示,答案下方以可展開卡片呈現 citations(對應 §6.4 解析結果)
 - **設定編輯器**:409 衝突時顯示 diff 與「重新載入 / 覆寫」兩個明確選項
-- **圖譜視覺化(Phase 5)**:react-sigma + graphology(WebGL,萬級節點),依 community 著色,節點搜尋/過濾;表格用 Ant Table 伺服器端分頁
+- **Explore tab(Phase 5,2026-08-22 定案:雙模式)**:Ant Segmented 切換「圖譜 | 資料表」。圖譜 = react-sigma + graphology(WebGL,萬級節點)+ forceatlas2 佈局,依 community 著色(穩定分類色板),控制項:level 下拉、type 過濾、min_degree 滑桿(預設 ≥1 濾孤點)、節點搜尋高亮聚焦;API 不限節點數,過濾交前端。資料表 = 表名下拉(6 表)+ 共用篩選 + Ant Table 伺服器端分頁 + 行點擊 Drawer 顯示全文/列表/JSON 欄位。stale 時 Explore 頂部 Alert 提示
 - **目錄結構**:feature 導向(`features/projects`、`features/jobs`…),共用元件放 `shared/`
 
 ## 8. 部署
@@ -332,3 +336,12 @@ backend/
 | 2 | stats 位置與節奏 | index → `output/stats.json`、update → `update_output/<ts>/delta/stats.json`,**每個 workflow 完成後增量寫入**(實測 349b→798b→1870b→3647b→4102b)。**merge 後 `output/stats.json` 不回寫**(仍為上次 index 內容)→ `jobs.stats` 依 job.type 取路徑;Phase 4/5 不得以 `output/stats.json` 判斷新舊 |
 | 3 | 記憶體峰值初值 | 560B 語料:standard 572MB、fast 644MB(RSS)→ api pod limit 建議 ≥ 2GB;真實語料量測留 Phase 3 Task 內執行。**Phase 3 Task 8 補測(2026-08-21,真實小語料標準管線)**:3 篇真實事實 .txt(約 1KB)經 app 完整管線(runner loop + `index`/`update --method standard`,gpt-4o-mini + text-embedding-3-small),每 2s 取樣 graphrag 子程序 RSS — index 峰值 566MiB、update 峰值 565MiB,與開工前初值一致,limit ≥ 2GB 建議不變 |
 | 4 | fast method 邊角 | `extract_graph_nlp` 在微語料失敗:「Graph Pruning failed. No entities remain.」EXIT 1(錯誤路徑可依賴);fast 首跑會**即時下載 NLTK 資料** → 容器 image 需預載 `nltk_data` |
+
+### 2026-08-22 Phase 5 開工前實測(真實索引輸出,graphrag 3.1.0 標準管線)
+
+| # | 項目 | 實測結果 |
+|---|---|---|
+| 1 | 六表 schema | entities(id/hrid/title/type/text_unit_ids/frequency/degree/description)、relationships(id/hrid/source/target/weight/combined_degree/text_unit_ids/description)、communities(12 欄含 level/parent/children/entity_ids/relationship_ids/size)、community_reports(15 欄含 rank/findings)、text_units(text/n_tokens/document_id)、documents(title/text/raw_data/creation_date) |
+| 2 | 圖譜 join 需求 | **relationships.source/target 直接是實體 title(非 id)**→ 邊零 join;**entities 無 community 欄** → 著色必須經 `communities.entity_ids` 反查,且社群有 level 層級(預設最細 level) |
+| 3 | 大欄位 | documents 同時有 `text` 與 `raw_data` 兩個全文欄、community_reports 有 `full_content`/`findings`(list[dict])→ 列表端點必須列投影;list 欄(parquet list 型)序列化為 JSON 陣列 |
+| 4 | 讀取路徑決策 | pandas+FrameCache 整表載入會與查詢路徑互搶 1GB 預算且 documents 大欄位爆表 → **DuckDB 直查 parquet**(SQL 分頁/篩選/投影 pushdown),需求方 2026-08-22 照推薦定案 |
