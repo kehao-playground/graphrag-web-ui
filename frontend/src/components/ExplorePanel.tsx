@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import {
   Alert, Descriptions, Drawer, Input, InputNumber, Segmented, Select, Space, Spin, Table, Typography, message,
@@ -6,7 +6,10 @@ import {
 import type { TableProps } from "antd";
 import { fetchArtifactDetail, fetchArtifacts } from "../api/client";
 import type { ArtifactTableName } from "../api/types";
-import GraphView from "./GraphView";
+
+// sigma + graphology weigh ~1.4MB: lazy-load the graph stack so it lands in
+// its own chunk, fetched the first time 圖譜 mode is used.
+const GraphView = lazy(() => import("./GraphView"));
 
 type Row = Record<string, unknown>;
 type Mode = "graph" | "table";
@@ -149,7 +152,9 @@ export default function ExplorePanel({ projectId, canUse }: { projectId: string;
         options={[{ label: "圖譜", value: "graph" }, { label: "資料表", value: "table" }]}
       />
       {mode === "graph" ? (
-        <GraphView projectId={projectId} canUse={canUse} />
+        <Suspense fallback={<Spin style={{ display: "block", marginTop: 64 }} />}>
+          <GraphView projectId={projectId} canUse={canUse} />
+        </Suspense>
       ) : (
         <>
           <Space wrap>
