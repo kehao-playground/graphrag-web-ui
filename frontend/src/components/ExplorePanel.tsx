@@ -165,7 +165,7 @@ export default function ExplorePanel({ projectId, canUse }: { projectId: string;
               value={table}
               disabled={!canUse}
               options={TABLE_OPTIONS}
-              onChange={(t) => { setTable(t); resetPage(); }}
+              onChange={(t) => { setTable(t); setHrid(null); resetPage(); }}
             />
             <Input.Search
               aria-label="搜尋"

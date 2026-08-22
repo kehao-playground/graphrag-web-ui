@@ -197,6 +197,22 @@ test("row click opens the detail drawer and fetches the full row", async () => {
   expect(fetchMock).toHaveBeenCalledWith("/api/projects/p1/artifacts/entities/2", expect.anything());
 });
 
+test("table switch with the drawer open closes it and skips the new table's detail", async () => {
+  mount();
+  const user = userEvent.setup();
+  await screen.findByText("Ada Lovelace");
+  await user.click(screen.getByText("Ada Lovelace"));
+  expect(await screen.findByText("first programmer")).toBeInTheDocument();
+  fetchMock.mockClear();
+  await user.click(screen.getByRole("combobox", { name: "資料表" }));
+  await pickOption(user, "關係");
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith("/api/projects/p1/artifacts/relationships?limit=50&offset=0", expect.anything()));
+  // The detail drawer closes instead of re-querying hrid 2 on 關係.
+  await waitFor(() => expect(screen.queryByText("first programmer")).not.toBeInTheDocument());
+  expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("/artifacts/relationships/"))).toEqual([]);
+});
+
 test("404 unknown table surfaces the backend detail", async () => {
   errorResponse = new Response(JSON.stringify({ detail: "未知的資料表" }), { status: 404 });
   mount();
