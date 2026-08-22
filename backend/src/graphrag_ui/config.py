@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     update_output_keep_latest: int = 2
     cache_quota_mb: int = 2048
     disk_watermark_mb: int = 2048
+    query_cache_mb: int = 1024
 
 
 @lru_cache
