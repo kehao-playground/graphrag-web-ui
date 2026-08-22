@@ -19,14 +19,14 @@ import yaml
 
 # Index-once fixtures/helpers shared with the Phase-4 query test: query_app
 # enables the runner loop (MAX_CONCURRENT_JOBS=1) so POSTing the index job
-# actually executes it; DOCS is the known-good micro-corpus. query_client is
-# injected as the test parameter below, so it needs no re-export here.
+# actually executes it; DOCS is the known-good micro-corpus.
 from tests.test_projects import _setup_two_users
 from tests.test_real_corpus_query import (  # noqa: F401  (pytest fixtures)
     DOCS,
     _job_to_terminal,
     _upload,
     query_app,
+    query_client,
     ws_root,
 )
 
@@ -37,7 +37,7 @@ pytestmark = [
 ]
 
 
-async def test_real_corpus_explore_browse_graph_and_filters(query_client):
+async def test_real_corpus_explore_browse_graph_and_filters(query_client):  # noqa: F811  (fixture imported above)
     client = query_client
     admin = await _setup_two_users(client)
 

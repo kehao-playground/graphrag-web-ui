@@ -7,8 +7,9 @@ import type { TableProps } from "antd";
 import { fetchArtifactDetail, fetchArtifacts } from "../api/client";
 import type { ArtifactTableName } from "../api/types";
 
-// sigma + graphology weigh ~1.4MB: lazy-load the graph stack so it lands in
-// its own chunk, fetched the first time 圖譜 mode is used.
+// the graph stack (sigma + graphology, ~204 kB chunk / ~51 kB gzip):
+// lazy-load it so it lands in its own chunk, fetched the first time 圖譜
+// mode is used.
 const GraphView = lazy(() => import("./GraphView"));
 
 type Row = Record<string, unknown>;
