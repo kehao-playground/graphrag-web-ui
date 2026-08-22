@@ -34,6 +34,7 @@ try:
         local_search,
         local_search_streaming,
     )
+
     # NOTE: import the FUNCTION from the submodule — `from graphrag.config
     # import load_config` binds the submodule (import system shadows the
     # re-export), which is not callable.

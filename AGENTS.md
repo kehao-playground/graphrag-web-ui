@@ -37,13 +37,14 @@ briefs; their Global Constraints always apply.
   `JWT_SECRET`, `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_PASSWORD`,
   `UPLOAD_MAX_FILE_MB`, `PROJECT_QUOTA_MB`, `MAX_CONCURRENT_JOBS`,
   `JOB_LOG_RETENTION_DAYS`, `JOB_LOG_FAILED_RETENTION_DAYS`,
-  `UPDATE_OUTPUT_KEEP_LATEST`, `CACHE_QUOTA_MB`, `DISK_WATERMARK_MB`.
+  `UPDATE_OUTPUT_KEEP_LATEST`, `CACHE_QUOTA_MB`, `DISK_WATERMARK_MB`,
+  `QUERY_CACHE_MB`, `QUERY_RATE_LIMIT_PER_HOUR`.
 
 ## Commands
 
 ```bash
 # backend (Python 3.12, uv; Docker required for testcontainers)
-cd backend && uv run pytest -v          # 133 tests; slow-marked ones fork the real graphrag CLI (real-corpus jobs test needs GRAPHRAG_API_KEY)
+cd backend && uv run pytest -v          # 181 tests with GRAPHRAG_API_KEY (177 fast); 4 slow tests fork the real graphrag CLI and need the key; fast only: uv run pytest -m "not slow"
 cd backend && uv run ruff check
 
 # frontend (Node 20+)

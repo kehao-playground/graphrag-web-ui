@@ -2,7 +2,8 @@
 # 環境差異全部走環境變數(spec §8.3),與 docker-compose 共用同一組變數名:
 # DATABASE_URL / WORKSPACES_DIR / JWT_SECRET / BOOTSTRAP_ADMIN_EMAIL / BOOTSTRAP_ADMIN_PASSWORD /
 # UPLOAD_MAX_FILE_MB / PROJECT_QUOTA_MB / MAX_CONCURRENT_JOBS / JOB_LOG_RETENTION_DAYS /
-# JOB_LOG_FAILED_RETENTION_DAYS / UPDATE_OUTPUT_KEEP_LATEST / CACHE_QUOTA_MB / DISK_WATERMARK_MB
+# JOB_LOG_FAILED_RETENTION_DAYS / UPDATE_OUTPUT_KEEP_LATEST / CACHE_QUOTA_MB / DISK_WATERMARK_MB /
+# QUERY_CACHE_MB / QUERY_RATE_LIMIT_PER_HOUR
 
 api:
   image: {}            # repository/tag,例 { repository: registry.example.com/graphrag-ui/api, tag: "0.1.0" };空 = 本地測試用預設名
@@ -61,3 +62,7 @@ jobLogFailedRetentionDays: 90  # JOB_LOG_FAILED_RETENTION_DAYS — days to keep 
 updateOutputKeepLatest: 2      # UPDATE_OUTPUT_KEEP_LATEST — update_output timestamp dirs kept per project
 cacheQuotaMb: 2048     # CACHE_QUOTA_MB — cache volume quota reported by preflight, MiB
 diskWatermarkMb: 2048  # DISK_WATERMARK_MB — min free MiB on workspaces volume; below → enqueue refused
+queryCacheMb: 1024     # QUERY_CACHE_MB — LRU budget for cached query parquet frames (spec §6.4 amended
+                       # 2026-08-22: 1 GiB fits within the shared 2 GiB pod limit; peak RSS measured
+                       # 566/565 MiB while indexing, leaving headroom for query-time frames)
+queryRateLimitPerHour: 30  # QUERY_RATE_LIMIT_PER_HOUR — max queries per (user, project) per hour → 429
