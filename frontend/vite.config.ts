@@ -10,6 +10,23 @@ export default defineConfig({
       "/api": "http://localhost:8000",
     },
   },
+  build: {
+    rolldownOptions: {
+      output: {
+        // Rolldown manual chunking (`codeSplitting` supersedes the older
+        // `advancedChunks` name in rolldown >= 1.2): keep antd and the React
+        // runtime in a single long-cacheable vendor chunk.
+        codeSplitting: {
+          groups: [
+            {
+              name: "vendor",
+              test: /node_modules[\\/](react|react-dom|scheduler|antd|rc-[a-z-]+|@ant-design)/,
+            },
+          ],
+        },
+      },
+    },
+  },
   test: {
     environment: "jsdom",
     globals: true,
