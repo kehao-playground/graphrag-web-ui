@@ -98,7 +98,9 @@ export default function QueryPanel({ projectId, canUse }: { projectId: string; c
         <Input.TextArea
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          onPressEnter={run}
+          onPressEnter={(e) => {
+            if (!e.shiftKey) run();
+          }}
           placeholder="輸入查詢問題"
           rows={3}
           disabled={busy}
@@ -145,7 +147,7 @@ export default function QueryPanel({ projectId, canUse }: { projectId: string; c
 
       {timings && (
         <Typography.Text type="secondary">
-          {`frames ${timings.frames_ms}ms · 搜尋 ${timings.search_ms}ms · 引用 ${timings.citations_ms}ms · 總計 ${timings.total_ms}ms`}
+          {`frames ${Math.round(timings.frames_ms)}ms · 搜尋 ${Math.round(timings.search_ms)}ms · 引用 ${Math.round(timings.citations_ms)}ms · 總計 ${Math.round(timings.total_ms)}ms`}
         </Typography.Text>
       )}
     </Space>
