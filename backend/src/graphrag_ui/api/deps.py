@@ -2,7 +2,7 @@ import uuid
 from typing import Annotated
 
 import jwt
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -78,3 +78,35 @@ async def require_admin(user: CurrentUser) -> User:
 
 
 AdminUser = Annotated[User, Depends(require_admin)]
+
+# Auth for SSE routes (job logs, query stream): EventSource cannot send an
+# Authorization header, so these routes accept the access token as a ?token=
+# query parameter (plan Task 7 decision). Tradeoff: the token then appears in
+# access/proxy logs; exposure is bounded by the 15-minute access-token
+# rotation. Revisit with short-lived one-time ticket auth when audit
+# requirements demand it. Single source — extracted from jobs_routes (Task 4).
+_sse_bearer = HTTPBearer(auto_error=False)
+
+
+async def sse_user_from_request(
+    request: Request,
+    creds: Annotated[HTTPAuthorizationCredentials | None, Depends(_sse_bearer)],
+    db: DbSession,
+    token: Annotated[str | None, Query()] = None,
+) -> User:
+    """?token= access-token fallback with get_current_user semantics
+    (401 invalid/expired, 403 must-change gate) for SSE-only routes."""
+    if token is not None:
+        user = await resolve_access_user(token, db)
+        if user is None:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or expired token")
+        # Mirror get_current_user's forced-change gate so the ?token= path is
+        # not a bypass of that check.
+        if user.must_change_password and request.url.path not in MUST_CHANGE_ALLOWED_PATHS:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "password change required")
+        return user
+    # No query token: standard Bearer header semantics.
+    return await get_current_user(request, creds, db)
+
+
+SseUser = Annotated[User, Depends(sse_user_from_request)]
