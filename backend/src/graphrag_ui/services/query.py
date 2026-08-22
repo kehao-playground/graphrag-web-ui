@@ -34,6 +34,14 @@ _TEXT_COLUMNS = ("text", "title", "description", "name")
 # them "sources"/"units" per mode, the cached parquet table is "text_units".
 _TEXT_UNIT_KEYS = ("text_units", "units", "sources")
 
+# Same synonym pair for community reports: graphrag's search context keys
+# the frame "reports" (community_context.py / mixed_context.py use
+# context_name="Reports" → lower()), while the cached parquet table is
+# "community_reports" (adapters.frame_cache.TABLES). Entities, communities
+# and relationships use the same key on both sides (verified in graphrag
+# 3.1.0 mixed_context.py), so no further aliases are needed.
+_REPORT_KEYS = ("community_reports", "reports")
+
 
 class QueryError(RuntimeError):
     """Query pipeline failure. code: "config" (500) | "search" (502).
@@ -59,6 +67,12 @@ def _flatten_frames(frames: dict[str, pd.DataFrame]) -> dict[str, dict[int, str 
             # streaming path joins against.
             for key in _TEXT_UNIT_KEYS:
                 texts.setdefault(key, entries)
+        elif name in _REPORT_KEYS:
+            # POST joins graphrag's context frames (keyed "reports"), the
+            # stream joins cached parquet tables (keyed "community_reports"):
+            # expose both names so "Reports" markers resolve on either path.
+            for key in _REPORT_KEYS:
+                texts.setdefault(key, entries)
         else:
             texts[name] = entries
     return texts
@@ -70,8 +84,17 @@ def _frame_texts(df: pd.DataFrame) -> dict[int, str | None]:
     text_col = next((c for c in _TEXT_COLUMNS if c in df.columns), None)
     if text_col is None:
         return {}
+    # graphrag 3.1.0 frames come in two shapes: cached parquet tables carry
+    # id = SHA-512 hash string (index/workflows/create_base_text_units.py)
+    # AND human_readable_id = 0-based int (create_final_text_units.py) —
+    # answer markers cite that int (model short_id reads human_readable_id);
+    # search-context frames instead put the same int straight into "id".
+    # Key on human_readable_id when both columns exist, else on int(id);
+    # non-int ids are skipped so a hash id without hrid resolves nothing
+    # instead of raising per row (which nulled every stream citation).
+    id_col = "human_readable_id" if "human_readable_id" in df.columns else "id"
     entries: dict[int, str | None] = {}
-    for raw_id, text in zip(df["id"], df[text_col]):
+    for raw_id, text in zip(df[id_col], df[text_col]):
         try:
             entry_id = int(raw_id)
         except (TypeError, ValueError):
