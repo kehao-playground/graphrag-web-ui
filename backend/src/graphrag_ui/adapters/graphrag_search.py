@@ -34,7 +34,10 @@ try:
         local_search,
         local_search_streaming,
     )
-    from graphrag.config import load_config as _graphrag_load_config
+    # NOTE: import the FUNCTION from the submodule — `from graphrag.config
+    # import load_config` binds the submodule (import system shadows the
+    # re-export), which is not callable.
+    from graphrag.config.load_config import load_config as _graphrag_load_config
 finally:
     os.environ.clear()
     os.environ.update(_environ_before_import)

@@ -180,6 +180,17 @@ async def test_rate_limit_third_post_429(client, app, fake_adapter, fake_cache, 
     assert (await _post(client, pid, bob)).status_code == 200
 
 
+
+def test_load_config_binds_function_not_submodule():
+    """`from graphrag.config import load_config` binds the SUBMODULE (the
+    import system shadows the package re-export), which is not callable —
+    every fake-adapter test passed while real queries 500'd. Found by the
+    real-corpus slow test; guarded here so the fast suite catches regressions."""
+    from graphrag_ui.adapters import graphrag_search as gsa
+
+    assert callable(gsa._graphrag_load_config)
+
+
 def test_adapter_kwargs_match_graphrag_signatures():
     """Per-mode wiring must satisfy the pinned graphrag 3.1.0 callables —
     a KeyError/TypeError here would only surface as 502 at runtime."""
