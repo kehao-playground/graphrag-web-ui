@@ -51,3 +51,14 @@ export const JobStatusColor: Record<string, string> = {
   "failed(interrupted)": "volcano",
   cancelled: "default",
 };
+// Query tab (Task 5): mirrors the SSE stream contract of
+// GET /api/projects/{id}/query/stream — citations events carry [Citation],
+// done events carry QueryTimings.
+export type QueryMethod = "local" | "global" | "drift" | "basic";
+export interface Citation {
+  label: string; ids: number[];
+  entries: { id: number; text: string | null }[];
+}
+export interface QueryTimings {
+  frames_ms: number; search_ms: number; citations_ms: number; total_ms: number;
+}
