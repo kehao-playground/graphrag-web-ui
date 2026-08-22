@@ -148,7 +148,7 @@ CREATE UNIQUE INDEX jobs_one_active_per_project
   - `GET .../artifacts/{table}`:table ∈ entities/relationships/communities/community_reports/text_units/documents;伺服器端分頁(`limit/offset`)+ 篩選(關鍵字 `q`、`type`、`community`)。**列投影白名單**(documents 列表不含 `text`/`raw_data`、community_reports 列表不含 `full_content`),DuckDB 直查 parquet(predicate/projection pushdown),不整表載入記憶體,與查詢路徑 FrameCache 各自獨立
   - `GET .../artifacts/{table}/{hrid}`:單行全欄(詳情 Drawer 用)
   - `GET .../artifacts/graph?level=`:`{nodes:[{title,type,degree,frequency,community}], edges:[{source,target,weight}]}`;community 由 `communities(level)` 的 `entity_ids` 反查(entities 表無 community 欄,§13 實測),預設 level=MAX(level),懸空邊剃除
-  - 專案有 running 索引任務時,回應標記 `stale: true`,前端顯示「索引進行中,結果可能不完整」;無 `output/` 索引輸出 → 404 + zh-TW 錯誤訊息
+  - 專案有 running 索引任務時,回應標記 `stale: true`,前端顯示「索引進行中,結果可能不完整」;無 `output/` 索引輸出 → **409** + zh-TW 錯誤訊息(與 query 路徑前例一致)
 - `GET /api/health`:輕量 liveness(僅檢查行程與 DB);`GET /api/ready`:readiness,含 graphrag 版本與 workspace 掛載檢查。**graphrag 版本在啟動時偵測一次後快取**,不在每次 probe fork 子程序
 
 ### 6.2 設定檔編輯器(雙模式)
