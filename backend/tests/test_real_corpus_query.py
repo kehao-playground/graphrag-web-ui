@@ -181,9 +181,9 @@ async def test_real_corpus_query_basic_post_local_stream_rate_limit(
     first = r.json()
     assert first["answer"].strip()
     assert first["citations"], "basic answer should carry [Data: Sources (n)] markers"
-    entries = first["citations"][0]["entries"]
-    assert entries and entries[0]["text"] is not None, \
-        "marker ids must join text_units via sources aliasing"
+    entries = [e for c in first["citations"] for e in c["entries"]]
+    assert entries and all(e["text"] is not None for e in entries), \
+        "every marker id must join text_units text via sources aliasing"
     assert set(first["timings"]) == TIMING_KEYS
     assert all(v > 0 for v in first["timings"].values())
     assert secret not in r.text
@@ -197,6 +197,16 @@ async def test_real_corpus_query_basic_post_local_stream_rate_limit(
     assert sse.text.count("event: chunk") >= 1
     stream_citations = _sse_payload(sse.text, "citations")
     assert stream_citations, "local stream should end with a citations event"
+    # Stream joins against the cached PARQUET frames: hash-string ids +
+    # human_readable_id ints and the reports↔community_reports alias must
+    # all hold — the pre-fix bug nulled EVERY entry (empty maps), so
+    # requiring one resolved text catches it. gpt-4o-mini also sometimes
+    # cites ids that exist in no frame (reproduced: "[Data: Reports (0, 4)]"
+    # with only reports 0-1 indexed) — those entries legitimately resolve
+    # text null, making all()-non-null unsatisfiable on this phase.
+    stream_entries = [e for c in stream_citations for e in c["entries"]]
+    assert stream_entries and any(e["text"] is not None for e in stream_entries), \
+        "stream markers must join parquet frames (hrid ids + reports alias)"
     done = _sse_payload(sse.text, "done")
     assert set(done) == TIMING_KEYS
     assert all(v > 0 for v in done.values())
