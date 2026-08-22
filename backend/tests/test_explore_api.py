@@ -276,3 +276,12 @@ async def test_must_change_password_token_403(client, app):
                          "/artifacts/entities", headers=dave)
     assert r.status_code == 403
     assert r.json() == {"detail": "password change required"}
+
+
+async def test_corrupt_parquet_502_list(client, app):
+    """entities.parquet 是垃圾位元組 → ExploreReadError → 502,補齊 404/409/403/502 錯誤矩陣。"""
+    pid, alice, _, _ = await _indexed_project(client, app)
+    (_ws_path(uuid.UUID(pid)) / "output" / "entities.parquet").write_bytes(b"not parquet")
+    r = await client.get(f"/api/projects/{pid}/artifacts/entities", headers=alice)
+    assert r.status_code == 502
+    assert r.json() == {"detail": "讀取索引輸出失敗"}
