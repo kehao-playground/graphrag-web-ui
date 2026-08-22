@@ -62,3 +62,26 @@ export interface Citation {
 export interface QueryTimings {
   frames_ms: number; search_ms: number; citations_ms: number; total_ms: number;
 }
+// Explore tab (Task 4): mirrors the GET /api/projects/{id}/artifacts/* JSON
+// envelopes. Rows are projections of the parquet list_columns; the detail row
+// is the full record. Graph* types are consumed by GraphView (Task 5).
+export type ArtifactTableName =
+  | "entities" | "relationships" | "communities"
+  | "community_reports" | "text_units" | "documents";
+export interface ArtifactPage {
+  rows: Record<string, unknown>[];
+  total: number;
+  stale: boolean;
+}
+export interface ArtifactDetail {
+  row: Record<string, unknown>;
+  stale: boolean;
+}
+export interface GraphNode {
+  hrid: number; title: string; type: string;
+  degree: number; frequency: number; community: number | null;
+}
+export interface GraphEdge { source: string; target: string; weight: number }
+export interface GraphData {
+  level: number; levels: number[]; nodes: GraphNode[]; edges: GraphEdge[]; stale: boolean;
+}

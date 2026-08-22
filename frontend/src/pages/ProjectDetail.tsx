@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Alert, Button, Card, Descriptions, Empty, Popconfirm, Select, Space, Spin, Table, Tabs, Tag, Typography, message,
+  Alert, Button, Card, Descriptions, Popconfirm, Select, Space, Spin, Table, Tabs, Tag, Typography, message,
 } from "antd";
 import type { TableProps } from "antd";
 import { api } from "../api/client";
@@ -12,15 +12,13 @@ import FilesPanel from "../components/FilesPanel";
 import SettingsPanel from "../components/SettingsPanel";
 import JobsPanel from "../components/JobsPanel";
 import QueryPanel from "../components/QueryPanel";
+import ExplorePanel from "../components/ExplorePanel";
 
 // Grantable roles only: owner is fixed to the creator (single-owner policy) and
 // cannot be assigned when adding members; owner rows in the table still render it.
 const ROLES = ["editor", "viewer"] as const;
 type Role = (typeof ROLES)[number];
 const ROLE_OPTIONS = ROLES.map((r) => ({ label: r, value: r }));
-const DISABLED_TABS = [
-  { key: "explore", label: "Explore" },
-] as const;
 
 // 後端錯誤格式固定 {"detail": "..."};owner row 保護的 400 訊息也從這裡帶出
 async function detailOf(r: Response, fallback: string): Promise<string> {
@@ -257,12 +255,12 @@ export default function ProjectDetail() {
       // the stream (canUse is viewer+ — currently always true).
       children: <QueryPanel projectId={id} canUse />,
     },
-    ...DISABLED_TABS.map((t) => ({
-      key: t.key,
-      label: t.label,
-      disabled: true,
-      children: <Empty description="後續階段開放" />,
-    })),
+    {
+      key: "explore",
+      label: "探索",
+      // Same gating as Query: every member can browse the indexed artifacts.
+      children: <ExplorePanel projectId={id} canUse />,
+    },
   ];
 
   return (
