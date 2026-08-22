@@ -77,15 +77,7 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
   return new Response(JSON.stringify({}), { status: 200 });
 });
 
-afterEach(async () => {
-  // Drain React 19's scheduler macrotasks (performWorkUntilDeadline) BEFORE
-  // vitest tears down the jsdom environment: the lazy GraphView chunk settles
-  // on a microtask, but re-render work is scheduled on an Immediate that can
-  // otherwise fire after teardown -> "ReferenceError: window is not defined"
-  // (nondeterministic unhandled error seen on CI).
-  const { promise, resolve } = Promise.withResolvers<void>();
-  setTimeout(resolve, 0);
-  await promise;
+afterEach(() => {
   vi.unstubAllGlobals();
   cleanup();
   // Keep the static .ant-message holder alive (JobsPanel test rationale);
