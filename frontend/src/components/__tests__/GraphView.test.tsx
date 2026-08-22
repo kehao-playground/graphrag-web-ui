@@ -93,6 +93,13 @@ test("initial load fetches the graph without a level param", async () => {
   expect(nodeTitles()).toEqual(["Ada Lovelace", "Alan Turing"]);
 });
 
+test("stale=true renders the indexing alert above the graph", async () => {
+  fetchMock.mockImplementationOnce(
+    async () => new Response(JSON.stringify({ ...GRAPH, stale: true }), { status: 200 }));
+  mount();
+  expect(await screen.findByText("索引進行中,結果可能不完整")).toBeInTheDocument();
+});
+
 test("level Select change refetches with level=0", async () => {
   mount();
   await screen.findByTestId("sigma");
@@ -103,14 +110,25 @@ test("level Select change refetches with level=0", async () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/projects/p1/artifacts/graph?level=0", expect.anything()));
 });
 
-test("min_degree Slider increase passes fewer nodes to sigma", async () => {
+test("min_degree Slider commits on release: keyDown previews, keyUp applies", async () => {
   mount();
   await screen.findByTestId("sigma");
-  // rc-slider's keyboard handler reads e.which/e.keyCode, which jsdom does
+  const slider = screen.getByRole("slider");
+  const fetches = fetchMock.mock.calls.length;
+  // Drag tick. rc-slider fires onChange per keyDown but commits only on
+  // keyUp; its keyboard handler reads e.which/e.keyCode, which jsdom does
   // not derive from `key` — fireEvent must pass keyCode explicitly.
-  fireEvent.keyDown(screen.getByRole("slider"), { key: "ArrowRight", keyCode: 39 });
-  // 1 → 2: only Alan Turing (degree 2) survives
+  fireEvent.keyDown(slider, { key: "ArrowRight", keyCode: 39 });
+  await waitFor(() => expect(slider).toHaveAttribute("aria-valuenow", "2"));
+  // The handle moved to 2, but the committed min_degree still filters at 1:
+  // no graphology rebuild, no refetch during the drag.
+  expect(nodeTitles()).toEqual(["Ada Lovelace", "Alan Turing"]);
+  expect(fetchMock.mock.calls.length).toBe(fetches);
+  // Release: onChangeComplete commits min_degree 1 → 2, dropping Ada
+  // (degree 1) and rebuilding the sigma graph — still client-side only.
+  fireEvent.keyUp(slider, { key: "ArrowRight", keyCode: 39 });
   await waitFor(() => expect(nodeTitles()).toEqual(["Alan Turing"]));
+  expect(fetchMock.mock.calls.length).toBe(fetches);
 });
 
 test("search flags matching nodes highlighted and animates the camera to the first match", async () => {

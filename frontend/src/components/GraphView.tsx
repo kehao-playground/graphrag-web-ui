@@ -39,7 +39,11 @@ function SearchFocus({ target }: { target: string | null }) {
 export default function GraphView({ projectId, canUse = true }: { projectId: string; canUse?: boolean }) {
   const [level, setLevel] = useState<number | undefined>(undefined);
   const [types, setTypes] = useState<string[]>([]);
+  // Draft = what the slider handle shows mid-drag; minDegree = the committed
+  // value that drives the graphology rebuild + FA2 layout. Committing only
+  // on release keeps dragging cheap (handle re-render, no graph recompute).
   const [minDegree, setMinDegree] = useState(1);
+  const [minDegreeDraft, setMinDegreeDraft] = useState(1);
   const [search, setSearch] = useState("");
 
   const graph = useQuery({
@@ -111,10 +115,11 @@ export default function GraphView({ projectId, canUse = true }: { projectId: str
           aria-label="最小度"
           min={0}
           max={10}
-          defaultValue={1}
+          value={minDegreeDraft}
           disabled={!canUse}
           style={{ width: 160, margin: "0 8px" }}
-          onChange={(v) => setMinDegree(v as number)}
+          onChange={(v) => setMinDegreeDraft(v as number)}
+          onChangeComplete={(v) => setMinDegree(v as number)}
         />
         <Input.Search
           aria-label="搜尋節點"
