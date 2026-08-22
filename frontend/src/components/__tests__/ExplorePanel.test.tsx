@@ -1,10 +1,24 @@
 import { render, screen, waitFor, cleanup, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi, beforeEach, afterEach } from "vitest";
+import type { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import ExplorePanel from "../ExplorePanel";
 import { useAuth } from "../../stores/auth";
+import type { GraphData } from "../../api/types";
 
+// GraphView (圖譜 mode) pulls in sigma: stub the WebGL layer so jsdom never
+// touches canvas. GraphView.test.tsx covers the graph in depth.
+vi.mock("@react-sigma/core", () => ({
+  SigmaContainer: (props: { children?: ReactNode }) => <div data-testid="sigma">{props.children}</div>,
+  useSigma: () => ({
+    getGraph: () => ({ getNodeAttributes: () => ({}) }),
+    getCamera: () => ({ animate: vi.fn() }),
+  }),
+}));
+vi.mock("@react-sigma/layout-forceatlas2", () => ({
+  useLayoutForceAtlas2: () => ({ positions: () => ({}), assign: () => undefined }),
+}));
 // Row fixtures shaped like the backend list projection (Task 1 list_columns
 // — no description/text columns) and the full detail row (SELECT *).
 const ROWS: Record<string, unknown>[] = [
@@ -36,6 +50,16 @@ const OTHER_TABLES: Record<string, Record<string, unknown>[]> = {
 // wrong endpoint or query string cannot silently pass.
 let listEnvelope = { rows: ROWS, total: ROWS.length, stale: false };
 let errorResponse: Response | null = null;
+const GRAPH: GraphData = {
+  level: 1,
+  levels: [0, 1],
+  stale: false,
+  nodes: [
+    { hrid: 1, title: "Alan Turing", type: "PERSON", degree: 2, frequency: 3, community: 0 },
+    { hrid: 2, title: "Ada Lovelace", type: "PERSON", degree: 1, frequency: 2, community: 1 },
+  ],
+  edges: [{ source: "Alan Turing", target: "Ada Lovelace", weight: 4 }],
+};
 const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
   if (errorResponse) return errorResponse;
   const route = String(input).split("?")[0];
@@ -44,6 +68,9 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
   }
   if (route === "/api/projects/p1/artifacts/entities") {
     return new Response(JSON.stringify(listEnvelope), { status: 200 });
+  }
+  if (route === "/api/projects/p1/artifacts/graph") {
+    return new Response(JSON.stringify(GRAPH), { status: 200 });
   }
   const rows = OTHER_TABLES[route.slice("/api/projects/p1/artifacts/".length)];
   if (rows) return new Response(JSON.stringify({ rows, total: rows.length, stale: false }), { status: 200 });
@@ -86,12 +113,13 @@ test("renders Segmented 圖譜|資料表; default 資料表 fetches entities pag
   expect(fetchMock).toHaveBeenCalledWith("/api/projects/p1/artifacts/entities?limit=50&offset=0", expect.anything());
 });
 
-test("圖譜 mode shows the placeholder until Task 5 ships the graph", async () => {
+test("圖譜 mode renders the WebGL graph and fetches the graph endpoint", async () => {
   mount();
   const user = userEvent.setup();
   await screen.findByText("Alan Turing");
   await user.click(screen.getByText("圖譜"));
-  expect(await screen.findByText("圖譜模式將於下一步提供")).toBeInTheDocument();
+  expect(await screen.findByTestId("sigma")).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledWith("/api/projects/p1/artifacts/graph", expect.anything());
 });
 
 test("table switch refetches the new table; q search adds q= and resets offset", async () => {
