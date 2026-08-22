@@ -51,7 +51,7 @@ briefs; their Global Constraints always apply.
 cd backend && uv run pytest -v          # 184 tests with GRAPHRAG_API_KEY (180 fast); 4 slow tests fork the real graphrag CLI and need the key; fast only: uv run pytest -m "not slow"
 cd backend && uv run ruff check
 
-# frontend (Node 20+)
+# frontend (Node 24; jsdom+undici need >=22)
 cd frontend && npm test                 # vitest
 cd frontend && npx tsc -b --noEmit
 cd frontend && npm run build
