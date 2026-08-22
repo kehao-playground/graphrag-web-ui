@@ -193,9 +193,9 @@ async def local_search(config, entities, communities, community_reports,
 
 因此設計上必須有:
 
-- **per-project DataFrame 快取層**:以 `output/` 各檔案的 (mtime, size) 為失效鍵;LRU 淘汰,總記憶體上限可設定(預設 2 GB)。沒有這層則每次查詢重讀數百 MB parquet,不可用
-- 記憶體預算需與 §8.2 的容器 limit 一併規劃(indexing 子程序 + 查詢快取共用同一個 limit)
-- **引用(citations)需要自行解析**:API 只回 `(response, context_data)`,答案內文是 `[Data: Entities (12, 34); Reports (5)]` 這類行內標記,沒有現成的 citation 物件。實作需 parse 標記 → 對 `context_data` 的 DataFrame join 回實體/關係/報告的實際內容 → 組成 `citations`。**這是 Phase 4 最大的一塊工作量**
+- **per-project DataFrame 快取層**:以 `output/` 各檔案的 (mtime, size) 為失效鍵;LRU 淘汰,總記憶體上限可設定(2026-08-22 修訂:預設 1 GB / `QUERY_CACHE_MB`——原 2 GB 與 §8.2 共享 2 Gi pod limit 矛盾,indexing 峰值實測 566 MiB)。沒有這層則每次查詢重讀數百 MB parquet,不可用
+- 記憶體預算需與 §8.2 的容器 limit 一併規劃(indexing 子程序 + 查詢快取共用同一個 limit;1 GB 快取 + 566 MiB indexing 峰值 ≈ 1.6 Gi < 2 Gi)
+- **引用(citations)需要自行解析**:API 只回 `(response, context_data)`,答案內文是 `[Data: Entities (12, 34); Reports (5)]` 這類行內標記,沒有現成的 citation 物件。實作需 parse 標記 → 對 `context_data` 的 DataFrame join 回實體/關係/報告的實際內容 → 組成 `citations`。**這是 Phase 4 最大的一塊工作量**(2026-08-22 實測:basic 模式標記為 `[Data: Sources (2)]`、context_data 是 `{"sources": DataFrame[id, text]}` 的 dict;串流版只 yield 純文字 chunk、**沒有 context_data** → citations 由組完的答案文字解析 + join 快取層的 DataFrame)
 - **串流**:預設走對應的 streaming 端點,經 SSE 推給前端,避免 ingress read timeout
 - LLM key 從專案 `.env` 載入,不進 DB
 - **vector store 隔離**:預設 LanceDB 落在專案 `output/` 下沒有問題;若團隊改用 Azure AI Search / CosmosDB,container name 會跨專案相撞 → 設定編輯器對 vector store container name 做 per-project 唯一性校驗
