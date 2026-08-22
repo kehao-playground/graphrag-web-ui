@@ -4,23 +4,15 @@ read/list/logs = viewer+."""
 
 import json
 import uuid
-from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from fastapi.responses import StreamingResponse
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from graphrag_ui.adapters.db import get_session_factory
 from graphrag_ui.adapters.index_runner import log_path_for
 from graphrag_ui.adapters.job_logs import tail_log
-from graphrag_ui.adapters.models import Job, User
-from graphrag_ui.api.deps import (
-    MUST_CHANGE_ALLOWED_PATHS,
-    CurrentUser,
-    DbSession,
-    get_current_user,
-    resolve_access_user,
-)
+from graphrag_ui.adapters.models import Job
+from graphrag_ui.api.deps import CurrentUser, DbSession, SseUser, get_current_user
 from graphrag_ui.api.projects_routes import _forbidden, _project_or_404
 from graphrag_ui.api.schemas import (
     JobCreateIn,
@@ -65,37 +57,6 @@ async def _job_or_404(db: DbSession, job_id: uuid.UUID) -> Job:
 
 async def _job_role(db: DbSession, user: CurrentUser, job: Job) -> str | None:
     return await get_project_role(db, job.project_id, user.id)
-
-
-
-# Auth for the SSE logs route only: EventSource cannot send an Authorization
-# header, so this one route accepts the access token as a ?token= query
-# parameter (plan Task 7 decision). Tradeoff: the token then appears in
-# access/proxy logs; exposure is bounded by the 15-minute access-token
-# rotation. Revisit with short-lived one-time ticket auth when audit
-# requirements demand it.
-_sse_bearer = HTTPBearer(auto_error=False)
-
-
-async def _sse_user(
-    request: Request,
-    creds: Annotated[HTTPAuthorizationCredentials | None, Depends(_sse_bearer)],
-    db: DbSession,
-    token: Annotated[str | None, Query()] = None,
-) -> User:
-    if token is not None:
-        user = await resolve_access_user(token, db)
-        if user is None:
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or expired token")
-        # Mirror get_current_user's forced-change gate so the query path is
-        # not a bypass of that check.
-        if user.must_change_password and request.url.path not in MUST_CHANGE_ALLOWED_PATHS:
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "password change required")
-        return user
-    # No query token: standard Bearer header semantics.
-    return await get_current_user(request, creds, db)
-
-SseUser = Annotated[User, Depends(_sse_user)]
 
 
 def register_jobs_routes(app):
