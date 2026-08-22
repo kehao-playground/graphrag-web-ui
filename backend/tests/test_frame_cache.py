@@ -72,6 +72,23 @@ async def test_budget_evicts_oldest_lru(root: Path) -> None:
     assert cache.frames_bytes() <= int(frame_bytes * 1.5) + frame_bytes
     assert (await cache.get(root, "text_units")) is not a  # reloaded
 
+
+async def test_insert_overwrite_releases_superseded_bytes(root: Path) -> None:
+    """Concurrent-miss overwrite (same key inserted twice without a remove in
+    between) must not double-count bytes: the superseded entry's size is
+    released before the replacement is added."""
+    cache = FrameCache(budget_bytes=10_000_000)
+    await cache.get(root, "text_units")
+    replacement = pd.DataFrame({"id": [1], "text": ["x" * 100], "pad": ["y" * 100]})
+    replacement_bytes = int(replacement.memory_usage(deep=True).sum())
+    # replacement differs from the loaded frame, so the asserts below bite
+    assert cache.frames_bytes() != replacement_bytes
+    cache._insert((str(root), "text_units"), (None,), replacement)
+    # Only the replacement entry remains in the accounting.
+    assert cache.frames_bytes() == replacement_bytes
+    assert cache._entries[(str(root), "text_units")][1] is replacement
+
+
 async def test_invalidate_drops_root_entries(root: Path, tmp_path: Path) -> None:
     other = tmp_path / "other"
     _write_parquet(other / "output" / "text_units.parquet")

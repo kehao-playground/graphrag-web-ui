@@ -104,6 +104,11 @@ class FrameCache:
 
     def _insert(self, key: tuple[str, str], validity: tuple, df: pd.DataFrame) -> None:
         size = _frame_bytes(df)
+        superseded = self._entries.get(key)
+        if superseded is not None:
+            # Same-key overwrite (concurrent miss): release the superseded
+            # entry's bytes first or they stay counted on top of the new one.
+            self._bytes -= _frame_bytes(superseded[1])
         self._entries[key] = (validity, df)
         self._bytes += size
         # Evict LRU until within budget. The incoming frame itself is kept
@@ -111,8 +116,6 @@ class FrameCache:
         # still queryable (one-shot cost) rather than a hard failure.
         while self._bytes > self.budget_bytes and len(self._entries) > 1:
             oldest_key, (_, oldest_df) = next(iter(self._entries.items()))
-            if oldest_key == key:
-                break
             self._entries.pop(oldest_key)
             self._bytes -= _frame_bytes(oldest_df)
 
