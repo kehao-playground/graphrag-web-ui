@@ -57,14 +57,19 @@ def register_query_routes(app):
     router = APIRouter(prefix="/api/projects", dependencies=[Depends(get_current_user)])
     sse_router = APIRouter(prefix="/api/projects")
 
-    @router.post("/{pid}/query")
-    async def post_query(pid: uuid.UUID, body: QueryIn, db: DbSession, user: CurrentUser):
+    async def _prepare_query(db: DbSession, user: CurrentUser, pid: uuid.UUID):
+        """Shared pre-check for both query paths: project-or-404 + viewer+."""
         project = await _project_or_404(db, pid)
         if not can(
             user.role, user.is_active, Action.view_project,
             await get_project_role(db, pid, user.id),
         ):
             raise _forbidden()
+        return project
+
+    @router.post("/{pid}/query")
+    async def post_query(pid: uuid.UUID, body: QueryIn, db: DbSession, user: CurrentUser):
+        project = await _prepare_query(db, user, pid)
         try:
             return await run_query(project, user, body.method, body.query, body.response_type)
         except (QueryRateLimitedError, WorkspaceNotIndexedError, QueryError) as exc:
@@ -82,12 +87,7 @@ def register_query_routes(app):
         # NOTE: the access token may travel as ?token= (EventSource cannot
         # send headers) — never log this request or echo query params in any
         # error; details are fixed messages only.
-        project = await _project_or_404(db, pid)
-        if not can(
-            user.role, user.is_active, Action.view_project,
-            await get_project_role(db, pid, user.id),
-        ):
-            raise _forbidden()
+        project = await _prepare_query(db, user, pid)
 
         # Prime the generator so pre-stream failures (rate limit, config,
         # frames, adapter) raise HERE as plain JSON HTTP errors — the 200 +

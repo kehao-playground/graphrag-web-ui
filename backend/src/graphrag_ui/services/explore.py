@@ -30,6 +30,10 @@ class UnknownTableError(RuntimeError):
     """Table name is not in the artifact registry (HTTP 404)."""
 
 
+class UnsupportedFilterError(RuntimeError):
+    """Filter param offered on a table whose TableSpec lacks it (HTTP 422)."""
+
+
 class ExploreReadError(RuntimeError):
     """Unexpected duckdb/parquet failure (HTTP 502).
 
@@ -60,7 +64,15 @@ async def list_artifacts(
     q: str | None = None, type_filter: str | None = None,
     community: int | None = None,
 ) -> dict:
-    _guard_table(table)
+    spec = table_spec(table)
+    if spec is None:
+        raise UnknownTableError(table)
+    # Guard before stale/IO: an unsupported param is a client contract
+    # issue, never worth a parquet read.
+    if type_filter is not None and not spec.type_filter:
+        raise UnsupportedFilterError(f"type filter on {spec.name}")
+    if community is not None and not spec.community_filter:
+        raise UnsupportedFilterError(f"community filter on {spec.name}")
     stale = await _stale(session, project)
     try:
         rows, total = await asyncio.to_thread(
