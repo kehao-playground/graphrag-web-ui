@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     cache_quota_mb: int = 2048
     disk_watermark_mb: int = 2048
     query_cache_mb: int = 1024
+    query_rate_limit_per_hour: int = 30
 
 
 @lru_cache
