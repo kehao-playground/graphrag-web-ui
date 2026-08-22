@@ -46,21 +46,16 @@ briefs; their Global Constraints always apply.
 
 ## Commands
 
-```bash
-# backend (Python 3.12, uv; Docker required for testcontainers)
-cd backend && uv run pytest -v          # 184 tests with GRAPHRAG_API_KEY (180 fast); 4 slow tests fork the real graphrag CLI and need the key; fast only: uv run pytest -m "not slow"
+# backend (Python 3.12, uv; Docker required for testcontainers; duckdb
+# reads explore parquet artifacts read-only)
+cd backend && uv run pytest -v          # 208 tests with GRAPHRAG_API_KEY (203 fast); 5 slow tests fork the real graphrag CLI and need the key; fast only: uv run pytest -m "not slow"
 cd backend && uv run ruff check
 
-# frontend (Node 24; jsdom+undici need >=22)
-cd frontend && npm test                 # vitest
+# frontend (Node 24; jsdom+undici need >=22; explore graph renders via
+# react-sigma + graphology, lazy-loaded as a separate build chunk)
+cd frontend && npm test                 # vitest run (51 tests)
 cd frontend && npx tsc -b --noEmit
 cd frontend && npm run build
-
-# deploy checks
-docker compose config
-helm lint deploy/helm/graphrag-ui
-helm template deploy/helm/graphrag-ui > /dev/null
-```
 
 ## Working Rules
 

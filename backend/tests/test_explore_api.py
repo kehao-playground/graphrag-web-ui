@@ -252,7 +252,7 @@ async def test_unknown_table_404_list_and_detail(client, app):
 
 async def test_not_indexed_409_list_and_graph(client, app):
     """FakeInitializer 的工作區沒有 output/ — 與查詢路徑同一個 409 訊息。"""
-    _, alice, bob, carol = await _setup_users(client, app)
+    _, alice, _, _ = await _setup_users(client, app)
     pid = await _project(client, alice)
     base = f"/api/projects/{pid}/artifacts"
     for path in ("entities", "graph"):
