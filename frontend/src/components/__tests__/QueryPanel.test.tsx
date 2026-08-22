@@ -86,16 +86,38 @@ test("citations render inside the 引用 collapse with label, ids and entry text
   expect(screen.getByText("—")).toBeInTheDocument();
 });
 
-test("done renders the timings line and closes the EventSource", async () => {
+test("done renders the timings line rounded to whole ms and closes the EventSource", async () => {
   mount();
   const es = await startStream();
-  es.emit("done", JSON.stringify({ frames_ms: 10, search_ms: 20, citations_ms: 5, total_ms: 35 }));
+  // Fractional ms from the backend must render rounded (Math.round), not raw.
+  es.emit("done", JSON.stringify({ frames_ms: 10.4, search_ms: 20548.6, citations_ms: 5.6, total_ms: 20564.9 }));
   expect(
-    await screen.findByText("frames 10ms · 搜尋 20ms · 引用 5ms · 總計 35ms"),
+    await screen.findByText("frames 10ms · 搜尋 20549ms · 引用 6ms · 總計 20565ms"),
   ).toBeInTheDocument();
   expect(es.close).toHaveBeenCalled();
   // Button re-enables once the stream finished.
   expect(screen.getByRole("button", { name: "執行查詢" })).toBeEnabled();
+});
+
+test("執行查詢 is disabled while streaming and until done", async () => {
+  mount();
+  const user = userEvent.setup();
+  await user.type(screen.getByRole("textbox"), "什麼是 GraphRAG?");
+  await user.click(screen.getByRole("button", { name: "執行查詢" }));
+  // No done event yet → mid-stream: the button must be disabled.
+  expect(screen.getByRole("button", { name: "執行查詢" })).toBeDisabled();
+});
+
+test("Shift+Enter inserts a newline without starting a query; Enter starts it", async () => {
+  mount();
+  const user = userEvent.setup();
+  const box = screen.getByRole("textbox") as HTMLTextAreaElement;
+  await user.type(box, "第一行");
+  await user.type(box, "{Shift>}{Enter}{/Shift}");
+  expect(MockEventSource.instances).toHaveLength(0);
+  expect(box.value).toContain("\n");
+  await user.type(box, "第二行{Enter}");
+  expect(MockEventSource.instances).toHaveLength(1);
 });
 
 test("SSE error event surfaces the backend detail via message.error and closes", async () => {
