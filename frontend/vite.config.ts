@@ -7,7 +7,10 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      "/api": "http://localhost:8000",
+      // Direct backend by default; API_PROXY_TARGET points dev/preview at
+      // another front door (e.g. the compose nginx on :8080 that also mounts
+      // the workspace volumes) without touching code.
+      "/api": process.env.API_PROXY_TARGET ?? "http://localhost:8000",
     },
   },
   build: {
