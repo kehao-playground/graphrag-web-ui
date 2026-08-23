@@ -114,20 +114,37 @@ Chosen mechanism — service functions take `(session, actor_id, ...)`
 
 - `set_env_key(session, project, key, value, actor_id)`
 - `delete_env_key(session, project, key, actor_id)`
-- `save_file(session, project, filename, content, actor_id)`
+- `save_file(session, project, filename, source, actor_id)` — `source`
+  keeps its current name and streaming semantics (any object with
+  `async read(n)`; chunked, never materialized in memory — spec §8.2
+  memory budget preserved)
 - `delete_file(session, project, filename, actor_id)`
 
 Route call sites (4) and tests calling these services directly are
 updated in the same change.
 
 **Ordering correction (decided: yes, fix it now).** Current order is
-write-file → audit → commit; if commit fails, the file exists but no
-audit row exists. New order follows AGENTS.md: `audit()` add +
-`session.flush()` → external work (file write via temp file + atomic
-rename) → `commit()`; on any failure, rollback + best-effort unlink of
-the temp/renamed file. Residual risk: crash between rename and commit
-leaves an un-audited file — accepted and noted here; full compensation
-journaling is out of scope.
+write-file → audit → commit; if commit fails, the external effect
+exists but no audit row does. The invariant — an audit row must be
+flushed inside the transaction BEFORE `commit()`, so any failure rolls
+both back together — admits two shapes, because `save_file`'s audit
+payload (`{"name", "size"}`) is only known AFTER streaming the upload:
+
+- `set_env_key` / `delete_env_key` / `delete_file` (payload knowable up
+  front): `audit()` add + `flush()` → external work → `commit()`.
+  `delete_file` stats the target first (its payload needs the size),
+  then audits, then unlinks. Unlink is irreversible: a commit failure
+  after unlink rolls back the audit row while the file is already gone
+  — same residual class as below, accepted.
+- `save_file` (size known only after write): stream to temp file
+  (external, yields size) → `audit()` add + `flush()` → atomic rename →
+  `commit()`.
+
+On any failure: `rollback()` + best-effort `unlink` of the temp file.
+Residual risks, both accepted and recorded here: crash between rename
+and commit leaves an un-audited file; commit failure in `delete_file`
+leaves an un-audited deletion. Full compensation journaling is out of
+scope.
 
 ### A2. `users_routes` stops querying
 Move into `services/users.py`: the `select()` statements (32-48), the
@@ -185,8 +202,12 @@ loop.
 **A5.1 Schema drift.** Reuse the existing session-scoped `migrated_db`
 fixture (`backend/tests/conftest.py:34`, already runs
 `command.upgrade(cfg, "head")`) — cost is one comparison test, not new
-migration infrastructure. Comparison via `alembic.autogenerate.
-compare_metadata`, filtered to a fixed category set:
+migration infrastructure. `compare_metadata` needs a synchronous
+Connection; reuse the existing `run_sync` pattern from
+`migrations/env.py:75-76` (`await connection.run_sync(...)`) — no new
+sync postgres driver dependency. Comparison via
+`alembic.autogenerate.compare_metadata`, filtered to a fixed category
+set:
 - FAIL on: add/remove table, add/remove column, column type change,
   nullability change.
 - IGNORE (known noise sources): `server_default` differences, index and
@@ -221,10 +242,15 @@ option 1):
   contract-less types (each marked `// no backend response_model yet —
   hand-maintained, see A5.2`). Two files, not a "manual region inside
   the generated file" (generators do not guarantee header preservation).
-- CI wiring (no job has both toolchains today): backend job exports
-  `openapi.json` as a workflow artifact; frontend job (already has
-  node) downloads it, runs `openapi-typescript`, and diffs against the
-  committed `types.generated.ts` — diff must be empty. Zero new jobs.
+- CI wiring (no job has both toolchains today):
+`openapi.json` is ALSO committed to the repo. The backend job
+regenerates it and diffs against the committed copy (must be fresh);
+the frontend job codegens from the committed copy and diffs the
+committed `types.generated.ts` (diff must be empty). Both diffs must be
+empty. This keeps backend/frontend/helm fully parallel (no `needs:` —
+the artifact alternative would serialize frontend behind the whole
+backend testcontainer suite); the cost is one more committed generated
+file and one more diff gate.
 - Ratchet: a backend test enumerates endpoints lacking `response_model`,
   asserts the set equals the known-current list (explore + query
   endpoints). New endpoints must declare response models; shrinking the
@@ -238,9 +264,10 @@ real-corpus slow tests; the one cross-module `noqa` import
 pytest-inside-pytest that risks pulling testcontainers into the fast
 path): one fast test imports the three real-corpus modules and asserts
 (a) each module's `pytestmark` composes the slow + key-gate marks, and
-(b) the fixtures resolve from the shared helper (source inspection or
-`pytest.PyCollector` metadata), so a deleted fixture import fails loudly
-instead of silently skipping.
+(b) the shared fixtures are the ones actually bound in each module —
+by object identity (`test_real_corpus_query.query_client is
+helper.query_client`, etc.) — so a deleted fixture import fails loudly
+instead of silently skipping. No pytest internals are touched.
 
 ### A7. Small convergences
 - `QueryError`/`ExploreReadError`: shared base class, shared
@@ -300,11 +327,17 @@ stock is what it is; the rule governs from now on.
 
 ### B3. One-time comment sweep
 All zh-TW code comments → English. Corrected coverage list (measured
-~230 lines): backend src + `migrations/env.py` (114 lines / 22 files),
-frontend `src` (~45), deploy/helm values + templates `_helpers.tpl`
-(`{{/* */}}` syntax), `docker-compose.yml`, `.env.example`,
-`backend/Dockerfile`, `backend/pyproject.toml`, `frontend/nginx.conf`,
-`frontend/src/index.css` (`/* */`), `.github/workflows/ci.yml`. Rules:
+~230 lines): backend `src` + `migrations/env.py` (65 lines / 13 files)
+AND `backend/tests` (49 lines / 9 files — e.g. `conftest.py:45-50`
+docstring), frontend `src` (~45), deploy/helm values + templates
+`_helpers.tpl` (`{{/* */}}` syntax), `docker-compose.yml`,
+`.env.example`, `backend/Dockerfile`, `backend/pyproject.toml`,
+`frontend/nginx.conf`, `frontend/src/index.css` (`/* */`),
+`.github/workflows/ci.yml`. `pyproject.toml`'s only CJK is the
+`description` string value (line 4) — it is package metadata and gets
+translated, but as a string it is NOT covered by the B4 guard
+(review-enforced, noted here so the asymmetry is deliberate).
+Rules:
 UI strings, API error-detail strings, operator-facing output (helm
 `NOTES.txt` — decided: it is output text shown to operators at install
 time, i.e. zh-TW by design, NOT a comment), and test assertions quoting
