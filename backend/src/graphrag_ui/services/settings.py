@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.adapters.models import Project, SettingsVersion
 from graphrag_ui.services.audit import audit
-from graphrag_ui.services.projects import _ws_path
+from graphrag_ui.services.projects import ws_path
 
 # Versions list endpoint caps the returned rows (display history, not an archive)
 VERSIONS_PAGE_CAP = 50
@@ -43,7 +43,7 @@ def _hash_bytes(data: bytes) -> str:
 
 def read_settings(project: Project) -> tuple[str, str]:
     """(content, sha256-hex of the bytes on disk)."""
-    data = (_ws_path(project.id) / "settings.yaml").read_bytes()
+    data = (ws_path(project.id) / "settings.yaml").read_bytes()
     return data.decode(), _hash_bytes(data)
 
 
@@ -56,7 +56,7 @@ async def write_settings(session: AsyncSession, project: Project, content: str,
     ValueError when the content exceeds MAX_CONTENT_BYTES or is not parseable
     YAML.
     """
-    path = _ws_path(project.id) / "settings.yaml"
+    path = ws_path(project.id) / "settings.yaml"
     current_content, current_hash = read_settings(project)
     if current_hash != expected_hash:
         raise SettingsConflictError(current_content, current_hash)
@@ -74,7 +74,7 @@ async def write_settings(session: AsyncSession, project: Project, content: str,
     # same way here — os.environ overlaid by the workspace .env KEY=VALUE
     # pairs, mirroring graphrag's env loading order.
     env = dict(os.environ)
-    env_path = _ws_path(project.id) / ".env"
+    env_path = ws_path(project.id) / ".env"
     if env_path.exists():
         for raw in env_path.read_text().splitlines():
             line = raw.strip()

@@ -13,7 +13,7 @@ from graphrag_ui.adapters.workspace import WorkspaceInitError, dry_run
 from graphrag_ui.api.deps import CurrentUser, DbSession, get_current_user
 from graphrag_ui.api.projects_routes import _forbidden, _project_or_404
 from graphrag_ui.domain.permissions import Action, can
-from graphrag_ui.services.projects import _ws_path, get_project_role
+from graphrag_ui.services.projects import get_project_role, ws_path
 
 
 class DryRunOut(BaseModel):
@@ -34,7 +34,7 @@ def register_dry_run_routes(app):
             raise _forbidden()
         try:
             # module-level import above: tests monkeypatch dry_run_routes.dry_run
-            result = await dry_run(_ws_path(project.id))
+            result = await dry_run(ws_path(project.id))
         except WorkspaceInitError:
             raise HTTPException(
                 status.HTTP_500_INTERNAL_SERVER_ERROR,

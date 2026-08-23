@@ -21,7 +21,7 @@ from graphrag_ui.adapters.artifacts import (
 from graphrag_ui.adapters.models import Project
 from graphrag_ui.domain.artifacts import table_spec
 from graphrag_ui.services.jobs import active_job
-from graphrag_ui.services.projects import _ws_path
+from graphrag_ui.services.projects import ws_path
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +76,7 @@ async def list_artifacts(
     stale = await _stale(session, project)
     try:
         rows, total = await asyncio.to_thread(
-            list_rows, _ws_path(project.id), table,
+            list_rows, ws_path(project.id), table,
             limit=limit, offset=offset, q=q,
             type_filter=type_filter, community=community,
         )
@@ -96,7 +96,7 @@ async def artifact_detail(
     _guard_table(table)
     stale = await _stale(session, project)
     try:
-        row = await asyncio.to_thread(get_row, _ws_path(project.id), table, hrid)
+        row = await asyncio.to_thread(get_row, ws_path(project.id), table, hrid)
     except ArtifactsNotIndexedError:
         raise
     except Exception as exc:
@@ -111,7 +111,7 @@ async def knowledge_graph(
 ) -> dict:
     stale = await _stale(session, project)
     try:
-        data = await asyncio.to_thread(graph, _ws_path(project.id), level)
+        data = await asyncio.to_thread(graph, ws_path(project.id), level)
     except ArtifactsNotIndexedError:
         raise
     except Exception as exc:

@@ -13,7 +13,7 @@ from graphrag_ui.adapters import jobs_repo
 from graphrag_ui.adapters.models import Job, Project, User
 from graphrag_ui.config import get_settings
 from graphrag_ui.domain.jobs import build_argv
-from graphrag_ui.services.projects import _ws_path
+from graphrag_ui.services.projects import ws_path
 
 
 class JobConflictError(RuntimeError):
@@ -29,7 +29,7 @@ async def enqueue(
 ) -> Job:
     # Validate type/method before any I/O; build_argv raises ValueError.
     project_id = str(project.id)  # snapshot: rollback() expires instances
-    root = _ws_path(project.id)
+    root = ws_path(project.id)
     argv = build_argv(type, method, root)
     settings = get_settings()
     # Measure the workspaces ROOT (spec §6.1), not the possibly-missing
@@ -84,7 +84,7 @@ async def _tree_bytes(path: Path) -> int:
 
 async def preflight(session: AsyncSession, project: Project) -> dict:
     settings = get_settings()
-    root = _ws_path(project.id)
+    root = ws_path(project.id)
     ws_root = Path(settings.workspaces_dir).resolve()
     last = await jobs_repo.last_finished(session, project.id)
     last_run = None

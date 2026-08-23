@@ -8,7 +8,7 @@ import uuid
 from graphrag_ui.adapters.workspace import FakeInitializer
 from graphrag_ui.api.projects_routes import get_initializer
 from graphrag_ui.config import get_settings
-from graphrag_ui.services.projects import _ws_path
+from graphrag_ui.services.projects import ws_path
 
 
 async def _login(client, email, password):
@@ -65,7 +65,7 @@ async def test_enqueue_and_list(client, app):
     assert r.status_code == 201, r.text
     job = r.json()
     assert job["status"] == "queued" and job["display_status"] == "queued"
-    assert job["argv"] == ["index", "--root", str(_ws_path(uuid.UUID(pid))), "--method", "fast"]
+    assert job["argv"] == ["index", "--root", str(ws_path(uuid.UUID(pid))), "--method", "fast"]
     lst = await client.get(f"/api/projects/{pid}/jobs", headers=alice)
     assert [j["id"] for j in lst.json()] == [job["id"]]
 

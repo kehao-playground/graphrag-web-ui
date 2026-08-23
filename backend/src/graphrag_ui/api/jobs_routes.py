@@ -23,7 +23,7 @@ from graphrag_ui.domain.jobs import TERMINAL_STATUSES, display_status
 from graphrag_ui.domain.permissions import Action, can
 from graphrag_ui.services import jobs as jobs_service
 from graphrag_ui.services.jobs import DiskWatermarkError, JobConflictError
-from graphrag_ui.services.projects import _ws_path, get_project_role
+from graphrag_ui.services.projects import get_project_role, ws_path
 
 
 def job_out(j: Job) -> dict:
@@ -134,7 +134,7 @@ def register_jobs_routes(app):
             start = offset if offset >= 0 else int(last_event_id or 0)
         except ValueError:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid Last-Event-ID") from None
-        log_path = log_path_for(_ws_path(job.project_id), job.id)
+        log_path = log_path_for(ws_path(job.project_id), job.id)
 
         async def gen():
             # NOTE: db session is request-scoped and may close once the

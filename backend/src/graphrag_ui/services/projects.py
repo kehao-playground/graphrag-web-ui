@@ -11,6 +11,7 @@ from graphrag_ui.adapters.models import Project, ProjectMember, User
 from graphrag_ui.adapters.workspace import WorkspaceInitError, WorkspaceInitializer
 from graphrag_ui.config import get_settings
 from graphrag_ui.domain.permissions import Action, can
+from graphrag_ui.domain.workspaces import workspace_path
 from graphrag_ui.services.audit import audit
 
 
@@ -27,10 +28,11 @@ async def _unique_slug(session: AsyncSession, name: str) -> str:
     return slug
 
 
-def _ws_path(project_id: uuid.UUID) -> Path:
-    """workspace 目錄;所有檔案操作前 resolve 並斷言仍在 workspaces root 內(spec §10)。"""
+def ws_path(project_id: uuid.UUID) -> Path:
+    """Resolved workspace dir; resolve can follow symlinks, so containment
+    is re-asserted against the resolved root (spec A3, §10)."""
     root = Path(get_settings().workspaces_dir).resolve()
-    path = (root / str(project_id)).resolve()
+    path = workspace_path(root, project_id).resolve()
     if not path.is_relative_to(root):
         msg = f"workspace path escapes workspaces dir: {path}"
         raise ValueError(msg)
@@ -56,7 +58,7 @@ async def create_project(session: AsyncSession, name: str, description: str | No
                 payload={"name": name, "slug": project.slug,
                          "input_file_type": input_file_type})
     try:
-        await initializer.init(_ws_path(project.id), input_file_type)
+        await initializer.init(ws_path(project.id), input_file_type)
     except WorkspaceInitError:
         await session.rollback()  # init 失敗不留 half-baked row,原樣往上拋
         raise
@@ -99,7 +101,7 @@ async def update_project(session: AsyncSession, project: Project, *, name: str |
 
 async def delete_project(session: AsyncSession, project: Project,
                          actor_id: uuid.UUID | None) -> None:
-    ws = _ws_path(project.id)
+    ws = ws_path(project.id)
     if ws.exists():
         shutil.rmtree(ws)
     await audit(session, actor_id, "project.deleted", "project", str(project.id),

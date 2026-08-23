@@ -16,12 +16,12 @@ from graphrag_ui.adapters.db import get_session_factory
 from graphrag_ui.adapters.jobs_repo import insert_job
 from graphrag_ui.adapters.workspace import FakeInitializer
 from graphrag_ui.api.projects_routes import get_initializer
-from graphrag_ui.services.projects import _ws_path
+from graphrag_ui.services.projects import ws_path
 
 
 def _write_artifacts(pid: str) -> None:
     """Seed the project workspace with §13-shaped parquet (Task 2 fixture)."""
-    out = _ws_path(uuid.UUID(pid)) / "output"
+    out = ws_path(uuid.UUID(pid)) / "output"
     out.mkdir(parents=True, exist_ok=True)
     pd.DataFrame({
         "id": ["e1", "e2", "e3"], "human_readable_id": [1, 2, 3],
@@ -299,7 +299,7 @@ async def test_must_change_password_token_403(client, app):
 async def test_corrupt_parquet_502_list(client, app):
     """entities.parquet 是垃圾位元組 → ExploreReadError → 502,補齊 404/409/403/502 錯誤矩陣。"""
     pid, alice, _, _ = await _indexed_project(client, app)
-    (_ws_path(uuid.UUID(pid)) / "output" / "entities.parquet").write_bytes(b"not parquet")
+    (ws_path(uuid.UUID(pid)) / "output" / "entities.parquet").write_bytes(b"not parquet")
     r = await client.get(f"/api/projects/{pid}/artifacts/entities", headers=alice)
     assert r.status_code == 502
     assert r.json() == {"detail": "讀取索引輸出失敗"}

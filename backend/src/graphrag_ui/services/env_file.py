@@ -7,7 +7,7 @@ error messages must never include a value (routes rely on that).
 import re
 
 from graphrag_ui.adapters.models import Project
-from graphrag_ui.services.projects import _ws_path
+from graphrag_ui.services.projects import ws_path
 
 # dotenv keys we manage: UPPER_SNAKE (graphrag's GRAPHRAG_API_KEY etc.)
 _KEY_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
@@ -18,7 +18,7 @@ def _mask(value: str) -> str:
 
 
 def _env_path(project: Project):
-    return _ws_path(project.id) / ".env"
+    return ws_path(project.id) / ".env"
 
 
 def _read_lines(project: Project) -> list[str]:
