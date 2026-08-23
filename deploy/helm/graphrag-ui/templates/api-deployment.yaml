@@ -20,7 +20,7 @@ spec:
         app.kubernetes.io/component: api
     spec:
       terminationGracePeriodSeconds: {{ .Values.api.terminationGracePeriodSeconds }}
-      # spec §8.2 另規劃 preStop hook 讓任務收尾 — 待 Phase 3 reconciler 上線後補上可呼叫的端點
+      # spec §8.2 also plans a preStop hook for job drain-back — deferred until the Phase 3 reconciler exposes a callable endpoint
       containers:
         - name: api
           image: "{{ .Values.api.image.repository | default "graphrag-ui-api" }}:{{ .Values.api.image.tag | default .Chart.AppVersion }}"
@@ -67,12 +67,12 @@ spec:
           volumeMounts:
             - name: workspaces
               mountPath: /data/workspaces
-          livenessProbe:              # spec §8.2:/api/health 作 liveness
+          livenessProbe:              # spec §8.2: /api/health as liveness
             httpGet: { path: /api/health, port: 8000 }
-            initialDelaySeconds: 30   # 容器啟動先跑 alembic migration,給足首次時間
+            initialDelaySeconds: 30   # startup runs alembic migration first; allow ample first-run time
             periodSeconds: 10
             failureThreshold: 5
-          readinessProbe:             # spec §8.2:/api/ready 作 readiness(會檢查 DB 連線)
+          readinessProbe:             # spec §8.2: /api/ready as readiness (checks the DB connection)
             httpGet: { path: /api/ready, port: 8000 }
             periodSeconds: 10
             timeoutSeconds: 5

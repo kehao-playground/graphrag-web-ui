@@ -12,7 +12,7 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@v4
-      # testcontainers 需要 docker — GitHub ubuntu runner 內建
+      # testcontainers needs docker — the GitHub ubuntu runner has it built in
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
@@ -45,7 +45,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # charts/ 內含已 vendor 的 bitnami/postgresql,不需額外 helm repo
+      # charts/ contains the vendored bitnami/postgresql; no extra helm repo needed
       - run: helm lint deploy/helm/graphrag-ui
       - run: helm template deploy/helm/graphrag-ui > /dev/null
       - run: |

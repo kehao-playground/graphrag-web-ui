@@ -1,8 +1,10 @@
-# nginx.conf(brief 釘死)以靜態上游 http://api:8000 反代 /api/ —
-# nginx 在 config load 當下就解析上游名稱,K8s namespace 內預設沒有 `api` 這個 DNS 名稱;
-# 沒有這個 alias 時 web 容器會 [emerg] 退出、crash-loop(與是否啟用 ingress 無關)。
-# ExternalName 讓 `api` CNAME 到 <fullname>-api;8000 埠由 api-service.yaml 另外加開。
-# 注意:名稱 `api` 由 nginx.conf 決定,同一 namespace 僅支援單一 release。
+# nginx.conf (pinned by the brief) reverse-proxies /api/ to the static upstream
+# http://api:8000 — nginx resolves the upstream name the moment its config
+# loads, and a K8s namespace has no `api` DNS name by default; without this
+# alias the web container exits with [emerg] and crash-loops (regardless of
+# ingress). ExternalName makes `api` a CNAME to <fullname>-api; port 8000 is
+# opened separately by api-service.yaml. Note: the name `api` is dictated by
+# nginx.conf, so a namespace supports only a single release.
 apiVersion: v1
 kind: Service
 metadata:

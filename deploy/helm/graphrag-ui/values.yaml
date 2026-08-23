@@ -1,15 +1,16 @@
 # GraphRAG Web UI Helm values(spec §8.2)
-# 環境差異全部走環境變數(spec §8.3),與 docker-compose 共用同一組變數名:
+# All environment differences go through env vars (spec §8.3), sharing the
+# same variable names as docker-compose:
 # DATABASE_URL / WORKSPACES_DIR / JWT_SECRET / BOOTSTRAP_ADMIN_EMAIL / BOOTSTRAP_ADMIN_PASSWORD /
 # UPLOAD_MAX_FILE_MB / PROJECT_QUOTA_MB / MAX_CONCURRENT_JOBS / JOB_LOG_RETENTION_DAYS /
 # JOB_LOG_FAILED_RETENTION_DAYS / UPDATE_OUTPUT_KEEP_LATEST / CACHE_QUOTA_MB / DISK_WATERMARK_MB /
 # QUERY_CACHE_MB / QUERY_RATE_LIMIT_PER_HOUR
 
 api:
-  image: {}            # repository/tag,例 { repository: registry.example.com/graphrag-ui/api, tag: "0.1.0" };空 = 本地測試用預設名
-  replicas: 1          # 固定 1(spec §8.2):runner 與 workspace PVC(RWO)綁定,不做水平擴展
-  strategy: Recreate   # RWO PVC:rolling update 期間兩個 pod 會搶同一份 workspace,必須 Recreate
-  terminationGracePeriodSeconds: 120  # 讓進行中的 indexing 任務有機會收尾或乾淨標記中斷(spec §8.2)
+  image: {}            # repository/tag, e.g. { repository: registry.example.com/graphrag-ui/api, tag: "0.1.0" }; empty = default name for local testing
+  replicas: 1          # fixed at 1 (spec §8.2): the runner is tied to the workspace PVC (RWO); no horizontal scaling
+  strategy: Recreate   # RWO PVC: during a rolling update two pods would fight over the same workspace; Recreate is mandatory
+  terminationGracePeriodSeconds: 120  # lets in-flight indexing jobs finish or be cleanly marked interrupted (spec §8.2)
   # Measured peak RSS during full indexing ≈ 566 MiB (2026-08-21 final review);
   # spec §13 row 3 guidance: limit ≥ 2 GiB headroom above the measured peak.
   resources:
@@ -17,41 +18,44 @@ api:
     limits: { cpu: 500m, memory: 2Gi }
 
 web:
-  image: {}            # repository/tag,同 api.image
+  image: {}            # repository/tag, same as api.image
   replicas: 2
 
 ingress:
   enabled: false
-  className: ""        # 例 nginx;需對應叢集上的 ingress controller
-  host: ""             # 例 graphrag.example.com;空字串 = catch-all
-  annotations:         # SSE:nginx.ingress.kubernetes.io/proxy-buffering: "off"
-    {}                 # (proxy-buffering off 與長 read timeout 已由 template 內建,這裡放額外 annotation)
+  className: ""        # e.g. nginx; must match the cluster's ingress controller
+  host: ""             # e.g. graphrag.example.com; empty string = catch-all
+  annotations:         # SSE: nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    {}                 # (proxy-buffering off and the long read timeout are built into the template; put extra annotations here)
 
 externalDatabase:
-  url: ""              # 例 postgresql+asyncpg://user:pw@host:5432/graphrag;postgresql.enabled=false 時必填
+  url: ""              # e.g. postgresql+asyncpg://user:pw@host:5432/graphrag; required when postgresql.enabled=false
 
 postgresql:
-  enabled: true        # false 時必須設定 externalDatabase.url
+  enabled: true        # when false, externalDatabase.url must be set
   # Align with tests (testcontainers postgres:16-alpine); bitnami chart 18.x accepts PG16 tags.
   # Registry caveat: since Bitnami's 2025 reorg, Docker Hub has no public semver tags
   # (bitnami/postgresql:16.8.0 → 404 → ImagePullBackOff). Configure a registry mirror or
   # point image.registry/repository at a reachable source (e.g. repository: bitnamilegacy/postgresql).
   image: { tag: "16.8.0" }
   auth: { username: graphrag, password: "", database: graphrag }
-  # 內建 DB 注意:DATABASE_URL 於 render 時組出,密碼取自 auth.password —
-  # 啟用內建 DB 時請明確設定 auth.password(留空則組出的 URL 沒有密碼,上線後連不上)
+  # Bundled-DB note: DATABASE_URL is assembled at render time with the
+  # password taken from auth.password — set auth.password explicitly when the
+  # bundled DB is enabled (leaving it empty yields a passwordless URL that
+  # cannot connect in production)
 
 persistence:
-  size: 50Gi           # workspace PVC(ReadWriteOnce),掛在 api 的 /data/workspaces
+  size: 50Gi           # workspace PVC (ReadWriteOnce), mounted at the api's /data/workspaces
 
-jwtSecret: ""          # --set 或 existingSecret
-existingSecret: ""     # 非 "" 時不建立 chart 自己的 Secret,改引用既有 Secret;
-                       # 該 Secret 需含 4 個 key:DATABASE_URL / JWT_SECRET / BOOTSTRAP_ADMIN_EMAIL / BOOTSTRAP_ADMIN_PASSWORD
+jwtSecret: ""          # via --set or existingSecret
+existingSecret: ""     # when non-empty, the chart creates no Secret of its own and references the existing one;
+                       # that Secret must contain 4 keys: DATABASE_URL / JWT_SECRET / BOOTSTRAP_ADMIN_EMAIL / BOOTSTRAP_ADMIN_PASSWORD
 
 bootstrapAdmin:
-  # ⚠ email 必須是真實可路由網域,不可用 .local — 登入驗證拒絕 special-use
-  #   domains,帳號建立了也登不進去(422),首次部署即無 admin 可用
-  email: ""            # 首次啟動建立的 admin 帳號(空字串 = 不建立)
+  # ⚠ The email must be a real routable domain, never .local — login
+  #   validation rejects special-use domains; the account gets created but
+  #   cannot log in (422), leaving the first deployment without an admin
+  email: ""            # admin account created at first startup (empty string = do not create)
   password: ""
 
 uploadMaxFileMb: 50    # UPLOAD_MAX_FILE_MB — single-file upload limit in MiB; exceed → 413

@@ -6,7 +6,7 @@ metadata:
   labels:
     {{- include "graphrag-ui.labels" . | nindent 4 }}
   annotations:
-    # SSE(spec §8.2):ingress 必須關 buffering、拉長 read timeout,否則串流查詢會被卡住
+    # SSE (spec §8.2): the ingress must disable buffering and extend the read timeout, or streamed queries stall
     nginx.ingress.kubernetes.io/proxy-buffering: "off"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
     {{- with .Values.ingress.annotations }}
