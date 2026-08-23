@@ -1,4 +1,4 @@
-/* 最小 reset:AntD 自帶排版,不覆蓋字體/佈局 */
+/* Minimal reset: AntD ships its own typography; fonts/layout are not overridden */
 *,
 *::before,
 *::after {

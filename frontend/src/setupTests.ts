@@ -1,7 +1,7 @@
 import { afterAll } from "vitest";
 import "@testing-library/jest-dom";
 
-// jsdom 沒有 matchMedia,AntD responsive observer 需要
+// jsdom lacks matchMedia; AntD's responsive observer needs it
 if (typeof window.matchMedia !== "function") {
   Object.defineProperty(window, "matchMedia", {
     writable: true,

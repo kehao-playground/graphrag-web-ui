@@ -31,7 +31,7 @@ export default function AdminUsers() {
   const [editForm] = Form.useForm<EditForm>();
   const [resetForm] = Form.useForm<{ new_password: string }>();
 
-  // 與 ["users"](GET /api/users 的窄清單)是不同端點、不同形狀,鍵必須分開
+  // Different endpoint and shape from ["users"] (the narrow GET /api/users list); keys must stay separate
   const { data: users, isPending, error } = useQuery({
     queryKey: ["admin", "users"],
     queryFn: async () => {
@@ -108,7 +108,7 @@ export default function AdminUsers() {
     {
       title: "操作",
       render: (_, u) => {
-        // 改自己的 role / is_active 後端一律 400;UI 直接鎖住避免必然失敗的操作
+        // The backend always 400s changing your own role / is_active; the UI locks it out rather than offer a guaranteed failure
         const self = u.id === me?.id;
         return (
           <Space>
@@ -211,7 +211,7 @@ export default function AdminUsers() {
         onOk={() =>
           editForm.validateFields().then((v) => {
             if (!editTarget) return;
-            // 自己的 row 後端禁止改 role — 表單裡的 role 只供顯示,不送出
+            // Your own row forbids role changes on the backend — the form's role is display-only, never submitted
             patch.mutate(editTarget.id === me?.id
               ? { id: editTarget.id, display_name: v.display_name }
               : { id: editTarget.id, ...v });

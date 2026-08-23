@@ -139,13 +139,13 @@ test("cancelling display_status renders the cancelling tag", async () => {
   })];
   mount(true);
   expect(await screen.findByText("cancelling")).toBeInTheDocument();
-  // cancel already requested → no 取消 button
+  // cancel already requested → no cancel button
   expect(screen.queryByRole("button", { name: /^取\s?消$/ })).not.toBeInTheDocument();
 });
 
 test("canEdit=false: launch disabled, no 取消, 日誌 still available", async () => {
   mount(false);
-  // Await the table row (the 類型 Select label renders earlier than rows).
+  // Await the table row (the type Select label renders earlier than rows).
   await screen.findByText("queued");
   expect(screen.getByRole("button", { name: "開始索引" })).toBeDisabled();
   expect(screen.queryByRole("button", { name: /^取\s?消$/ })).not.toBeInTheDocument();

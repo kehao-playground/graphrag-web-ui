@@ -57,14 +57,16 @@ export default function ProjectDetail() {
     if (members.error) message.error(members.error.message);
   }, [members.error]);
 
-  // 成員管理權限:系統 admin 或專案 owner(後端仍會強制,這裡只控制 UI)
+  // Member management: system admin or project owner (the backend still
+  // enforces; this only gates the UI)
   const myRole = members.data?.find((m) => m.user_id === user?.id)?.role;
   const canManage = !!user && (user.role === "admin" || myRole === "owner");
 
   // Content editing (upload/delete files): admin or owner/editor (Task 2 permissions)
   const canEditContent = !!user && (user.role === "admin" || myRole === "owner" || myRole === "editor");
-  // 新增成員需要 user_id;GET /api/users 是所有已登入使用者可用的窄清單,
-  // 非 admin owner 也能選人(停用者由前端過濾)
+  // Adding a member needs user_id; GET /api/users is the narrow list every
+  // logged-in user can call, so a non-admin owner can pick users too
+  // (the frontend filters out disabled ones)
   const users = useQuery({
     queryKey: ["users"],
     queryFn: async () => {
@@ -138,7 +140,7 @@ export default function ProjectDetail() {
           style={{ width: 110 }}
           value={m.role as Role}
           options={ROLE_OPTIONS}
-          // owner row 後端 400 保護;UI 直接鎖住避免必然失敗的操作
+          // The owner row is 400-protected on the backend; the UI locks it rather than offer a guaranteed failure
           disabled={!canManage || m.role === "owner"}
           onChange={(role) => putMember.mutate({ userId: m.user_id, role })}
         />

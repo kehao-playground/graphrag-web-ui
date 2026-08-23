@@ -31,7 +31,8 @@ export default function Login() {
     });
     setChanging(false);
     if (!r.ok) {
-      // 400 = 原密碼錯誤;422 = 新密碼未過後端驗證(min_length=8) — 兩者分開提示
+      // 400 = wrong current password; 422 = new password failed backend
+      // validation (min_length=8) — the two are surfaced separately
       if (r.status === 400) {
         changeForm.setFields([{ name: "current_password", errors: ["原密碼錯誤"] }]);
       } else {

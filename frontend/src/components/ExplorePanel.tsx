@@ -8,7 +8,7 @@ import { fetchArtifactDetail, fetchArtifacts } from "../api/client";
 import type { ArtifactTableName } from "../api/types";
 
 // the graph stack (sigma + graphology, ~204 kB chunk / ~51 kB gzip):
-// lazy-load it so it lands in its own chunk, fetched the first time 圖譜
+// lazy-load it so it lands in its own chunk, fetched the first time graph
 // mode is used.
 const GraphView = lazy(() => import("./GraphView"));
 
@@ -145,7 +145,7 @@ export default function ExplorePanel({ projectId, canUse }: { projectId: string;
   return (
     <Space orientation="vertical" size="large" style={{ width: "100%" }}>
       {/* Shown in both modes while an index job makes results incomplete —
-          each mode surfaces it from its own query (GraphView in 圖譜 mode). */}
+          each mode surfaces it from its own query (GraphView in graph mode). */}
       {mode === "table" && list.data?.stale && <Alert type="warning" showIcon message="索引進行中,結果可能不完整" />}
       <Segmented
         value={mode}

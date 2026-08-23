@@ -5,8 +5,9 @@ import { MemoryRouter } from "react-router-dom";
 import Projects from "../Projects";
 import type * as ApiClient from "../../api/client";
 
-// mock 必須按 URL 分流:所有呼叫回同一陣列的話,/api/users 拿到的也是
-// project 陣列 — owner_id 永遠對不上,測試結構上抓不到查找 key 的錯
+// The mock must branch by URL: if every call returned the same array,
+// /api/users would get the project array too — owner_id would never match,
+// and the test could not structurally catch a wrong lookup key
 // Real detailOf stays under test; only the transport is mocked.
 vi.mock("../../api/client", async (importOriginal) => ({
   ...(await importOriginal()) as typeof ApiClient,
@@ -28,6 +29,6 @@ test("renders project list with owner resolved by owner_id", async () => {
   const qc = new QueryClient()
   render(<QueryClientProvider client={qc}><MemoryRouter><Projects /></MemoryRouter></QueryClientProvider>)
   expect(await screen.findByText("Research Corpus")).toBeInTheDocument()
-  // 擁有者欄:project.owner_id=u1 → /api/users 裡對應的 user,不是「—」
+  // Owner column: project.owner_id=u1 → the matching /api/users user, not the "—" placeholder
   expect(await screen.findByText("owner@example.com")).toBeInTheDocument()
 })

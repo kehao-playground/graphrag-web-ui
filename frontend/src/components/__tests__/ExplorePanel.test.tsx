@@ -7,7 +7,7 @@ import ExplorePanel from "../ExplorePanel";
 import { useAuth } from "../../stores/auth";
 import type { GraphData } from "../../api/types";
 
-// GraphView (圖譜 mode) pulls in sigma: stub the WebGL layer so jsdom never
+// GraphView (graph mode) pulls in sigma: stub the WebGL layer so jsdom never
 // touches canvas. GraphView.test.tsx covers the graph in depth. GraphView
 // syncs filter results in place, so the stub graph exposes the mutation API
 // (clear/addNode/addEdge) and the stub keeps a stable identity like the real
@@ -217,7 +217,7 @@ test("table switch with the drawer open closes it and skips the new table's deta
   await pickOption(user, "關係");
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith("/api/projects/p1/artifacts/relationships?limit=50&offset=0", expect.anything()));
-  // The detail drawer closes instead of re-querying hrid 2 on 關係.
+  // The detail drawer closes instead of re-querying hrid 2 on the relationships table.
   await waitFor(() => expect(screen.queryByText("first programmer")).not.toBeInTheDocument());
   expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("/artifacts/relationships/"))).toEqual([]);
 });
