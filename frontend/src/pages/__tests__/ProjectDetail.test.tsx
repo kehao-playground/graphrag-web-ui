@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import ProjectDetail from "../ProjectDetail";
 import { useAuth } from "../../stores/auth";
+import type * as ApiClient from "../../api/client";
 
 const project = {
   id: "p1", name: "P1", slug: "p1", description: null,
@@ -21,7 +22,9 @@ const users = [
 
 const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
 
-vi.mock("../../api/client", () => ({
+// Real detailOf stays under test; only the transport is mocked.
+vi.mock("../../api/client", async (importOriginal) => ({
+  ...(await importOriginal()) as typeof ApiClient,
   api: vi.fn(async (url: string) => {
     if (url.endsWith("/members")) return json(members);
     if (url === "/api/users") return json(users);

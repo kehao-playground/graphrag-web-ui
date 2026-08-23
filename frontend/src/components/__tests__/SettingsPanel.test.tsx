@@ -4,6 +4,7 @@ import { vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import SettingsPanel from "../SettingsPanel";
+import type * as ApiClient from "../../api/client";
 
 const FIXTURE = {
   content: "input:\n  type: text\n  file_pattern: '.*\\.md$$'\n",
@@ -30,7 +31,11 @@ const apiMock = vi.fn(async (path: string, init?: RequestInit) => {
   }
   return new Response(JSON.stringify({}), { status: 200 });
 });
-vi.mock("../../api/client", () => ({ api: (...args: unknown[]) => apiMock(...args as [string, RequestInit?]) }));
+// Real bodyOf stays under test; only the transport is mocked.
+vi.mock("../../api/client", async (importOriginal) => ({
+  ...(await importOriginal()) as typeof ApiClient,
+  api: (...args: unknown[]) => apiMock(...args as [string, RequestInit?]),
+}));
 
 function mount() {
   const qc = new QueryClient();

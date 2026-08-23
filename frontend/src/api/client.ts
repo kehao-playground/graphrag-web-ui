@@ -22,6 +22,17 @@ export async function api(path: string, init: RequestInit = {}, retried = false)
   return r;
 }
 
+// Backend errors are always {"detail": zh-TW}; every panel surfaces the
+// detail verbatim and falls back to its own fixed message on non-JSON.
+export async function bodyOf(r: Response): Promise<Record<string, unknown>> {
+  try { return (await r.json()) as Record<string, unknown>; } catch { return {}; }
+}
+
+export async function detailOf(r: Response, fallback: string): Promise<string> {
+  const body = await bodyOf(r);
+  return typeof body.detail === "string" ? body.detail : fallback;
+}
+
 // Explore endpoints share the {"detail": zh-TW} error contract; surface the
 // detail verbatim so panels can message.error it (404/409 shapes included).
 async function requireOk(r: Response, fallback: string): Promise<void> {

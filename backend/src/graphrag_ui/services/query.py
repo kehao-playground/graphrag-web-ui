@@ -18,6 +18,7 @@ from graphrag_ui.adapters.frame_cache import WorkspaceNotIndexedError, get_frame
 from graphrag_ui.adapters.graphrag_search import GraphragSearchAdapter, load_config
 from graphrag_ui.adapters.models import Project, User
 from graphrag_ui.domain.citations import build_citations
+from graphrag_ui.services.errors import INTERRUPTED_DETAIL, ServicePipelineError
 from graphrag_ui.services.projects import ws_path
 from graphrag_ui.services.rate_limit import get_rate_limiter
 
@@ -42,14 +43,9 @@ _TEXT_UNIT_KEYS = ("text_units", "units", "sources")
 _REPORT_KEYS = ("community_reports", "reports")
 
 
-class QueryError(RuntimeError):
+class QueryError(ServicePipelineError):
     """Query pipeline failure. code: "config" (500) | "search" (502).
     detail is for the server log only — routes return fixed messages."""
-
-    def __init__(self, code: str, detail: str = "") -> None:
-        super().__init__(detail or code)
-        self.code = code
-        self.detail = detail
 
 
 def _flatten_frames(frames: dict[str, pd.DataFrame]) -> dict[str, dict[int, str | None]]:
@@ -168,7 +164,7 @@ async def stream_query(
     raises BEFORE the first chunk so the route can answer with plain JSON.
     Streaming returns no context_data, so citations join against the very
     frames handed to the adapter. An adapter failure after chunks were
-    delivered yields ("error", "查詢中斷") and ends the stream (the cause is
+    delivered yields ("error", INTERRUPTED_DETAIL) and ends the stream (the cause is
     logged server-side); before the first chunk it raises QueryError.
     """
     total_start = time.perf_counter()
@@ -207,7 +203,7 @@ async def stream_query(
             project.id, method, len(answer_parts),
         )
         if answer_parts:
-            yield ("error", "查詢中斷")
+            yield ("error", INTERRUPTED_DETAIL)
             return
         # Nothing delivered yet — surface as a pre-stream failure (JSON).
         raise QueryError("search", str(exc)[-500:]) from exc

@@ -20,6 +20,7 @@ from graphrag_ui.adapters.artifacts import (
 )
 from graphrag_ui.adapters.models import Project
 from graphrag_ui.domain.artifacts import table_spec
+from graphrag_ui.services.errors import ServicePipelineError
 from graphrag_ui.services.jobs import active_job
 from graphrag_ui.services.projects import ws_path
 
@@ -34,17 +35,17 @@ class UnsupportedFilterError(RuntimeError):
     """Filter param offered on a table whose TableSpec lacks it (HTTP 422)."""
 
 
-class ExploreReadError(RuntimeError):
+class ExploreReadError(ServicePipelineError):
     """Unexpected duckdb/parquet failure (HTTP 502).
 
     Mirrors QueryError: ``code`` names the failing step, ``tail`` is the
     truncated exception text — logged server-side, never sent to clients.
     """
 
-    def __init__(self, code: str, tail: str):
-        super().__init__(f"{code}: {tail}")
-        self.code = code
-        self.tail = tail
+    # Historical name kept as an alias: explore's routes/logs read ``tail``.
+    @property
+    def tail(self) -> str:
+        return self.detail
 
 
 def _guard_table(table: str) -> None:

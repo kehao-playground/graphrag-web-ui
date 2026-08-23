@@ -273,3 +273,20 @@ async def test_invalid_body_422(client, app, fake_adapter, fake_cache):
     pid, alice, _, _ = await _viewer_setup(client, app)
     assert (await _post(client, pid, alice, method="nope")).status_code == 422
     assert (await _post(client, pid, alice, query="")).status_code == 422
+
+
+def test_query_errors_share_base():
+    """Task 8 (spec A7): QueryError and ExploreReadError share one
+    ServicePipelineError base; code/detail contract unchanged, and
+    ExploreReadError's historical ``tail`` name still reads through."""
+    from graphrag_ui.services.errors import INTERRUPTED_DETAIL, ServicePipelineError
+    from graphrag_ui.services.explore import ExploreReadError
+    from graphrag_ui.services.query import QueryError
+
+    assert issubclass(QueryError, ServicePipelineError)
+    assert issubclass(ExploreReadError, ServicePipelineError)
+    e = QueryError("search", "boom")
+    assert (e.code, e.detail) == ("search", "boom")
+    explore = ExploreReadError("list", "tail text")
+    assert (explore.code, explore.detail, explore.tail) == ("list", "tail text", "tail text")
+    assert INTERRUPTED_DETAIL == "查詢中斷"

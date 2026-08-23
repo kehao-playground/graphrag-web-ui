@@ -3,10 +3,13 @@ import { vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import FilesPanel from "../FilesPanel";
+import type * as ApiClient from "../../api/client";
 
 // Same mock discipline as Projects.test.tsx: branch by URL so a lookup-key
 // mistake (wrong endpoint) cannot silently pass on another call's payload.
-vi.mock("../../api/client", () => ({
+// Real bodyOf/detailOf stay under test; only the transport is mocked.
+vi.mock("../../api/client", async (importOriginal) => ({
+  ...(await importOriginal()) as typeof ApiClient,
   api: vi.fn(async (path: string) => {
     // Route by URL like Projects.test.tsx: the FilesOut fixture is only
     // served on the /files endpoint, so a wrong-path query starves the panel.
@@ -22,7 +25,7 @@ vi.mock("../../api/client", () => ({
     }
     return new Response(JSON.stringify({}), { status: 200 });
   }),
-}))
+}));
 
 test("renders file names and quota percent from GET files", async () => {
   const qc = new QueryClient()

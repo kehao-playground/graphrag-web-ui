@@ -3,10 +3,13 @@ import { vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import Projects from "../Projects";
+import type * as ApiClient from "../../api/client";
 
 // mock 必須按 URL 分流:所有呼叫回同一陣列的話,/api/users 拿到的也是
 // project 陣列 — owner_id 永遠對不上,測試結構上抓不到查找 key 的錯
-vi.mock("../../api/client", () => ({
+// Real detailOf stays under test; only the transport is mocked.
+vi.mock("../../api/client", async (importOriginal) => ({
+  ...(await importOriginal()) as typeof ApiClient,
   api: vi.fn(async (path: string) => {
     if (path === "/api/users") {
       return new Response(JSON.stringify([
@@ -19,7 +22,7 @@ vi.mock("../../api/client", () => ({
         input_file_type: "text", owner_id: "u1", created_at: "2026-08-19T00:00:00Z" },
     ]), { status: 200 });
   }),
-}))
+}));
 
 test("renders project list with owner resolved by owner_id", async () => {
   const qc = new QueryClient()

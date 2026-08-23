@@ -5,7 +5,7 @@ import {
   Alert, Button, Collapse, Descriptions, Input, Modal, Radio, Space, Table, Typography, message,
 } from "antd";
 import type { TableProps } from "antd";
-import { api } from "../api/client";
+import { api, bodyOf } from "../api/client";
 import type {
   EnvKeyOut, SettingsOut, SettingsVersionDetail, SettingsVersionOut,
 } from "../api/types";
@@ -19,15 +19,6 @@ interface Conflict {
   myContent: string;
 }
 
-// Backend errors are always {"detail": "..."}; the 409 body additionally
-// carries current_content/current_hash for the diff flow.
-async function detailOf(r: Response, fallback: string): Promise<Record<string, unknown> & { detail?: string }> {
-  try {
-    return (await r.json()) as Record<string, unknown>;
-  } catch {
-    return { detail: fallback };
-  }
-}
 
 // Form mode edits these paths in the parsed document (spec §6.5: input.* is
 // locked at creation and shown read-only).
@@ -49,7 +40,7 @@ export default function SettingsPanel({ projectId, canEdit }: {
     queryKey: ["projects", projectId, "settings"],
     queryFn: async () => {
       const r = await api(`/api/projects/${projectId}/settings`);
-      if (!r.ok) throw new Error((await detailOf(r, "無法載入設定")).detail ?? "無法載入設定");
+      if (!r.ok) throw new Error(String((await bodyOf(r)).detail ?? "無法載入設定"));
       return (await r.json()) as SettingsOut;
     },
   });
@@ -105,7 +96,7 @@ export default function SettingsPanel({ projectId, canEdit }: {
     },
     onSuccess: async ({ r, c }) => {
       if (r.status === 409) {
-        const body = await detailOf(r, "conflict");
+        const body = await bodyOf(r);
         setConflict({
           currentContent: String(body.current_content ?? ""),
           currentHash: String(body.current_hash ?? ""),
@@ -114,7 +105,7 @@ export default function SettingsPanel({ projectId, canEdit }: {
         return;
       }
       if (!r.ok) {
-        message.error(String((await detailOf(r, "儲存失敗")).detail ?? "儲存失敗"));
+        message.error(String((await bodyOf(r)).detail ?? "儲存失敗"));
         return;
       }
       setConflict(null);
@@ -130,7 +121,7 @@ export default function SettingsPanel({ projectId, canEdit }: {
       return { r };
     },
     onSuccess: async ({ r }) => {
-      const body = await detailOf(r, "dry-run 失敗");
+      const body = await bodyOf(r);
       if (r.ok) {
         setDryRun({ ok: Boolean((body as { ok?: boolean }).ok), output: String(body.output ?? "") });
       } else {
@@ -149,7 +140,7 @@ export default function SettingsPanel({ projectId, canEdit }: {
     },
     onSuccess: async ({ r }) => {
       if (!r.ok) {
-        message.error(String((await detailOf(r, "設定失敗")).detail ?? "設定失敗"));
+        message.error(String((await bodyOf(r)).detail ?? "設定失敗"));
         return;
       }
       setEnvKey("");

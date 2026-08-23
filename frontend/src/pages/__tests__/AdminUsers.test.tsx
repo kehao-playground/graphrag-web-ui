@@ -3,8 +3,11 @@ import { vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import AdminUsers from "../AdminUsers";
+import type * as ApiClient from "../../api/client";
 
-vi.mock("../../api/client", () => ({
+// Real detailOf stays under test; only the transport is mocked.
+vi.mock("../../api/client", async (importOriginal) => ({
+  ...(await importOriginal()) as typeof ApiClient,
   api: vi.fn().mockResolvedValue(new Response(JSON.stringify([
     { id: "u1", email: "alice@test.local", display_name: "Alice", role: "admin", is_active: true, must_change_password: false },
     { id: "u2", email: "bob@test.local", display_name: "Bob", role: "user", is_active: false, must_change_password: true },
