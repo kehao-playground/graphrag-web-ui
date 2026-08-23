@@ -1,6 +1,7 @@
 """Job use cases: enqueue with pre-checks, cancel, preflight summary.
 Owns the transaction boundary; raises domain errors the API layer maps."""
 
+import asyncio
 import shutil
 import uuid
 from pathlib import Path
@@ -36,7 +37,7 @@ async def enqueue(
     # project dir; create the root if needed so disk_usage has a target.
     ws_root = Path(settings.workspaces_dir).resolve()
     ws_root.mkdir(parents=True, exist_ok=True)
-    free = shutil.disk_usage(ws_root).free
+    free = (await asyncio.to_thread(shutil.disk_usage, ws_root)).free
     if free < settings.disk_watermark_mb * 1024 * 1024:
         raise DiskWatermarkError(str(free))
     try:
@@ -76,7 +77,8 @@ async def active_job(session: AsyncSession, project_id) -> Job | None:
     ).scalar_one_or_none()
 
 
-async def _tree_bytes(path: Path) -> int:
+def _tree_bytes(path: Path) -> int:
+    # Sync on purpose: preflight runs it inside one to_thread hop (spec A4).
     if not path.exists():
         return 0
     return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
@@ -102,8 +104,9 @@ async def preflight(session: AsyncSession, project: Project) -> dict:
     return {
         "active_job": await active_job(session, project.id),
         "last_run": last_run,
-        "cache_bytes": await _tree_bytes(root / "cache"),
+        "cache_bytes": await asyncio.to_thread(_tree_bytes, root / "cache"),
         "cache_quota_mb": settings.cache_quota_mb,
-        "disk_free_mb": shutil.disk_usage(ws_root).free // (1024 * 1024),
+        "disk_free_mb": (await asyncio.to_thread(shutil.disk_usage, ws_root)).free
+                        // (1024 * 1024),
         "disk_watermark_mb": settings.disk_watermark_mb,
     }

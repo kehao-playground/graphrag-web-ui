@@ -5,6 +5,7 @@ upload cap, per-project quota over input/ + output/). Services never touch
 HTTP — error classes are translated to status codes by the api layer.
 """
 
+import asyncio
 import os
 import uuid
 from datetime import UTC, datetime
@@ -77,10 +78,16 @@ def max_file_bytes() -> int:
     return get_settings().upload_max_file_mb * _MIB
 
 
-def usage_bytes(project: Project) -> int:
+def _usage_bytes_sync(project: Project) -> int:
     """input/ + output/ both count against the project quota (spec §10)."""
     root = ws_path(project.id)
     return _dir_size(root / "input") + _dir_size(root / "output")
+
+
+async def usage_bytes(project: Project) -> int:
+    # Two rglob walks over input/+output/ are unbounded (spec A4) — one
+    # to_thread hop for the whole computation, never on the event loop.
+    return await asyncio.to_thread(_usage_bytes_sync, project)
 
 
 async def save_file(project: Project, filename: str, source) -> tuple[str, int]:
@@ -98,7 +105,7 @@ async def save_file(project: Project, filename: str, source) -> tuple[str, int]:
     # runs after streaming (it needs the final size) and must not count the
     # in-flight tmp file itself. Snapshot-first matches the old
     # check-then-write semantics, overwrite case included (existing file counted).
-    base_usage = usage_bytes(project)
+    base_usage = await usage_bytes(project)
     input_dir = ws_path(project.id) / "input"
     input_dir.mkdir(parents=True, exist_ok=True)
     # tmp+replace keeps writes atomic: readers never see a partial file. The
@@ -131,6 +138,12 @@ async def list_files(project: Project) -> list[dict]:
     here (save_file) uses dot-prefixed tmp names during atomic writes.
     """
     input_dir = ws_path(project.id) / "input"
+    return await asyncio.to_thread(_scan_input, input_dir)
+
+
+def _scan_input(input_dir: Path) -> list[dict]:
+    """iterdir/stat/sort over input/ — one stat per uploaded file, unbounded
+    (spec A4), so list_files runs this off the event loop via to_thread."""
     if not input_dir.exists():
         return []
     entries = []
