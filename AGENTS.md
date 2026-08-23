@@ -49,12 +49,12 @@ briefs; their Global Constraints always apply.
 ```bash
 # backend (Python 3.12, uv; Docker required for testcontainers; duckdb
 # reads explore parquet artifacts read-only)
-cd backend && uv run pytest -v          # 209 tests with GRAPHRAG_API_KEY (204 fast); 5 slow tests fork the real graphrag CLI and need the key; fast only: uv run pytest -m "not slow"
+cd backend && uv run pytest -v          # 210 tests with GRAPHRAG_API_KEY (205 fast); 5 slow tests fork the real graphrag CLI and need the key; fast only: uv run pytest -m "not slow"
 cd backend && uv run ruff check
 
 # frontend (Node 24; jsdom+undici need >=22; explore graph renders via
 # react-sigma + graphology, lazy-loaded as a separate build chunk)
-cd frontend && npm test                 # vitest run (51 tests)
+cd frontend && npm test                 # vitest run (57 tests)
 cd frontend && npx tsc -b --noEmit
 cd frontend && npm run build
 
