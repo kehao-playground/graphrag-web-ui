@@ -11,8 +11,11 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from graphrag_ui.adapters.models import Project
 from graphrag_ui.config import get_settings
+from graphrag_ui.services.audit import audit
 from graphrag_ui.services.projects import ws_path
 
 # Upload whitelist keyed by project.input_file_type (spec §6.5):
@@ -90,7 +93,8 @@ async def usage_bytes(project: Project) -> int:
     return await asyncio.to_thread(_usage_bytes_sync, project)
 
 
-async def save_file(project: Project, filename: str, source) -> tuple[str, int]:
+async def save_file(session: AsyncSession, project: Project, filename: str,
+                    source, actor_id: uuid.UUID | None) -> tuple[str, int]:
     """Stream `source` (any reader with `async read(n)`, e.g. UploadFile) to
     input/<name> in fixed chunks; returns (stored name, byte size).
 
@@ -99,6 +103,11 @@ async def save_file(project: Project, filename: str, source) -> tuple[str, int]:
     max_file_bytes), so an arbitrarily large request body costs at most one
     chunk of RAM (spec §8.2 — uploads share the pod's memory budget with the
     indexer). Overwriting an existing name is allowed (idempotent re-upload).
+
+    Also owns the audit row + transaction (spec A1): the file.uploaded row
+    is flushed after the stream lands but before the rename commits, so any
+    failure (stream, cap, quota, rename) rolls the row back and leaves no
+    partial file behind.
     """
     name = _safe_name(project.input_file_type, filename)
     # Usage snapshot BEFORE the tmp file appears in input/: the quota check
@@ -121,14 +130,22 @@ async def save_file(project: Project, filename: str, source) -> tuple[str, int]:
                         f"file exceeds the {get_settings().upload_max_file_mb} MiB upload limit")
                 out.write(chunk)
         # Quota check needs the final size, so it runs after the stream is
-        # fully consumed, against the pre-write usage snapshot.
+        # fully consumed, against the pre-write usage snapshot — before the
+        # audit row, so an over-quota upload leaves no trace.
         if base_usage + size > quota_bytes():
             raise QuotaExceededError(
                 f"project storage quota of {get_settings().project_quota_mb} MiB exceeded")
+        await audit(session, actor_id, "file.uploaded", "project",
+                    str(project.id), {"name": name, "size": size})
+        await session.flush()
         os.replace(tmp, input_dir / name)
+        await session.commit()
+        return name, size
+    except Exception:
+        await session.rollback()
+        raise
     finally:
         tmp.unlink(missing_ok=True)  # no-op after a successful replace
-    return name, size
 
 
 async def list_files(project: Project) -> list[dict]:
@@ -161,12 +178,26 @@ def _scan_input(input_dir: Path) -> list[dict]:
     return entries
 
 
-async def delete_file(project: Project, filename: str) -> int:
-    """Remove input/<name>; returns the removed file's size for the audit log."""
+async def delete_file(session: AsyncSession, project: Project, filename: str,
+                      actor_id: uuid.UUID | None) -> int:
+    """Remove input/<name> AND audit it, one transaction (spec A1); returns
+    the removed file's size.
+
+    FileNotFoundError is raised before any audit row. Residual (spec A1,
+    accepted): a commit failure after the unlink loses the audit row.
+    """
     name = _safe_name(project.input_file_type, filename)
     target = ws_path(project.id) / "input" / name
     if not target.is_file():
         raise FileNotFoundError(name)
     size = target.stat().st_size
-    target.unlink()
-    return size
+    try:
+        await audit(session, actor_id, "file.deleted", "project",
+                    str(project.id), {"name": name, "size": size})
+        await session.flush()
+        target.unlink()
+        await session.commit()
+        return size
+    except Exception:
+        await session.rollback()
+        raise

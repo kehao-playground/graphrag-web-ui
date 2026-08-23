@@ -5,8 +5,12 @@ error messages must never include a value (routes rely on that).
 """
 
 import re
+import uuid
+
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.adapters.models import Project
+from graphrag_ui.services.audit import audit
 from graphrag_ui.services.projects import ws_path
 
 # dotenv keys we manage: UPPER_SNAKE (graphrag's GRAPHRAG_API_KEY etc.)
@@ -52,16 +56,17 @@ def list_env(project: Project) -> list[dict]:
     return entries
 
 
-def set_env_key(project: Project, key: str, value: str) -> None:
-    """Upsert `key=value` on one line; all other lines keep their order.
-
-    Raises ValueError for keys outside _KEY_RE, or for a multi-line value
-    (the file format is line-based). Messages never contain the value.
-    """
+def _validate(key: str, value: str) -> None:
+    """Key/shape checks shared by set_env_key's callers; raises ValueError
+    with messages that never contain the value (routes echo str(e))."""
     if not _KEY_RE.fullmatch(key):
         raise ValueError(f"invalid key: {key}")
     if "\n" in value or "\r" in value:
         raise ValueError("value must be a single line")
+
+
+def _upsert_lines(project: Project, key: str, value: str) -> list[str]:
+    """key=value on one line; all other lines keep their order."""
     out, replaced = [], False
     for line in _read_lines(project):
         if "=" in line and _key_of(line) == key:
@@ -71,13 +76,51 @@ def set_env_key(project: Project, key: str, value: str) -> None:
             out.append(line)
     if not replaced:
         out.append(f"{key}={value}")
-    _atomic_write(project, out)
+    return out
 
 
-def delete_env_key(project: Project, key: str) -> None:
-    """Remove the key's line; missing key → KeyError (route maps to 404)."""
+def _remove_lines(project: Project, key: str) -> list[str]:
+    """Lines minus the key's line; missing key → KeyError (route maps 404)."""
     lines = _read_lines(project)
     out = [line for line in lines if not ("=" in line and _key_of(line) == key)]
     if len(out) == len(lines):
         raise KeyError(key)
-    _atomic_write(project, out)
+    return out
+
+
+async def set_env_key(session: AsyncSession, project: Project, key: str,
+                      value: str, actor_id: uuid.UUID | None) -> None:
+    """Upsert `key=value` AND audit it, one transaction (spec A1).
+
+    The audit row is flushed before commit, so a failed write rolls it
+    back — no env.key_set row without the real .env change. ValueError
+    (bad key / multi-line value) is raised before touching anything.
+    """
+    _validate(key, value)
+    try:
+        _atomic_write(project, _upsert_lines(project, key, value))
+        await audit(session, actor_id, "env.key_set", "project",
+                    str(project.id), {"key": key})
+        await session.flush()
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
+
+
+async def delete_env_key(session: AsyncSession, project: Project, key: str,
+                         actor_id: uuid.UUID | None) -> None:
+    """Remove the key's line AND audit it, one transaction (spec A1).
+
+    Missing key → KeyError, raised before any write or audit row.
+    """
+    try:
+        lines = _remove_lines(project, key)
+        _atomic_write(project, lines)
+        await audit(session, actor_id, "env.key_deleted", "project",
+                    str(project.id), {"key": key})
+        await session.flush()
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise

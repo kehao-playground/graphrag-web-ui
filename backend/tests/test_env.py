@@ -7,11 +7,13 @@ missing-file path (empty list) is the pre-PATCH state in every test.
 
 import uuid
 
+import pytest
 from sqlalchemy import select
 
-from graphrag_ui.adapters.models import AuditLog
+from graphrag_ui.adapters.models import AuditLog, Project
 from graphrag_ui.adapters.workspace import FakeInitializer
 from graphrag_ui.api.projects_routes import get_initializer
+from graphrag_ui.config import get_settings
 from graphrag_ui.services.projects import ws_path
 from tests.test_projects import _activate, _setup_two_users
 
@@ -180,3 +182,43 @@ async def test_viewer_reads_but_cannot_write(client, app):
     assert (await client.delete(f"/api/projects/{pid}/env/GRAPHRAG_API_KEY",
                                 headers=bob)).status_code == 403
     assert "GRAPHRAG_API_KEY=sk-123456789" in _env_path(pid).read_text()
+
+# --- transaction rollback tests (spec A1: services own audit + commit) ---
+
+
+@pytest.fixture
+def project(monkeypatch, tmp_path):
+    """Unsaved Project + hermetic workspace — the direct-service test below
+    needs no DB row and no real graphrag init (mirrors test_files.py)."""
+    monkeypatch.setenv("WORKSPACES_DIR", str(tmp_path / "ws"))
+    get_settings.cache_clear()
+    try:
+        yield Project(id=uuid.uuid4(), name="pin", slug="pin",
+                      owner_id=uuid.uuid4(), input_file_type="text")
+    finally:
+        get_settings.cache_clear()
+
+
+async def test_set_env_key_rollback_leaves_no_audit_row_when_write_fails(
+        db_session, project, monkeypatch):
+    """Atomic-write failure (disk full, permissions): set_env_key rolls the
+    audit row back and leaves the .env untouched — never an env.key_set row
+    without the real change (spec A1)."""
+
+    from graphrag_ui.services import env_file
+
+    ws_path(project.id).mkdir(parents=True, exist_ok=True)  # graphrag init's job in prod
+    _env_path(project.id).write_text("OTHER_KEY=keepme\n")
+
+    def _boom(proj, lines):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(env_file, "_atomic_write", _boom)
+    with pytest.raises(OSError, match="disk full"):
+        await env_file.set_env_key(db_session, project, "GRAPHRAG_API_KEY",
+                                   "x", actor_id=uuid.uuid4())
+
+    assert _env_path(project.id).read_text() == "OTHER_KEY=keepme\n"
+    rows = (await db_session.execute(
+        select(AuditLog).where(AuditLog.action == "env.key_set"))).scalars()
+    assert list(rows) == []

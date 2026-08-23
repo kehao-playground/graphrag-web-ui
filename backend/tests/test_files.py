@@ -257,8 +257,8 @@ def project(monkeypatch, tmp_path):
     monkeypatch.setenv("WORKSPACES_DIR", str(tmp_path / "ws"))
     get_settings.cache_clear()
     try:
-        yield Project(name="pin", slug="pin", owner_id=uuid.uuid4(),
-                      input_file_type="text")
+        yield Project(id=uuid.uuid4(), name="pin", slug="pin",
+                      owner_id=uuid.uuid4(), input_file_type="text")
     finally:
         # restore for later tests even if asserts fail mid-way
         get_settings.cache_clear()
@@ -271,3 +271,23 @@ async def test_usage_bytes_is_awaitable(project):
     assert inspect.iscoroutinefunction(files_service.usage_bytes)
     n = await files_service.usage_bytes(project)
     assert n >= 0
+
+# --- transaction rollback tests (spec A1: services own audit + commit) ---
+
+
+async def test_upload_rollback_leaves_no_audit_row_when_stream_fails(
+        db_session, project):
+    """A reader that fails mid-stream: save_file must roll back the audit
+    row AND remove the tmp file; the workspace stays clean (spec A1)."""
+    class Boom:
+        async def read(self, n):
+            raise RuntimeError("stream broke")
+
+    with pytest.raises(RuntimeError, match="stream broke"):
+        await files_service.save_file(db_session, project, "ok.txt",
+                                      Boom(), actor_id=uuid.uuid4())
+    input_dir = ws_path(project.id) / "input"
+    assert not list(input_dir.glob(".tmp-*"))
+    rows = (await db_session.execute(
+        select(AuditLog).where(AuditLog.action == "file.uploaded"))).scalars()
+    assert list(rows) == []
