@@ -17,7 +17,7 @@ async def _login(client, email, password):
 
 
 async def _activate(client, email, initial_pw, new_pw):
-    """所有新帳號(含 bootstrap admin)must_change_password=True — 換完密碼才可用。"""
+    """Every new account (incl. the bootstrap admin) has must_change_password=True — usable only after the change."""
     hdr = await _login(client, email, initial_pw)
     await client.post(
         "/api/auth/change-password",
@@ -28,7 +28,7 @@ async def _activate(client, email, initial_pw, new_pw):
 
 
 async def _setup_users(client, app):
-    """admin + alice(專案 owner)+ bob(稍後被加為 viewer)。回傳三組 headers。"""
+    """admin + alice (project owner) + bob (added as viewer later). Returns three header sets."""
     app.dependency_overrides[get_initializer] = FakeInitializer
     admin = await _activate(client, "admin@test.local", "admin-pass-123", "admin-new-1")
     await client.post(
@@ -87,7 +87,7 @@ async def test_second_active_job_409(client, app):
 async def test_disk_watermark_409(client, app, monkeypatch):
     _, alice, _ = await _setup_users(client, app)
     pid = await _project(client, alice)
-    # 把水位調到高於任何真實磁碟 → enqueue 必須擋下(spec §6.1 pre-check)
+    # Raise the watermark above any real disk -> enqueue must refuse (spec §6.1 pre-check)
     monkeypatch.setenv("DISK_WATERMARK_MB", "99999999")
     get_settings.cache_clear()
     r = await client.post(
@@ -108,7 +108,7 @@ async def test_invalid_type_method_422(client, app):
 async def test_viewer_cannot_start_but_can_read(client, app):
     _, alice, bob = await _setup_users(client, app)
     pid = await _project(client, alice)
-    # owner 從窄清單解析 email → user_id 後把 bob 加為 viewer(同 test_projects.py)
+    # The owner resolves email -> user_id from the narrow list, then adds bob as viewer (same as test_projects.py)
     users = (await client.get("/api/users", headers=alice)).json()
     vid = next(u["id"] for u in users if u["email"] == "bob@test.local")
     r = await client.put(
@@ -175,11 +175,11 @@ async def test_preflight_active_and_last_run(client, app):
             f"/api/projects/{pid}/jobs", headers=alice, json={"type": "index", "method": "fast"}
         )
     ).json()
-    # queued job → active_job 帶完整 JobOut 形狀
+    # queued job -> active_job carries the full JobOut shape
     pre = (await client.get(f"/api/projects/{pid}/jobs/preflight", headers=alice)).json()
     assert pre["active_job"]["id"] == j["id"]
     assert pre["active_job"]["status"] == "queued"
-    # 跑完(stats 由 runner 寫入;此處直接以 repo 模擬)→ active_job 消失、last_run 出現
+    # Finished (stats written by the runner; simulated here via the repo directly) -> active_job gone, last_run appears
     from graphrag_ui.adapters.db import get_session_factory
     from graphrag_ui.adapters.jobs_repo import claim_next, finish
 

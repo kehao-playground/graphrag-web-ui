@@ -16,4 +16,4 @@ async def test_ready_with_db(client):
     assert r.status_code == 200
     body = r.json()
     assert body["db"] == "ok"
-    assert body["graphrag"]  # 啟動時快取的版本字串
+    assert body["graphrag"]  # version string cached at startup

@@ -66,7 +66,7 @@ async def _login(client, email, password):
 
 
 async def _activate(client, email, initial_pw, new_pw):
-    """所有新帳號(含 bootstrap admin)must_change_password=True — 換完密碼才可用。"""
+    """Every new account (incl. the bootstrap admin) has must_change_password=True — usable only after the change."""
     hdr = await _login(client, email, initial_pw)
     await client.post(
         "/api/auth/change-password",
@@ -77,7 +77,7 @@ async def _activate(client, email, initial_pw, new_pw):
 
 
 async def _setup_users(client, app):
-    """admin + alice(owner)+ bob(稍後加為 viewer)+ carol(非成員)。"""
+    """admin + alice (owner) + bob (added as viewer later) + carol (non-member)."""
     app.dependency_overrides[get_initializer] = FakeInitializer
     admin = await _activate(client, "admin@test.local", "admin-pass-123", "admin-new-1")
     for email, pw, name in [

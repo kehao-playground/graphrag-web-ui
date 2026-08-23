@@ -11,7 +11,7 @@ async def _login(client, email, password):
 
 
 async def _activate(client, email, initial_pw, new_pw):
-    """所有新帳號(含 bootstrap admin)must_change_password=True — 換完密碼才可用。"""
+    """Every new account (incl. the bootstrap admin) has must_change_password=True — usable only after the change."""
     hdr = await _login(client, email, initial_pw)
     await client.post("/api/auth/change-password", headers=hdr, json={
         "current_password": initial_pw, "new_password": new_pw})
@@ -36,11 +36,12 @@ async def test_create_project_runs_init_and_adds_owner(client, tmp_path):
     assert r.status_code == 201
     pid = r.json()["id"]
     ws = tmp_path / "ws" / pid
-    assert (ws / "settings.yaml").exists()      # graphrag init 真的跑過
+    assert (ws / "settings.yaml").exists()      # graphrag init really ran
     assert (ws / "input").exists()
     cfg = yaml.safe_load((ws / "settings.yaml").read_text())
-    assert cfg["input"]["type"] == "text"  # 不可寫 `"text" in yaml_text`:
-    #   settings.yaml 本來就有 text-embedding-3-large 等字串,那樣寫就算沒 patch 也會過
+    assert cfg["input"]["type"] == "text"  # never assert `"text" in yaml_text`:
+    #   settings.yaml already contains strings like text-embedding-3-large, so
+    #   that weaker form would pass even without the patch
     members = (await client.get(f"/api/projects/{pid}/members", headers=alice)).json()
     assert members[0]["email"] == "alice@test.local" and members[0]["role"] == "owner"
 
@@ -53,7 +54,7 @@ async def test_permission_matrix_enforced(client, app):
     pid = (await client.post("/api/projects", headers=alice, json={
         "name": "P1", "input_file_type": "text"})).json()["id"]
     assert (await client.get(f"/api/projects/{pid}", headers=bob)).status_code == 403
-    # alice 加 bob 為 viewer → 可讀不可改
+    # alice adds bob as viewer -> he can read but not modify
     users = (await client.get("/api/admin/users", headers=admin)).json()
     bob_id = next(u["id"] for u in users if u["email"] == "bob@test.local")
     await client.put(f"/api/projects/{pid}/members/{bob_id}", headers=alice,
@@ -61,10 +62,10 @@ async def test_permission_matrix_enforced(client, app):
     assert (await client.get(f"/api/projects/{pid}", headers=bob)).status_code == 200
     assert (await client.patch(f"/api/projects/{pid}", headers=bob,
                                json={"name": "X"})).status_code == 403
-    # bob 不能管理成員
+    # bob cannot manage members
     assert (await client.delete(f"/api/projects/{pid}/members/{bob_id}",
                                 headers=bob)).status_code == 403
-    # 非 owner 不能刪專案;owner 可以
+    # Non-owners cannot delete the project; the owner can
     assert (await client.delete(f"/api/projects/{pid}", headers=bob)).status_code == 403
     assert (await client.delete(f"/api/projects/{pid}", headers=alice)).status_code == 204
 

@@ -55,7 +55,7 @@ async def _login(client, email, password):
 
 
 async def _activate(client, email, initial_pw, new_pw):
-    """所有新帳號(含 bootstrap admin)must_change_password=True — 換完密碼才可用。"""
+    """Every new account (incl. the bootstrap admin) has must_change_password=True — usable only after the change."""
     hdr = await _login(client, email, initial_pw)
     await client.post(
         "/api/auth/change-password",
@@ -66,7 +66,7 @@ async def _activate(client, email, initial_pw, new_pw):
 
 
 async def _setup_users(client, app):
-    """admin + alice(owner)+ bob(稍後加為 viewer)+ carol(非成員)。"""
+    """admin + alice (owner) + bob (added as viewer later) + carol (non-member)."""
     app.dependency_overrides[get_initializer] = FakeInitializer
     admin = await _activate(client, "admin@test.local", "admin-pass-123", "admin-new-1")
     for email, pw, name in [
@@ -104,7 +104,7 @@ async def _add_viewer(client, alice, pid, email):
 
 
 async def _indexed_project(client, app):
-    """alice(owner)+ bob(viewer)+ carol(非成員)and a workspace with parquet."""
+    """alice (owner) + bob (viewer) + carol (non-member) and a workspace with parquet."""
     _, alice, bob, carol = await _setup_users(client, app)
     pid = await _project(client, alice)
     await _add_viewer(client, alice, pid, "bob@test.local")
@@ -152,19 +152,20 @@ async def test_keyword_type_community_filters(client, app):
     base = f"/api/projects/{pid}/artifacts/entities"
 
     r = await client.get(base, headers=alice, params={"q": "turing"})
-    assert r.status_code == 200 and r.json()["total"] == 1  # ILIKE 不分大小寫
+    assert r.status_code == 200 and r.json()["total"] == 1  # ILIKE is case-insensitive
 
     r = await client.get(base, headers=alice, params={"type": "PERSON"})
     assert r.status_code == 200 and r.json()["total"] == 2
 
-    # entities 沒有 community 欄位 — 經 communities(level=MAX) join 解析
+    # entities carry no community column — resolved via a communities (level=MAX) join
     r = await client.get(base, headers=alice, params={"community": 1})
     assert r.status_code == 200 and r.json()["total"] == 1
 
 
 async def test_unsupported_filter_422(client, app):
-    """API 誠實性:relationships 無 type 篩選、documents 無 community 篩選 → 422
-    (entities?type= 的 200 已由 test_keyword_type_community_filters 證明)。"""
+    """API honesty: relationships take no type filter and documents take no
+    community filter -> 422 (entities?type= returning 200 is already proven
+    by test_keyword_type_community_filters)."""
     pid, alice, _, _ = await _indexed_project(client, app)
     r = await client.get(
         f"/api/projects/{pid}/artifacts/relationships",
@@ -215,7 +216,7 @@ async def test_active_job_marks_stale_on_all_three(client, app):
 
 
 async def test_graph_route_precedence_and_shape(client, app):
-    """/graph 必須先註冊 — 否則 "graph" 綁進 {table} → 404 未知的資料表。"""
+    """/graph must be registered first — otherwise "graph" binds to {table} -> 404 unknown table."""
     pid, alice, _, _ = await _indexed_project(client, app)
     r = await client.get(f"/api/projects/{pid}/artifacts/graph", headers=alice)
     assert r.status_code == 200, r.text
@@ -269,7 +270,7 @@ async def test_unknown_table_404_list_and_detail(client, app):
 
 
 async def test_not_indexed_409_list_and_graph(client, app):
-    """FakeInitializer 的工作區沒有 output/ — 與查詢路徑同一個 409 訊息。"""
+    """FakeInitializer's workspace has no output/ — same 409 message as the query path."""
     _, alice, _, _ = await _setup_users(client, app)
     pid = await _project(client, alice)
     base = f"/api/projects/{pid}/artifacts"
@@ -280,7 +281,7 @@ async def test_not_indexed_409_list_and_graph(client, app):
 
 
 async def test_must_change_password_token_403(client, app):
-    """強制改密碼 token:與其他 API 相同的全域 403 形狀,不洩漏路由。"""
+    """Forced-change token: the same global 403 shape as other APIs; leaks no route info."""
     app.dependency_overrides[get_initializer] = FakeInitializer
     admin = await _activate(client, "admin@test.local", "admin-pass-123", "admin-new-1")
     r = await client.post(
@@ -297,7 +298,7 @@ async def test_must_change_password_token_403(client, app):
 
 
 async def test_corrupt_parquet_502_list(client, app):
-    """entities.parquet 是垃圾位元組 → ExploreReadError → 502,補齊 404/409/403/502 錯誤矩陣。"""
+    """entities.parquet is garbage bytes -> ExploreReadError -> 502, completing the 404/409/403/502 error matrix."""
     pid, alice, _, _ = await _indexed_project(client, app)
     (ws_path(uuid.UUID(pid)) / "output" / "entities.parquet").write_bytes(b"not parquet")
     r = await client.get(f"/api/projects/{pid}/artifacts/entities", headers=alice)
