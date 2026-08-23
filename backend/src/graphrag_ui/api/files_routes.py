@@ -17,7 +17,6 @@ from graphrag_ui.api.projects_routes import _forbidden, _project_or_404
 from graphrag_ui.config import get_settings
 from graphrag_ui.domain.permissions import Action, can
 from graphrag_ui.services import files as files_service
-from graphrag_ui.services.audit import audit
 from graphrag_ui.services.files import (
     FileServiceError,
     FileTooLargeError,
@@ -96,15 +95,13 @@ def register_files_routes(app):
         try:
             # the UploadFile streams through save_file in fixed chunks;
             # nothing larger than one chunk is ever held in memory
-            name, size = await files_service.save_file(project, file.filename or "", file)
+            name, size = await files_service.save_file(
+                db, project, file.filename or "", file, actor_id=user.id)
         except FileServiceError as e:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from None
         except (FileTooLargeError, QuotaExceededError) as e:
             # 413 for both single-file cap and project quota (spec §9 error handling)
             raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, str(e)) from None
-        await audit(db, user.id, "file.uploaded", "project", str(pid),
-                    {"name": name, "size": size})
-        await db.commit()
         return FileOut(name=name, size=size)
 
     @router.get("/{pid}/files", response_model=FileListOut)
@@ -128,14 +125,12 @@ def register_files_routes(app):
                    await get_project_role(db, pid, user.id)):
             raise _forbidden()
         try:
-            size = await files_service.delete_file(project, filename)
+            await files_service.delete_file(db, project, filename,
+                                            actor_id=user.id)
         except FileServiceError as e:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from None
         except FileNotFoundError:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "file not found") from None
-        await audit(db, user.id, "file.deleted", "project", str(pid),
-                    {"name": filename, "size": size})
-        await db.commit()
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     app.include_router(router)
