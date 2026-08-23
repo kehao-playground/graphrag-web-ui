@@ -291,3 +291,29 @@ async def test_upload_rollback_leaves_no_audit_row_when_stream_fails(
     rows = (await db_session.execute(
         select(AuditLog).where(AuditLog.action == "file.uploaded"))).scalars()
     assert list(rows) == []
+
+
+async def test_upload_rollback_leaves_no_audit_row_when_rename_fails(
+        db_session, project, monkeypatch):
+    """Post-audit external failure (the atomic rename): the flushed
+    file.uploaded row must roll back and leave no tmp or target file —
+    the audit row never outlives the work it describes (spec A1)."""
+    chunks = iter([b"hello"])
+
+    class Reader:
+        async def read(self, n):
+            return next(chunks, b"")
+
+    def _boom(src, dst):
+        raise OSError("rename failed")
+
+    monkeypatch.setattr(files_service.os, "replace", _boom)
+    with pytest.raises(OSError, match="rename failed"):
+        await files_service.save_file(db_session, project, "ok.txt",
+                                      Reader(), actor_id=uuid.uuid4())
+    input_dir = ws_path(project.id) / "input"
+    assert not list(input_dir.glob(".tmp-*"))    # finally-cleaned tmp
+    assert not (input_dir / "ok.txt").exists()   # rename never landed
+    rows = (await db_session.execute(
+        select(AuditLog).where(AuditLog.action == "file.uploaded"))).scalars()
+    assert list(rows) == []
