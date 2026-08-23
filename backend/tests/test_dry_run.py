@@ -11,7 +11,7 @@ from sqlalchemy import select
 from graphrag_ui.adapters.models import AuditLog
 from graphrag_ui.adapters.workspace import FakeInitializer
 from graphrag_ui.api.projects_routes import get_initializer
-from graphrag_ui.services.projects import _ws_path
+from graphrag_ui.services.projects import ws_path
 from tests.test_projects import _activate, _setup_two_users
 
 
@@ -56,7 +56,7 @@ async def test_dry_run_returns_adapter_result_verbatim(
     assert r.status_code == 200
     assert r.json() == canned
     # adapter receives the project workspace path, never client input
-    assert seen == [_ws_path(uuid.UUID(pid))]
+    assert seen == [ws_path(uuid.UUID(pid))]
     # dry-run is not queued and writes no audit rows (spec §6.1)
     after = (await db_session.execute(
         select(AuditLog.id).where(AuditLog.target_id == pid))).all()
@@ -86,7 +86,7 @@ async def test_real_dry_run_valid_then_corrupted_workspace(client, app):
     assert "Dry run complete" in body["output"]
 
     # corrupted settings.yaml → graphrag config load fails → ok False (200)
-    (_ws_path(uuid.UUID(pid)) / "settings.yaml").write_text("{{{")
+    (ws_path(uuid.UUID(pid)) / "settings.yaml").write_text("{{{")
     r2 = await client.post(f"/api/projects/{pid}/dry-run", headers=alice)
     assert r2.status_code == 200
     assert r2.json()["ok"] is False

@@ -19,7 +19,7 @@ from graphrag_ui.adapters.db import get_session_factory
 from graphrag_ui.adapters.index_runner import IndexRunner, RunResult, log_path_for
 from graphrag_ui.adapters.models import Job
 from graphrag_ui.config import get_settings
-from graphrag_ui.services.projects import _ws_path
+from graphrag_ui.services.projects import ws_path
 from graphrag_ui.services.retention import prune_update_output
 
 _HEARTBEAT_S = 10.0
@@ -71,7 +71,7 @@ async def _execute(job_id: uuid.UUID) -> None:
         if job is None or job.status != "running":
             return  # already finished or reconciled elsewhere
         argv, job_type, project_id = job.argv, job.type, job.project_id
-    root = _ws_path(project_id)
+    root = ws_path(project_id)
     hb_stop = asyncio.Event()
     state: dict[str, bool] = {"cancelled": False}
 

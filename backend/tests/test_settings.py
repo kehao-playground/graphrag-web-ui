@@ -11,7 +11,7 @@ from sqlalchemy import select
 from graphrag_ui.adapters.models import SettingsVersion
 from graphrag_ui.adapters.workspace import FakeInitializer
 from graphrag_ui.api.projects_routes import get_initializer
-from graphrag_ui.services.projects import _ws_path
+from graphrag_ui.services.projects import ws_path
 from tests.test_projects import _activate, _setup_two_users
 
 
@@ -30,7 +30,7 @@ async def _make_project(client, headers, name="Settings"):
 
 
 def _settings_path(pid: uuid.UUID):
-    return _ws_path(pid) / "settings.yaml"
+    return ws_path(pid) / "settings.yaml"
 
 
 async def _versions(db_session, pid):
@@ -257,7 +257,7 @@ async def test_put_with_env_backed_placeholder_succeeds(client, app, db_session)
     alice = await _alice(client, app)
     pid = await _make_project(client, alice)
     got = (await client.get(f"/api/projects/{pid}/settings", headers=alice)).json()
-    (_ws_path(pid) / ".env").write_text("GRAPHRAG_API_KEY=sk-123456789\n")
+    (ws_path(pid) / ".env").write_text("GRAPHRAG_API_KEY=sk-123456789\n")
 
     content = "models:\n  api_key: ${GRAPHRAG_API_KEY}\n"
     r = await client.put(f"/api/projects/{pid}/settings", headers=alice,

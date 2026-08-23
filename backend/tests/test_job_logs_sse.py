@@ -13,7 +13,7 @@ from graphrag_ui.adapters.index_runner import log_path_for
 from graphrag_ui.adapters.jobs_repo import finish
 from graphrag_ui.adapters.workspace import FakeInitializer
 from graphrag_ui.api.projects_routes import get_initializer
-from graphrag_ui.services.projects import _ws_path
+from graphrag_ui.services.projects import ws_path
 
 
 async def _login(client, email, password):
@@ -56,8 +56,8 @@ async def _queued_job(client, hdr, name):
 
 
 def _log_of(pid: str, job_id: str):
-    # _ws_path is what the route uses — same resolution rules, no /tmp symlink drift
-    return log_path_for(_ws_path(uuid.UUID(pid)), uuid.UUID(job_id))
+    # ws_path is what the route uses — same resolution rules, no /tmp symlink drift
+    return log_path_for(ws_path(uuid.UUID(pid)), uuid.UUID(job_id))
 
 
 async def _finish(job_id: str, status: str = "succeeded"):

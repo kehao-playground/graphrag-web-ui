@@ -12,7 +12,7 @@ from pathlib import Path
 
 from graphrag_ui.adapters.models import Project
 from graphrag_ui.config import get_settings
-from graphrag_ui.services.projects import _ws_path
+from graphrag_ui.services.projects import ws_path
 
 # Upload whitelist keyed by project.input_file_type (spec §6.5):
 # text → txt/md, csv → csv, json → json.
@@ -79,7 +79,7 @@ def max_file_bytes() -> int:
 
 def usage_bytes(project: Project) -> int:
     """input/ + output/ both count against the project quota (spec §10)."""
-    root = _ws_path(project.id)
+    root = ws_path(project.id)
     return _dir_size(root / "input") + _dir_size(root / "output")
 
 
@@ -99,7 +99,7 @@ async def save_file(project: Project, filename: str, source) -> tuple[str, int]:
     # in-flight tmp file itself. Snapshot-first matches the old
     # check-then-write semantics, overwrite case included (existing file counted).
     base_usage = usage_bytes(project)
-    input_dir = _ws_path(project.id) / "input"
+    input_dir = ws_path(project.id) / "input"
     input_dir.mkdir(parents=True, exist_ok=True)
     # tmp+replace keeps writes atomic: readers never see a partial file. The
     # tmp name is dot-prefixed so a concurrent listing never surfaces it.
@@ -130,7 +130,7 @@ async def list_files(project: Project) -> list[dict]:
     Dotfiles are skipped: they are never valid uploads, and the only writer
     here (save_file) uses dot-prefixed tmp names during atomic writes.
     """
-    input_dir = _ws_path(project.id) / "input"
+    input_dir = ws_path(project.id) / "input"
     if not input_dir.exists():
         return []
     entries = []
@@ -151,7 +151,7 @@ async def list_files(project: Project) -> list[dict]:
 async def delete_file(project: Project, filename: str) -> int:
     """Remove input/<name>; returns the removed file's size for the audit log."""
     name = _safe_name(project.input_file_type, filename)
-    target = _ws_path(project.id) / "input" / name
+    target = ws_path(project.id) / "input" / name
     if not target.is_file():
         raise FileNotFoundError(name)
     size = target.stat().st_size

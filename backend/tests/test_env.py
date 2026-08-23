@@ -12,7 +12,7 @@ from sqlalchemy import select
 from graphrag_ui.adapters.models import AuditLog
 from graphrag_ui.adapters.workspace import FakeInitializer
 from graphrag_ui.api.projects_routes import get_initializer
-from graphrag_ui.services.projects import _ws_path
+from graphrag_ui.services.projects import ws_path
 from tests.test_projects import _activate, _setup_two_users
 
 SECRET = "sk-123456789"
@@ -33,7 +33,7 @@ async def _make_project(client, headers, name="Env"):
 
 
 def _env_path(pid: uuid.UUID):
-    return _ws_path(pid) / ".env"
+    return ws_path(pid) / ".env"
 
 
 async def _set(client, headers, pid, key, value):

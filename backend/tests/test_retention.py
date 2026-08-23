@@ -13,7 +13,7 @@ from graphrag_ui.adapters.index_runner import RunResult
 from graphrag_ui.adapters.models import Job, Project, User
 from graphrag_ui.config import get_settings
 from graphrag_ui.services import runner_loop
-from graphrag_ui.services.projects import _ws_path
+from graphrag_ui.services.projects import ws_path
 from graphrag_ui.services.retention import prune_update_output, sweep_all, sweep_job_logs
 
 NOW = datetime(2026, 8, 21, 12, 0, 0, tzinfo=UTC)
@@ -56,7 +56,7 @@ async def _seed_finished_job(status: str, finished_at: datetime,
         await s.execute(update(Job).where(Job.id == job.id)
                         .values(finished_at=finished_at))
         await s.commit()
-        root = _ws_path(p.id)
+        root = ws_path(p.id)
         log = root / "logs" / "jobs" / f"{job.id}.log"
         if with_log:
             log.parent.mkdir(parents=True, exist_ok=True)
@@ -162,7 +162,7 @@ async def _seed_running_job(type: str) -> tuple[uuid.UUID, Path]:
             queued_by=u.id)
         await s.commit()
         await jobs_repo.claim_next(s, "w-seed")
-        return job.id, _ws_path(p.id)
+        return job.id, ws_path(p.id)
 
 
 async def test_execute_prunes_after_successful_update(app, monkeypatch):

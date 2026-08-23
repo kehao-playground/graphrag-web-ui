@@ -18,7 +18,7 @@ from graphrag_ui.adapters.frame_cache import WorkspaceNotIndexedError, get_frame
 from graphrag_ui.adapters.graphrag_search import GraphragSearchAdapter, load_config
 from graphrag_ui.adapters.models import Project, User
 from graphrag_ui.domain.citations import build_citations
-from graphrag_ui.services.projects import _ws_path
+from graphrag_ui.services.projects import ws_path
 from graphrag_ui.services.rate_limit import get_rate_limiter
 
 logger = logging.getLogger(__name__)
@@ -112,7 +112,7 @@ async def run_query(
     # Rate limit first: cheap in-memory check before any I/O.
     get_rate_limiter().check(str(user.id), str(project.id))
 
-    root = _ws_path(project.id)
+    root = ws_path(project.id)
     try:
         config = load_config(root)
     except Exception as exc:
@@ -174,7 +174,7 @@ async def stream_query(
     total_start = time.perf_counter()
     get_rate_limiter().check(str(user.id), str(project.id))
 
-    root = _ws_path(project.id)
+    root = ws_path(project.id)
     try:
         config = load_config(root)
     except Exception as exc:

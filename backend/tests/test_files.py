@@ -12,7 +12,7 @@ from sqlalchemy import select
 
 from graphrag_ui.adapters.models import AuditLog
 from graphrag_ui.config import get_settings
-from graphrag_ui.services.projects import _ws_path
+from graphrag_ui.services.projects import ws_path
 from tests.test_projects import _activate, _setup_two_users
 
 
@@ -138,7 +138,7 @@ async def test_upload_too_large_without_content_length_streams_to_413(client):
                           content=multipart())
     assert r.status_code == 413
     assert (await _list(client, alice, pid))["files"] == []
-    input_dir = _ws_path(uuid.UUID(pid)) / "input"
+    input_dir = ws_path(uuid.UUID(pid)) / "input"
     residue = list(input_dir.iterdir()) if input_dir.exists() else []
     assert residue == []  # no partial file, no dot-tmp residue
 
