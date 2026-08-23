@@ -2,20 +2,21 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Root README with a verified 15-minute quickstart (+ zh-TW mirror), one-time sweep of ~230 zh-TW comment lines to English, and a CI-enforced comment-language guard — per `docs/superpowers/specs/2026-08-23-hygiene-remediation-design.md` §5.
+**Goal:** Root README with a verified 15-minute quickstart (+ zh-TW mirror), a scanner-guided sweep of ~230 zh-TW comment lines to English, and a CI-enforced comment-language guard — per `docs/superpowers/specs/2026-08-23-hygiene-remediation-design.md` §5, revised after user plan-review (2026-08-23: scanner-first ordering, generated-chain handling, README fact fixes).
 
-**Architecture:** Five tasks on branch `feature/hygiene-docs` (branched from main AFTER Wave A merges — B5's test counts depend on A). B1/B2 author the README pair; B3 sweeps comments in three mechanical area commits; B4 lands a comment-language scanner as a fast backend test (CI rides the existing pytest step — the spec's optional standalone script is dropped as a simplification, the test is the enforcement); B5 syncs policy docs. No behavior changes anywhere: the sweep diff must be comments-only.
+**Architecture:** Five tasks on branch `feature/hygiene-docs` (cut from main@8a081a1 — Wave A fully merged; B5's counts come from a fresh run after Task 3 adds its tests). T1/T2 author the README pair; **T3 writes the scanner FIRST (self-tests + list mode)**; T4 sweeps the tree guided by the scanner's violation output (area commits; the schemas.py→openapi.json→types.generated.ts generated chain is its own commit); T5 syncs policy docs. No behavior changes: every sweep commit is comments-only except the generated-chain commit, which pairs source translation with regeneration.
 
-**Tech Stack:** Markdown, pytest (stdlib-only scanner), GitHub Actions (unchanged jobs).
+**Tech Stack:** Markdown, pytest (stdlib-only scanner), openapi regen (`backend/scripts/gen_openapi.py`, `frontend npm run gen:types`), GitHub Actions (unchanged jobs — the guard rides the existing pytest step; the spec's optional standalone script stays dropped).
 
 ## Global Constraints
 
 - Comments/docstrings English-only after this wave; UI strings, API error-detail strings, and operator-facing output (helm `NOTES.txt`) remain zh-TW BY DESIGN and are never touched.
-- The sweep commits are comments-only — a reviewer must be able to verify no code/string changes by diff inspection. Test files asserting zh-TW UI strings keep those string literals; only their comments translate.
+- **Generated-artifact chain (hard rule):** `backend/src/graphrag_ui/api/schemas.py` docstrings flow into `openapi.json` (`\u`-escaped — invisible to plain CJK grep) and from there into `frontend/src/api/types.generated.ts` JSDoc. Generated files are NEVER hand-edited (CI regen+diff gates enforce). Any commit that translates a schemas.py docstring MUST, in the same commit, run `cd backend && uv run python scripts/gen_openapi.py` and `cd frontend && npm run gen:types` and commit the regenerated files. Both generated files are excluded from the scanner.
+- The authoritative to-sweep list is the scanner's violation output (Task 3's list mode), NOT any hand-written file list; the distributions below are 2026-08-23 measurements for estimation only.
+- Sweep commits are comments-only by diff inspection (exception: the generated-chain commit above; and string-literal translations explicitly listed in Task 4). Test files asserting zh-TW UI strings keep those literals; only their comments translate.
 - `docs/superpowers/` specs and plans are historical records (mixed language) — NEVER translated, never in scanner scope.
-- README quickstart steps must come from verified facts only (this project's smoke passes; `.env.example`; spec §8/§13). No invented commands.
-- Conventional Commits; each sweep area is its own commit; fast suites green before every commit (`cd backend && uv run pytest -q -m "not slow"` where backend files changed; `cd frontend && npx vitest run && npx tsc -b --noEmit` where frontend files changed).
-- After B3's sweep, the tree must already satisfy B4's scanner except for deliberate `zh-TW:`-prefixed escapes and allowlist entries.
+- README quickstart steps come from verified facts only. Verified corrections (2026-08-23 review): search runs **in-process** `graphrag.api` inside the shielded adapter; indexing runs via subprocess CLI — both graphrag touchpoints live only in `adapters/`. Frontend requires **Node 24** (jsdom/undici need ≥22; CI pins 24).
+- Conventional Commits; fast suites green before every commit (`cd backend && uv run pytest -q -m "not slow"` where backend files changed; `cd frontend && npx vitest run && npx tsc -b --noEmit` where frontend files changed). After Task 4, the tree must satisfy the scanner except deliberate `zh-TW:` escapes and allowlist entries.
 
 ---
 
@@ -23,19 +24,19 @@
 
 **Files:**
 - Create: `README.md` (repo root)
-- Reference material (read, do not modify): `.env.example`, `docker-compose.yml`, `docs/superpowers/specs/2026-08-19-graphrag-web-ui-design.md` §8/§13, `deploy/helm/graphrag-ui/README.md` if present
+- Reference material (read, do not modify): `.env.example`, `docker-compose.yml`, `docs/superpowers/specs/2026-08-19-graphrag-web-ui-design.md` §8/§13
 
 **Interfaces:**
-- Produces: the section skeleton below, filled with verified facts. `docs/zh-TW/README.md` (Task 2) mirrors it 1:1; B5's policy docs link to it.
+- Produces: the section skeleton below with verified facts. `docs/zh-TW/README.md` (Task 2) mirrors it 1:1; T5's policy docs link to it.
 
 - [ ] **Step 1: Write the README against this skeleton**
 
 Sections (exact order):
 
 1. **Title + one-paragraph pitch** — team web console for Microsoft GraphRAG: manage workspaces/projects, upload corpora, run indexing jobs, query (local/global/drift/basic, SSE streaming with citations), browse parquet artifacts and a WebGL knowledge graph. Replaces CLI operations for non-technical teammates.
-2. **Architecture sketch** (short bullet list, no diagram tooling): React 19 SPA (antd, zh-TW UI) ← nginx; FastAPI backend (domain/services/adapters/api layering; graphrag touched ONLY via subprocess CLI in adapters); Postgres 16; one `graphrag init` workspace per project under `WORKSPACES_DIR`.
+2. **Architecture sketch** (short bullets, no diagram tooling): React 19 SPA (antd, zh-TW UI) ← nginx; FastAPI backend (domain/services/adapters/api layering); **two graphrag touchpoints, both confined to `adapters/`: indexing runs the graphrag CLI as a subprocess; query/search calls `graphrag.api` in-process inside a shielded module (`adapters/graphrag_search.py` — shielded because graphrag's dependency chain loads `.env`/dotenv into `os.environ` on import)**; Postgres 16; one `graphrag init` workspace per project under `WORKSPACES_DIR`.
 3. **Quickstart (15 minutes)** — the numbered happy path:
-   1. Prereqs: Docker + Docker Compose; (for local dev only: Python 3.12 + uv, Node 20+).
+   1. Prereqs: Docker + Docker Compose; Node **24** and Python 3.12 + uv only for local development (jsdom/undici need Node ≥22; CI pins 24).
    2. `cp .env.example .env`, then set the three compose-enforced vars: `JWT_SECRET` (any ≥32-char secret), `BOOTSTRAP_ADMIN_EMAIL` (NOT a `.local` domain — login rejects special-use domains), `BOOTSTRAP_ADMIN_PASSWORD`. All 15 variables and defaults: see `.env.example`.
    3. `docker compose up --build -d` → UI at `http://localhost:8080` (postgres + alembic migrations start automatically; API waits for PG health).
    4. Log in as the bootstrap admin → the UI forces a password change on first login.
@@ -46,15 +47,15 @@ Sections (exact order):
    9. Query: all four modes stream over SSE with inline citations.
    10. Explore: artifact tables (entities/relationships/communities/documents/community_reports/text_units) + 圖譜 WebGL graph view.
 4. **Known caveats** — graphrag pinned `==3.1.0` (lancedb has no macOS x86 wheel; see spec §13); on macOS `docker compose build web` may hang on keychain prompts — run `docker compose build api` + serve frontend via `npm run preview` for UI work, or unlock the keychain first.
-5. **Local development** — backend: `cd backend && uv sync && uv run pytest -m "not slow"` (Docker required; testcontainers); frontend: `cd frontend && npm ci && npm test`. Dev proxy: `API_PROXY_TARGET` (vite).
+5. **Local development** — backend: `cd backend && uv sync && uv run pytest -m "not slow"` (Docker required; testcontainers); frontend: `cd frontend && npm ci && npm test` (Node 24). Dev proxy: `API_PROXY_TARGET` (vite).
 6. **Deployment** — pointer to `deploy/helm/graphrag-ui` (values.yaml documents every env var; NOTES.txt prints install-time quickstart in zh-TW) and `docker-compose.yml`.
 7. **Contributing / docs** — links: `CONTRIBUTING.md`, zh-TW mirror `docs/zh-TW/README.md`, design spec `docs/superpowers/specs/`.
 
-Every command above must be verified against the repo before writing (open `.env.example` for the exact var names/defaults; do not transcribe from memory).
+Every command and claim must be re-verified against the repo before writing (open `.env.example`/`docker-compose.yml`/`api/query_routes.py` for the mode Literal; do not transcribe from memory).
 
 - [ ] **Step 2: Cross-check facts**
 
-Run: `docker compose config` (compose still valid); read back each env var name against `.env.example`; confirm port 8080 against `docker-compose.yml`. No CI for README — accuracy is the test.
+Run: `docker compose config` (compose still valid); each env var name against `.env.example`; port 8080 against `docker-compose.yml`; query modes against `api/query_routes.py:22`; Node version against `.github/workflows/ci.yml`. No CI for README — accuracy is the test.
 
 - [ ] **Step 3: Commit**
 
@@ -71,8 +72,8 @@ git commit -m "docs: root README with verified 15-minute quickstart"
 - Create: `docs/zh-TW/README.md`
 
 **Interfaces:**
-- Consumes: Task 1's `README.md` (source of truth; structure mirrored 1:1, same section order and commands).
-- Produces: the zh-TW operator mirror; B5 records the maintenance rule (README change ⇒ mirror update in the same PR).
+- Consumes: Task 1's `README.md` (source of truth; structure mirrored 1:1, same section order and commands — including the corrected two-touchpoint architecture wording and Node 24).
+- Produces: the zh-TW operator mirror; T5 records the maintenance rule (README change ⇒ mirror update in the same PR).
 
 - [ ] **Step 1: Translate**
 
@@ -91,59 +92,43 @@ git commit -m "docs(zh-TW): README operator mirror"
 
 ---
 
-### Task 3: One-time comment sweep (spec B3) — three area commits
-
-**Files (sweep targets, measured 2026-08-23):**
-- Backend src+migrations (~65 lines / 13 files): `adapters/workspace.py`, `adapters/db.py`, `adapters/models.py`, `api/deps.py`, `api/auth_routes.py`, `api/users_routes.py`, `api/health_routes.py`, `api/projects_routes.py`, `api/schemas.py`, `main.py`, `services/users.py`, `services/projects.py`, `services/auth.py`, `services/audit.py`, `services/query.py`, `migrations/env.py` (find others by scanning)
-- Backend tests (~49 lines / 9 files): `conftest.py:45-50` clean_db docstring, `test_retention`, `test_dry_run`, `test_explore_api`, `test_job_logs_sse`, `test_jobs_api`, `test_env`, `test_settings`, `test_files`
-- Frontend (~45 lines): `stores/auth.ts`, `pages/AdminUsers.tsx`, `pages/ProjectDetail.tsx`, `pages/Projects.tsx`, `pages/Login.tsx`, `components/ExplorePanel.tsx`, `components/JobsPanel.tsx`, `components/Layout.tsx`, `api/types.ts`, `index.css`, `setupTests.ts`
-- Deploy + config (~71 lines): `deploy/helm/graphrag-ui/values.yaml`, templates `_helpers.tpl`/`api-deployment.yaml`/`api-service.yaml`/`api-service-alias.yaml`/`ingress.yaml`/`pvc.yaml`/`secret.yaml`, `docker-compose.yml`, `.env.example`, `backend/Dockerfile`, `backend/pyproject.toml` (description string → `"GraphRAG Web UI backend (FastAPI)"` — a STRING, guard won't catch regressions here; review-enforced), `frontend/nginx.conf`, `frontend/src/index.css`, `.github/workflows/ci.yml`
-
-**Rules:** translate comments/docstrings to faithful, concise English (technical meaning preserved, not machine-literal); do NOT touch zh-TW string literals (UI text, API details, pytest marks), `docs/superpowers/**`, or helm `NOTES.txt`; where a comment exists to explain a zh-TW string (e.g. test comments quoting UI text), keep the quoted zh-TW inside the now-English comment — that case uses the `zh-TW:` escape prefix from Task 4 only if the quoted text would otherwise trip the scanner as comment content.
-
-- [ ] **Step 1: Sweep backend (src + migrations + tests)**
-
-Work file by file; after each file, run `cd backend && uv run pytest -q -m "not slow"` once for the whole area at the end. If a translated docstring is asserted anywhere (grep the old text first), keep the assertion in sync.
-Commit: `docs(comments): sweep backend zh-TW comments to English`.
-
-- [ ] **Step 2: Sweep frontend**
-
-Same rules; suite `npx vitest run && npx tsc -b --noEmit`.
-Commit: `docs(comments): sweep frontend zh-TW comments to English`.
-
-- [ ] **Step 3: Sweep deploy + config**
-
-`docker compose config`, `helm lint deploy/helm/graphrag-ui`, `helm template deploy/helm/graphrag-ui > /dev/null` all still pass.
-Commit: `docs(comments): sweep deploy/compose/helm zh-TW comments to English`.
-
----
-
-### Task 4: CI comment-language guard (spec B4)
+### Task 3: Comment-language scanner — written FIRST, list mode drives the sweep (spec B4)
 
 **Files:**
-- Create: `backend/tests/test_comment_language.py` (scanner + self-tests + repo scan)
+- Create: `backend/tests/test_comment_language.py` (scanner module: functions + self-tests + `python -m` list mode)
 
-**Interfaces:**
-- Produces: scanner functions `python_comment_spans(text)`, `line_comment_spans(text, marker)`, `block_comment_spans(text, start, end)`, `tpl_comment_spans(text)`; repo-scan test; escape prefix `zh-TW:`; allowlist `backend/tests/comment_language_allowlist.txt` (one path per line, `#`-comments allowed).
-- Scan roots (from spec B4): `backend/src`, `backend/tests`, `backend/migrations`, `frontend/src`, `deploy`, `.github/workflows`, `docker-compose.yml`, `.env.example`, `backend/Dockerfile`, `backend/pyproject.toml`, `frontend/nginx.conf`. Excluded: `node_modules`, `dist`, vendored chart tarballs, `NOTES.txt`, everything under `docs/superpowers/`.
+**Interfaces (unified names — the code defines them):**
+- Produces: `python_comments(text)`, `marker_comments(text, marker)`, `block_comments(text, start, end)`; extension dispatch (`.py` → tokenize COMMENT + ast docstrings; `.ts/.tsx` → `//` + `/* */`; `.yml/.yaml/.toml/Dockerfile/.conf/.ini` and `.env.example` → `#`; `.css` → `/* */`; `.tpl` → `block_comments` with `{{/*` … `*/}}`); `CJK` regex including CJK punctuation and fullwidth forms: `[\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uff01-\uff60]` (§ is U+00A7, outside the classes — English comments keep it); escape prefix `zh-TW:`; `backend/tests/comment_language_allowlist.txt` (created in this task with only a header `#` comment; scanner also tolerates the file being absent).
+- Scan roots: `backend/src`, `backend/tests`, `backend/migrations`, `backend/scripts`, `backend/alembic.ini`, `backend/Dockerfile`, `backend/pyproject.toml`, `frontend/src`, `frontend/vite.config.ts`, `frontend/Dockerfile`, `frontend/index.html`, `deploy`, `.github/workflows`, `docker-compose.yml`, `.env.example`. Exclusions: only whitelisted extensions are scanned (so vendored chart tarballs and binaries are naturally skipped); plus explicit path exclusions `frontend/src/api/types.generated.ts`, `openapi.json` (generated artifacts — see Global Constraints), and `docs/superpowers/`.
+- **Repo-scan gating test is NOT added in this task** (it would be red until Task 4 sweeps). This task lands: scanner functions, self-tests, list mode, allowlist file.
 
-- [ ] **Step 1: Write the scanner + self-tests (failing first against unswept paths — run AFTER Task 3 so only self-tests matter)**
+- [ ] **Step 1: Write self-tests first (failing)**
+
+Cases (samples MUST be assigned variables, never function-first triple-quoted strings — the ast docstring extractor would eat them): CJK in `//` fails; same line prefixed `// zh-TW:` passes; CJK inside a string literal passes (never scanned); `.tpl` `{{/* 中文 */}}` fails (cross-line case included, `re.S`); fullwidth comma `，` and 、。「」 each fail; `§` in an English comment passes; allowlisted path passes; missing allowlist file tolerated; `.py` docstring CJK fails; `#` comment in yaml/toml-style text fails. TDD: red → green.
+
+- [ ] **Step 2: Implement the scanner (stdlib only)**
 
 ```python
 # backend/tests/test_comment_language.py
-"""Comment-language guard (spec B4): CJK in code comments fails the build.
+"""Comment-language scanner (spec B4): CJK in code comments fails the build.
 
 Escape hatch: a comment whose first non-space text is `zh-TW:` is
 deliberate (e.g. quoting a UI string) and passes. String literals are
-never scanned — only comment syntax is. Stdlib only.
+never scanned — only comment syntax is. Known dumb-scanner tradeoff: a
+`//` inside a string literal followed by CJK would false-positive; the
+repo has no such case today and the zh-TW: escape covers it.
+Stdlib only. `python backend/tests/test_comment_language.py --list`
+prints violations (file:line: comment) — the authoritative sweep list.
 """
+import ast
 import io
 import re
+import sys
 import tokenize
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
-CJK = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
+CJK = re.compile(r"[\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uff01-\uff60]")
 ESCAPE = re.compile(r"^\s*zh-TW:")
 
 
@@ -152,7 +137,14 @@ def python_comments(text: str) -> list[str]:
     for tok in tokenize.generate_tokens(io.StringIO(text).readline):
         if tok.type == tokenize.COMMENT:
             out.append(tok.string)
-    return out  # docstrings: parse via ast in the repo scan below
+    return out
+
+
+def python_docstrings(text: str) -> list[str]:
+    return [ast.get_docstring(n) for n in ast.walk(ast.parse(text))
+            if isinstance(n, (ast.Module, ast.ClassDef, ast.FunctionDef,
+                              ast.AsyncFunctionDef))
+            and ast.get_docstring(n)]
 
 
 def marker_comments(text: str, marker: str) -> list[str]:
@@ -165,20 +157,53 @@ def block_comments(text: str, start: str, end: str) -> list[str]:
                       text, flags=re.S)
 ```
 
-Plus: `ast`-based docstring extraction for `.py`; per-extension dispatch (`.py` → tokenize+ast; `.ts/.tsx` → `//` + `/* */`; `.yml/.yaml/.toml/Dockerfile/.conf` + `.env.example` → `#`; `.css` → `/* */`; `.tpl` → `{{/* */}}`); the repo scan walks the roots above, skips exclusions, and asserts every comment span either matches `ESCAPE` or has no `CJK` match; allowlist paths are skipped with their lines counted. Self-tests: inline sample strings — CJK in `//` fails, same line prefixed `// zh-TW:` passes, CJK inside a string literal passes (never scanned), `.tpl` `{{/* 中文 */}}` fails, allowlisted path passes.
+Plus: the extension dispatch table, root/exclusion walk, allowlist reader, self-tests, and a `--list` entry point printing `path:lineno` for every violation (drive the sweep from it).
 
-- [ ] **Step 2: Run guard + fix stragglers**
+- [ ] **Step 3: Run list mode; save the output**
 
-Run: `cd backend && uv run pytest tests/test_comment_language.py -v`
-Expected: PASS on the swept tree; any missed comment is either swept (preferred, amend the area commit is NOT allowed — add a `docs(comments): guard stragglers` commit) or deliberately escaped/allowlisted with a reason.
+Run: `cd backend && uv run python tests/test_comment_language.py --list | tee ../.superpowers/sdd/2026-08-23-hygiene-docs/sweep-list.txt`
+Expected: ~230 lines across backend/frontend/deploy. This file is Task 4's work order (per-area partitioning by path prefix).
 
-- [ ] **Step 3: Full fast suite + commit**
+- [ ] **Step 4: Self-tests + fast suite green; create allowlist; commit**
 
 ```bash
-cd backend && uv run pytest -q -m "not slow"
+cd backend && uv run pytest tests/test_comment_language.py -v && uv run pytest -q -m "not slow"
+printf '# Deliberate CJK-comment exceptions, one path per line, reason as # comment\n' > backend/tests/comment_language_allowlist.txt
 git add backend/tests/test_comment_language.py backend/tests/comment_language_allowlist.txt
-git commit -m "test(guard): CJK comment scanner with zh-TW escape and allowlist"
+git commit -m "test(guard): CJK comment scanner with list mode, zh-TW escape, allowlist"
 ```
+
+---
+
+### Task 4: Scanner-guided sweep (spec B3) — area commits, generated chain included
+
+**Files:**
+- Work order: `.superpowers/sdd/2026-08-23-hygiene-docs/sweep-list.txt` (Task 3's scanner output — authoritative; the 2026-08-23 measurement for estimation: backend src+migrations ~65 lines / ~17 files — includes `api/explore_routes.py`, `api/query_routes.py`, `api/jobs_routes.py`, `adapters/frame_cache.py`, `adapters/index_runner.py`, `services/errors.py` neighbors, `services/rate_limit.py`, `domain/jobs.py`, `api/schemas.py`; backend tests ~49 lines — real hits live in `test_auth.py`, `test_users.py`, `test_permissions.py`, `test_projects.py`, `test_query_api.py`, `test_query_stream_sse.py`, `test_frame_cache.py`, `test_health.py`, `test_real_corpus_query.py`, `conftest.py`; frontend ~43 lines — components incl. `JobLogViewer.tsx`, `GraphView.tsx`, `api/client.ts`, and `__tests__/` files; deploy+config ~59 lines incl. `Chart.yaml`; `frontend/src/index.css` belongs to the FRONTEND commit only)
+- String-literal translations explicitly in scope: `backend/pyproject.toml:4` description → `"GraphRAG Web UI backend (FastAPI)"` (a STRING — the guard cannot catch regressions here; review-enforced)
+
+**Rules:** translate comments/docstrings to faithful, concise English (technical meaning preserved, not machine-literal); full-width punctuation inside translated comments becomes ASCII (the widened CJK class would otherwise flag it); do NOT touch zh-TW string literals (UI text, API details, pytest marks, `INTERRUPTED_DETAIL`), `docs/superpowers/**`, or helm `NOTES.txt`; a comment quoting zh-TW keeps the quote but uses the `zh-TW:` escape prefix if the quoted text would otherwise trip the scanner.
+
+- [ ] **Step 1: Sweep backend src+migrations per sweep-list; regen gates**
+
+Every file on the list under `backend/src` + `backend/migrations`. If ANY `api/schemas.py` docstring changed: same commit runs `uv run python scripts/gen_openapi.py` (updates `openapi.json`) — and `cd frontend && npm run gen:types` + commit `types.generated.ts` in the SAME commit (the generated chain — see Global Constraints). Prefer a dedicated commit for the chain: translate `schemas.py` docstrings + both regenerated artifacts together, message `docs(comments): translate schemas.py docstrings; regenerate openapi.json and types.generated.ts`.
+Verify: `cd backend && uv run pytest -q -m "not slow" && uv run ruff check`; regen diffs empty after commit.
+Backend tests area: separate commit `docs(comments): sweep backend tests zh-TW comments to English`.
+
+- [ ] **Step 2: Sweep frontend per sweep-list (incl. index.css; NOT types.generated.ts)**
+
+Verify: `cd frontend && npx vitest run && npx tsc -b --noEmit`. If a translated docstring is asserted anywhere (grep the old text first), keep the assertion in sync.
+Commit: `docs(comments): sweep frontend zh-TW comments to English`.
+
+- [ ] **Step 3: Sweep deploy+config per sweep-list (Chart.yaml, values, templates, compose, .env.example, Dockerfiles, ci.yml, nginx.conf, alembic.ini if listed)**
+
+Verify: `docker compose config`, `helm lint deploy/helm/graphrag-ui`, `helm template deploy/helm/graphrag-ui > /dev/null`.
+Commit: `docs(comments): sweep deploy/compose/helm zh-TW comments to English`.
+
+- [ ] **Step 4: Re-run list mode — must be empty (minus escapes/allowlist); land the gating test**
+
+Add the repo-scan test to `test_comment_language.py` (walks roots, asserts zero violations outside `zh-TW:` escapes + allowlist). Stragglers found: sweep them in a NEW commit (`docs(comments): guard stragglers`) — never amend an existing area commit.
+Run: `cd backend && uv run pytest tests/test_comment_language.py -v` → all green.
+Commit: `test(guard): repo-scan gate on swept tree`.
 
 ---
 
@@ -188,13 +213,13 @@ git commit -m "test(guard): CJK comment scanner with zh-TW escape and allowlist"
 - Modify: `AGENTS.md`, `CONTRIBUTING.md`, `frontend/README.md`
 
 **Interfaces:**
-- Consumes: final test counts from merged Wave A (backend fast count, frontend count — read from the freshly run suites, not from this plan).
+- Consumes: test counts from a FRESH run AFTER Task 3's tests exist (do NOT copy Wave A's numbers — AGENTS.md currently reads 210 tests with key (205 fast) / 51→57-era frontend; Task 3 added self-tests to the backend suite). Run the suites now and use those numbers.
 - Produces: updated language policy everywhere it is stated.
 
-- [ ] **Step 1: AGENTS.md** — comments policy line becomes "Code comments/docstrings: English only — CI-enforced (`backend/tests/test_comment_language.py`); deliberate exceptions escape with a `zh-TW:` prefix"; replace the stale "API responses follow the backend schemas in `api/schemas.py`" sentence with: "API contract surface is the generated OpenAPI document (`openapi.json`, regenerated+diffed in CI); pydantic models live in `api/schemas.py` and per-route modules; frontend types come from `types.generated.ts`"; refresh test counts to Wave A's final numbers.
+- [ ] **Step 1: AGENTS.md** — comments policy line becomes "Code comments/docstrings: English only — CI-enforced (`backend/tests/test_comment_language.py`); deliberate exceptions escape with a `zh-TW:` prefix"; replace the stale "API responses follow the backend schemas in `api/schemas.py`" sentence with: "API contract surface is the generated OpenAPI document (`openapi.json`, regenerated+diffed in CI); pydantic models live in `api/schemas.py` and per-route modules; frontend types come from `types.generated.ts` (regenerated via `npm run gen:types`; schemas.py docstring changes flow into it — always regen both)"; refresh test counts from the fresh runs; note the 400-line cap excludes committed generated artifacts (`openapi.json`, `types.generated.ts`).
 - [ ] **Step 2: CONTRIBUTING.md** — replace "zh-TW translations may be added under `docs/zh-TW/` later" with the live policy: `docs/zh-TW/` exists, mirrors the README, and a README change updates the mirror in the same PR; historical specs/plans ≤2026-08-23 stay in their original language (records, not living docs); new documents are English.
-- [ ] **Step 3: frontend/README.md** — replace Vite boilerplate with a 5-line pointer: what the app is (one line), root README link, dev/test commands, link to `docs/zh-TW/README.md`.
-- [ ] **Step 4: Verify + commit** — `docker compose config` untouched-behavior sanity; counts match a fresh `uv run pytest -q -m "not slow"` and `npx vitest run`.
+- [ ] **Step 3: frontend/README.md** — replace Vite boilerplate with a 5-line pointer: what the app is (one line), root README link, dev/test commands (Node 24), link to `docs/zh-TW/README.md`.
+- [ ] **Step 4: Verify + commit** — counts match fresh `uv run pytest -q -m "not slow"` and `npx vitest run`.
 ```bash
 git add AGENTS.md CONTRIBUTING.md frontend/README.md
 git commit -m "docs(policy): English-only comments (CI-enforced), zh-TW mirror rule, OpenAPI contract wording"
@@ -204,15 +229,17 @@ git commit -m "docs(policy): English-only comments (CI-enforced), zh-TW mirror r
 
 ## Final verification (whole wave)
 
-- `cd backend && uv run pytest -q -m "not slow"` (includes the comment guard) && `uv run ruff check`
+- `cd backend && uv run pytest -q -m "not slow" && uv run ruff check` (includes the repo-scan gate)
+- With `GRAPHRAG_API_KEY` available: one full local suite run (`uv run pytest`) — slow tests assert docstring-adjacent behavior and CI runs them; catch any translated-docstring breakage before push.
 - `cd frontend && npx vitest run && npx tsc -b --noEmit && npm run build`
+- Regen gates: `cd backend && uv run python scripts/gen_openapi.py && git diff --exit-code ../openapi.json`; `cd frontend && npm run gen:types && git diff --exit-code src/api/types.generated.ts`
 - `docker compose config && helm lint deploy/helm/graphrag-ui && helm template deploy/helm/graphrag-ui > /dev/null`
-- README fact spot-check: every env var name greps true in `.env.example`; every port matches compose.
-- Push `feature/hygiene-docs`, CI green, scoped wave review (comments-only diffs are reviewed by inspection), PR rebase-merge.
+- README fact spot-check: every env var name greps true in `.env.example`; ports/modes/Node version match ci.yml and query_routes.py.
+- Push `feature/hygiene-docs`, CI green (backend job now includes the repo-scan gate), scoped wave review (comments-only diffs + the generated-chain commit reviewed as source+artifact pair), PR rebase-merge.
 
 ## Self-Review (done)
 
-- Spec §5 coverage: B1→Task 1, B2→Task 2, B3→Task 3, B4→Task 4 (script dropped, test-only enforcement — noted in Architecture), B5→Task 5. N6 (tests in sweep list) and N7 (pyproject string handling) folded into Task 3; NOTES.txt exclusion into Task 4 interfaces.
-- Type consistency: scanner function names used in Task 4 only; README skeleton referenced by Task 2 verbatim.
-- Placeholder scan: README skeleton carries the full verified step list with exact var names; scanner code is concrete; no TBDs.
-- Dependency: plan assumes Wave A merged (test counts, openapi wording in B5).
+- User review coverage: blocking 1 (generated chain: Global Constraints hard rule + dedicated chain commit + scanner exclusions + final-verification regen gates) · blocking 2 (scanner-first: Task 3 before Task 4, list mode is the authoritative work order, hand-lists demoted to estimation notes with corrected distributions) · blocking 3 (README: two-touchpoint adapters wording with shield rationale; Node 24 with jsdom/undici rationale) · 4 (unified scanner names; tpl via block_comments) · 5 (CJK classes widened incl. fullwidth/punctuation; § documented outside) · 6 (allowlist created in Task 3 Step 4 + absent-file tolerance) · 7 (B5 counts: fresh-run wording, current AGENTS.md values noted) · 8 (full-suite-with-key verification line) · 9 (index.css frontend-only) · 10 (roots += scripts/vite.config/Dockerfiles/index.html/alembic.ini) · 11 (dumb-scanner `//`-in-string tradeoff documented in module docstring) · 12 (self-test samples as variables rule) · 13 (no-amend sentence reworded) · 14 (whitelisted-extensions-only wording).
+- Spec §5 coverage: B1→T1, B2→T2, B4→T3 (scanner), B3→T4 (sweep), B5→T5 — order swapped per review (scanner before sweep), coverage unchanged.
+- Placeholder scan: README skeleton carries the corrected verified facts; scanner code concrete; sweep driven by generated list; no TBDs.
+- Dependency: plan assumes main@8a081a1 (Wave A merged) — confirmed.
