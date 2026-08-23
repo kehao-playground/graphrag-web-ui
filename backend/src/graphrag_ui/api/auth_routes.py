@@ -24,18 +24,21 @@ from graphrag_ui.services.auth import (
     verify_password,
 )
 
-# login 速率限制:記憶體滑動視窗,key = (ip, email 小寫),只計**失敗**嘗試 —
-# 成功登入不佔桶(否則團隊尖峰會誤觸 429),桶也以 email 區分,
-# 攻擊者灌爆單一桶不影響其他人(模組級 = 單一 worker 內共享)。
+# Login rate limiting: in-memory sliding window keyed by (ip, lowercased
+# email), counting only **failed** attempts — successful logins never fill a
+# bucket (a team spike must not trip 429), and per-email buckets keep one
+# attacker flooding a single bucket from affecting others (module-level =
+# shared within a single worker).
 _LOGIN_FAILURES: dict[tuple[str, str], deque[datetime]] = {}
 _LOGIN_WINDOW = timedelta(minutes=1)
 _LOGIN_MAX_ATTEMPTS = 10
 
 
 def _login_rate_key(request: Request, email: str) -> tuple[str, str]:
-    # 部署拓撲中 api 一律在 web nginx 後面(nginx 轉發 X-Forwarded-For、
-    # uvicorn 開 --proxy-headers),request.client.host 才會是真實客戶端 IP,
-    # 而非整個團隊共享的 web 容器 IP
+    # In the deployment topology the api always sits behind the web nginx
+    # (nginx forwards X-Forwarded-For, uvicorn runs --proxy-headers), so
+    # request.client.host is the real client IP rather than the web
+    # container IP shared by the whole team
     ip = request.client.host if request.client else "unknown"
     return (ip, email.lower())
 
@@ -57,7 +60,8 @@ def _record_login_failure(request: Request, email: str) -> None:
 
 
 def register_auth_routes(app):
-    # router 建在函式內(同 health_routes):create_app() 在測試會被重複呼叫
+    # Router built inside the function (like health_routes): create_app() is
+    # called repeatedly in tests
     router = APIRouter(prefix="/api/auth")
 
     @router.post("/login", response_model=LoginOut)
@@ -99,7 +103,8 @@ def register_auth_routes(app):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "incorrect current password")
         user.password_hash = hash_password(body.new_password)
         user.must_change_password = False
-        # 改密後撤銷全部 refresh(含本次登入);commit 會一併寫入上面的 user 變更
+        # Changing the password revokes every refresh token (including this
+        # login's); the commit also flushes the user mutation above
         await revoke_all_for_user(db, user.id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 

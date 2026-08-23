@@ -24,7 +24,7 @@ async def _unique_slug(session: AsyncSession, name: str) -> str:
     slug = base
     while (await session.execute(
             select(Project.id).where(Project.slug == slug).limit(1))).first() is not None:
-        slug = f"{base}-{secrets.token_hex(3)}"  # 碰撞 → 短隨機後綴
+        slug = f"{base}-{secrets.token_hex(3)}"  # collision → short random suffix
     return slug
 
 
@@ -52,7 +52,7 @@ async def create_project(session: AsyncSession, name: str, description: str | No
         input_file_type=input_file_type,
     )
     session.add(project)
-    await session.flush()  # 取得 project.id;成功跑完 init 才 commit
+    await session.flush()  # obtain project.id; commit only after init succeeds
     session.add(ProjectMember(project_id=project.id, user_id=creator.id, role="owner"))
     await audit(session, creator.id, "project.created", "project", str(project.id),
                 payload={"name": name, "slug": project.slug,
@@ -60,7 +60,7 @@ async def create_project(session: AsyncSession, name: str, description: str | No
     try:
         await initializer.init(ws_path(project.id), input_file_type)
     except WorkspaceInitError:
-        await session.rollback()  # init 失敗不留 half-baked row,原樣往上拋
+        await session.rollback()  # a failed init leaves no half-baked row; re-raise as-is
         raise
     await session.commit()
     return project
@@ -76,7 +76,7 @@ async def get_project_role(session: AsyncSession, project_id: uuid.UUID,
 
 async def list_projects(session: AsyncSession, user: User) -> list[Project]:
     stmt = select(Project).order_by(Project.created_at, Project.id)
-    if user.role != "admin":  # admin 看全部;一般使用者只看自己是成員的
+    if user.role != "admin":  # admin sees all; regular users see only their memberships
         stmt = stmt.join(ProjectMember).where(ProjectMember.user_id == user.id)
     return list((await session.execute(stmt)).scalars().all())
 
@@ -91,7 +91,7 @@ async def update_project(session: AsyncSession, project: Project, *, name: str |
     if description is not None and description != project.description:
         project.description = description
         changed["description"] = description
-    if not changed:  # 空 PATCH 不算寫入操作,不寫 audit
+    if not changed:  # an empty PATCH is not a write; no audit
         return project
     await audit(session, actor_id, "project.updated", "project", str(project.id),
                 payload=changed)
@@ -106,7 +106,7 @@ async def delete_project(session: AsyncSession, project: Project,
         shutil.rmtree(ws)
     await audit(session, actor_id, "project.deleted", "project", str(project.id),
                 payload={"name": project.name})
-    # 成員列靠 FK ondelete=CASCADE 清掉,service 不手動刪
+    # Member rows are cleared by FK ondelete=CASCADE; the service never deletes them
     await session.delete(project)
     await session.commit()
 
@@ -127,7 +127,7 @@ async def set_member(session: AsyncSession, project: Project, user_id: uuid.UUID
         await audit(session, actor_id, "member.role_changed", "project", str(project.id),
                     payload={"user_id": str(user_id), "role": role})
     else:
-        return member  # 同角色 = 無變更,不寫 audit
+        return member  # same role = no change; no audit
     await session.commit()
     return member
 

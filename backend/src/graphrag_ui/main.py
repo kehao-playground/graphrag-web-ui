@@ -24,10 +24,12 @@ from graphrag_ui.services.auth import bootstrap_admin
 
 
 def _graphrag_version() -> str:
-    # 啟動偵測一次後快取(spec §6.1)。
-    # graphrag 3.x CLI 沒有 --version 選項(typer 未宣告,exit 2),版本讀套件 metadata;
-    # adapters 以 subprocess 呼叫 `graphrag`,故仍以 PATH 檢查 CLI 可用性 —
-    # 容器內由 Dockerfile 的 ENV PATH 保證。
+    # Detected once at startup, then cached (spec §6.1).
+    # The graphrag 3.x CLI has no --version option (typer leaves it
+    # undeclared, exit 2), so the version is read from package metadata;
+    # adapters still probe PATH for CLI availability since they invoke
+    # `graphrag` via subprocess — guaranteed inside containers by the
+    # Dockerfile's ENV PATH.
 
     if shutil.which("graphrag") is None:
         return "not-installed"
@@ -54,7 +56,7 @@ async def _retention_loop(stop: asyncio.Event) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.graphrag_version = _graphrag_version()  # 啟動偵測一次後快取(spec §6.1)
+    app.state.graphrag_version = _graphrag_version()  # detected once, then cached (spec §6.1)
     async with get_session_factory()() as s:
         await bootstrap_admin(s)
     from graphrag_ui.services.runner_loop import run_loop
@@ -77,12 +79,15 @@ async def lifespan(app: FastAPI):
 
 
 def _register_must_change_guard(app: FastAPI) -> None:
-    """強制改密碼的全域防護(spec:後端也要擋,不能只靠前端 Modal)。
+    """Global guard for the forced password change (spec: the backend must
+    also enforce it, not just the frontend modal).
 
-    get_current_user(deps.py)在每個受保護端點做同樣檢查,但它只在
-    「路由存在且宣告該依賴」時執行;尚未掛 get_current_user 依賴的路徑
-    會在此提前收到 403,而不是 404 洩漏路由。
-    token 無效時不攔,交給端點的 get_current_user 回 401。
+    get_current_user (deps.py) performs the same check on every protected
+    endpoint, but it only runs when the route exists and declares that
+    dependency; paths that have not yet mounted a get_current_user dependency
+    get an early 403 here instead of a 404 that would leak the route.
+    Invalid tokens are not intercepted here — the endpoint's get_current_user
+    returns 401.
     """
 
     @app.middleware("http")

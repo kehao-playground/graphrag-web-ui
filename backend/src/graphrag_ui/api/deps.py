@@ -12,8 +12,9 @@ from graphrag_ui.config import get_settings
 
 _bearer = HTTPBearer(auto_error=False)
 
-# must_change_password 為真時仍可存取的完整路徑集合(改密碼流程 + 無需登入的端點)。
-# 單一來源:main.py 的全域 middleware 與 get_current_user 共用,兩處不得各自漂移。
+# Full set of paths still reachable while must_change_password is true
+# (the password-change flow + endpoints that need no login). Single source:
+# main.py's global middleware and get_current_user share it; neither may drift.
 MUST_CHANGE_ALLOWED_PATHS = frozenset({
     "/api/auth/login", "/api/auth/refresh", "/api/auth/logout",
     "/api/auth/change-password", "/api/auth/me",
@@ -22,15 +23,16 @@ MUST_CHANGE_ALLOWED_PATHS = frozenset({
 
 
 async def get_db():
-    # 每個請求開一個 session;factory 本身是 lazy singleton(adapters/db.py)
+    # One session per request; the factory itself is a lazy singleton (adapters/db.py)
     async with get_session_factory()() as session:
         yield session
 
 
 async def resolve_access_user(token: str, db: AsyncSession) -> User | None:
-    """Bearer JWT → User;無效/過期/非 access type/使用者停用 → None。
+    """Bearer JWT → User; invalid/expired/non-access-type/disabled user → None.
 
-    token 沒有 `aud` claim,decode 不得傳 `audience=`,否則必定 InvalidAudienceError。
+    The token carries no `aud` claim, so decode must not pass `audience=`
+    or it will always raise InvalidAudienceError.
     """
     try:
         payload = jwt.decode(token, get_settings().jwt_secret, algorithms=["HS256"])
@@ -53,20 +55,20 @@ async def get_current_user(
     creds: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> User:
-    """後續 task 共用的 Bearer 鑑權依賴;失敗一律 401。"""
+    """Bearer auth dependency shared by later tasks; every failure is a 401."""
     if creds is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated")
     user = await resolve_access_user(creds.credentials, db)
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or expired token")
-    # 後端也要擋強制改密碼,不能只靠前端 Modal
+    # The backend must also enforce the forced password change, not just the frontend modal
     if user.must_change_password and request.url.path not in MUST_CHANGE_ALLOWED_PATHS:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "password change required")
     return user
 
 
-# 端點參數共用的依賴型別(FastAPI 慣例的 Annotated alias,
-# 免得每個端點重複一長串 Annotated[...] 宣告)
+# Shared dependency types for endpoint parameters (FastAPI-conventional
+# Annotated aliases, so endpoints don't repeat a long Annotated[...] each)
 DbSession = Annotated[AsyncSession, Depends(get_db)]
 CurrentUser = Annotated[User, Depends(get_current_user)]
 

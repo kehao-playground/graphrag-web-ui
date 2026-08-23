@@ -56,7 +56,8 @@ class Project(Base):
 
 class ProjectMember(Base):
     __tablename__ = "project_members"
-    # 兩個 FK 都 CASCADE:刪專案/刪使用者時的成員清理交給 DB,service 不手動刪
+    # Both FKs CASCADE: the DB handles member cleanup on project/user deletion;
+    # services never delete members manually
     project_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True)
     user_id: Mapped[uuid.UUID] = mapped_column(
