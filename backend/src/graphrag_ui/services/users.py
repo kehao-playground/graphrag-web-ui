@@ -1,10 +1,48 @@
 import uuid
 
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.adapters.models import User
 from graphrag_ui.services.audit import audit
 from graphrag_ui.services.auth import hash_password, revoke_all_for_user
+
+
+class UserNotFound(LookupError):
+    """No user exists for the requested id."""
+
+
+class SelfRoleChangeError(ValueError):
+    """An admin tried to change their own role or active status."""
+
+
+class LastActiveAdminError(ValueError):
+    """The change would demote or deactivate the last remaining active admin."""
+
+
+async def get_user(session: AsyncSession, user_id: uuid.UUID) -> User:
+    user = await session.get(User, user_id)
+    if user is None:
+        raise UserNotFound(str(user_id))
+    return user
+
+
+async def list_users_ordered(session: AsyncSession) -> list[User]:
+    # Explicit ordering — tests and frontend must not rely on implicit DB row order.
+    return list((await session.execute(
+        select(User).order_by(User.created_at, User.id))).scalars().all())
+
+
+async def list_users_by_email(session: AsyncSession) -> list[User]:
+    return list((await session.execute(
+        select(User).order_by(User.email))).scalars().all())
+
+
+async def _other_active_admin_count(session: AsyncSession, user_id: uuid.UUID) -> int:
+    return (await session.execute(
+        select(func.count()).select_from(User).where(
+            User.role == "admin", User.is_active.is_(True), User.id != user_id)
+    )).scalar_one()
 
 
 async def create_user(session: AsyncSession, email: str, display_name: str,
@@ -55,3 +93,18 @@ async def reset_password(session: AsyncSession, user: User, new_password: str,
     await audit(session, actor_id, "user.password_reset", "user", str(user.id))
     await revoke_all_for_user(session, user.id)  # 內部 commit,一併送出密碼變更與 audit
     await session.commit()
+
+
+async def patch_user_guarded(session: AsyncSession, admin: User, user_id: uuid.UUID, *,
+                             display_name: str | None, role: str | None,
+                             is_active: bool | None) -> User:
+    user = await get_user(session, user_id)
+    if user.id == admin.id and (role is not None or is_active is not None):
+        raise SelfRoleChangeError("cannot change your own role or active status")
+    demotes = role is not None and role != "admin"
+    # Demoting or deactivating the last active admin would lock the system out.
+    if (user.role == "admin" and user.is_active and (demotes or is_active is False)
+            and await _other_active_admin_count(session, user.id) == 0):
+        raise LastActiveAdminError("cannot demote or deactivate the last active admin")
+    return await update_user(session, user, display_name=display_name, role=role,
+                             is_active=is_active, actor_id=admin.id)

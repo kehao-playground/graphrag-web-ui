@@ -119,3 +119,55 @@ async def test_cannot_deactivate_last_active_admin(client):
     users_after = (await client.get("/api/admin/users", headers=hdr)).json()
     original_after = next(u for u in users_after if u["email"] == "admin@test.local")
     assert original_after["is_active"] is True
+
+
+
+async def test_get_user_unknown_id_raises_user_not_found(db_session):
+    """Direct service: unknown id → UserNotFound (the route maps it to 404)."""
+    import uuid
+
+    import pytest
+
+    from graphrag_ui.services.users import UserNotFound, get_user
+
+    with pytest.raises(UserNotFound):
+        await get_user(db_session, uuid.uuid4())
+
+
+async def test_patch_user_guarded_rejects_self_role_change(db_session):
+    """Direct service: admin targeting self with role/is_active → SelfRoleChangeError."""
+    import pytest
+
+    from graphrag_ui.services.users import SelfRoleChangeError, create_user, patch_user_guarded
+
+    admin = await create_user(db_session, "self@test.local", "Self",
+                              "pass-12345", actor_id=None)
+    with pytest.raises(SelfRoleChangeError):
+        await patch_user_guarded(db_session, admin, admin.id,
+                                 display_name=None, role="user", is_active=None)
+
+
+async def test_patch_user_guarded_rejects_last_active_admin_demotion(db_session):
+    """Direct service: demoting the only active admin → LastActiveAdminError.
+
+    This branch is unreachable via the API (the acting admin always counts as
+    another active admin, and self-changes are rejected first) — pin it here.
+    """
+    import pytest
+
+    from graphrag_ui.services.users import (
+        LastActiveAdminError,
+        create_user,
+        patch_user_guarded,
+        update_user,
+    )
+
+    actor = await create_user(db_session, "actor@test.local", "Actor",
+                              "pass-12345", actor_id=None)
+    target = await create_user(db_session, "target@test.local", "Target",
+                               "pass-12345", actor_id=None)
+    await update_user(db_session, target, role="admin", actor_id=actor.id)
+    # actor is a plain user → target is the only active admin in the table
+    with pytest.raises(LastActiveAdminError):
+        await patch_user_guarded(db_session, actor, target.id,
+                                 display_name=None, role="user", is_active=None)
