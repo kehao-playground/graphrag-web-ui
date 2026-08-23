@@ -117,7 +117,7 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
       {canEdit && (
         <Upload.Dragger accept={accept} customRequest={customRequest} showUploadList={false} multiple>
-          <p className="ant-upload-text">點擊或拖曳上傳</p>
+          <p className="ant-upload-text">點擊或拖曳檔案上傳</p>
           <p className="ant-upload-hint">僅接受 {accept}</p>
         </Upload.Dragger>
       )}
