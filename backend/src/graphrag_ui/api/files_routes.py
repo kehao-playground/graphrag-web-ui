@@ -115,7 +115,7 @@ def register_files_routes(app):
             raise _forbidden()
         return FileListOut(
             files=[FileEntryOut(**f) for f in await files_service.list_files(project)],
-            usage_bytes=files_service.usage_bytes(project),
+            usage_bytes=await files_service.usage_bytes(project),
             quota_bytes=files_service.quota_bytes(),
         )
 

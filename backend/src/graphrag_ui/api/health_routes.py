@@ -1,3 +1,4 @@
+import asyncio
 import shutil
 from pathlib import Path
 
@@ -32,7 +33,7 @@ def register_health_routes(app):
         settings = get_settings()
         ws_root = Path(settings.workspaces_dir).resolve()
         ws_root.mkdir(parents=True, exist_ok=True)
-        disk_free_mb = shutil.disk_usage(ws_root).free // (1024 * 1024)
+        disk_free_mb = (await asyncio.to_thread(shutil.disk_usage, ws_root)).free // (1024 * 1024)
         return {
             "db": db,
             "graphrag": app.state.graphrag_version,

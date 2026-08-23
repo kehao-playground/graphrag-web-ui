@@ -10,8 +10,9 @@ import uuid
 import pytest
 from sqlalchemy import select
 
-from graphrag_ui.adapters.models import AuditLog
+from graphrag_ui.adapters.models import AuditLog, Project
 from graphrag_ui.config import get_settings
+from graphrag_ui.services import files as files_service
 from graphrag_ui.services.projects import ws_path
 from tests.test_projects import _activate, _setup_two_users
 
@@ -246,3 +247,27 @@ def test_limit_helpers_read_settings(monkeypatch):
         assert quota_bytes() == 2 * 1024 * 1024
     finally:
         get_settings.cache_clear()
+
+
+@pytest.fixture
+def project(monkeypatch, tmp_path):
+    """Unsaved Project model — usage_bytes only reads .id, so no DB needed.
+    WORKSPACES_DIR points at an empty tmp dir: the scan touches no real data
+    and stays hermetic even if this repo sits on a slow disk."""
+    monkeypatch.setenv("WORKSPACES_DIR", str(tmp_path / "ws"))
+    get_settings.cache_clear()
+    try:
+        yield Project(name="pin", slug="pin", owner_id=uuid.uuid4(),
+                      input_file_type="text")
+    finally:
+        # restore for later tests even if asserts fail mid-way
+        get_settings.cache_clear()
+
+
+async def test_usage_bytes_is_awaitable(project):
+    # Regression pin: usage_bytes must be a coroutine function — a sync
+    # rglob on the event loop froze large-workspace requests (spec A4).
+    import inspect
+    assert inspect.iscoroutinefunction(files_service.usage_bytes)
+    n = await files_service.usage_bytes(project)
+    assert n >= 0
