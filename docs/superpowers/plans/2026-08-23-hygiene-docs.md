@@ -98,8 +98,8 @@ git commit -m "docs(zh-TW): README operator mirror"
 - Create: `backend/tests/test_comment_language.py` (scanner module: functions + self-tests + `python -m` list mode)
 
 **Interfaces (unified names — the code defines them):**
-- Produces: `python_comments(text)`, `marker_comments(text, marker)`, `block_comments(text, start, end)`; extension dispatch (`.py` → tokenize COMMENT + ast docstrings; `.ts/.tsx` → `//` + `/* */`; `.yml/.yaml/.toml/Dockerfile/.conf/.ini` and `.env.example` → `#`; `.css` → `/* */`; `.tpl` → `block_comments` with `{{/*` … `*/}}`); `CJK` regex including CJK punctuation and fullwidth forms: `[\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uff01-\uff60]` (§ is U+00A7, outside the classes — English comments keep it); escape prefix `zh-TW:`; `backend/tests/comment_language_allowlist.txt` (created in this task with only a header `#` comment; scanner also tolerates the file being absent).
-- Scan roots: `backend/src`, `backend/tests`, `backend/migrations`, `backend/scripts`, `backend/alembic.ini`, `backend/Dockerfile`, `backend/pyproject.toml`, `frontend/src`, `frontend/vite.config.ts`, `frontend/Dockerfile`, `frontend/index.html`, `deploy`, `.github/workflows`, `docker-compose.yml`, `.env.example`. Exclusions: only whitelisted extensions are scanned (so vendored chart tarballs and binaries are naturally skipped); plus explicit path exclusions `frontend/src/api/types.generated.ts`, `openapi.json` (generated artifacts — see Global Constraints), and `docs/superpowers/`.
+- Produces: `python_comments(text) -> list[tuple[int, str]]`, `python_docstrings(text) -> list[tuple[int, str]]`, `marker_comments(text, marker) -> list[tuple[int, str]]`, `block_comments(text, start, end) -> list[tuple[int, str]]` — every function returns `(lineno, comment_text)` pairs so `--list` can print `path:lineno: comment`; extension dispatch (`.py` → tokenize COMMENT + ast docstrings; `.ts/.tsx` → `//` + `/* */`; `.yml/.yaml/.toml/Dockerfile/.conf/.ini` and `.env.example` → `#` only — INI also allows `;` comments but alembic.ini uses none today, kept out to stay dumb; `.css` → `/* */`; `.html` → `block_comments` with `<!--` … `-->`; `.tpl` → `block_comments` with `{{/*` … `*/}}`); `CJK` regex including CJK punctuation and fullwidth forms: `[\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uff01-\uff60]` (§ is U+00A7, outside the classes — English comments keep it)
+- Scan roots: `backend/src`, `backend/tests`, `backend/migrations`, `backend/scripts`, `backend/alembic.ini`, `backend/Dockerfile`, `backend/pyproject.toml`, `frontend/src`, `frontend/vite.config.ts`, `frontend/Dockerfile`, `frontend/index.html`, `frontend/nginx.conf`, `deploy`, `.github/workflows`, `docker-compose.yml`, `.env.example`. Exclusions: only whitelisted extensions are scanned (so vendored chart tarballs and binaries are naturally skipped); plus explicit path exclusions `frontend/src/api/types.generated.ts`, `openapi.json` (generated artifacts — see Global Constraints), and `docs/superpowers/`
 - **Repo-scan gating test is NOT added in this task** (it would be red until Task 4 sweeps). This task lands: scanner functions, self-tests, list mode, allowlist file.
 
 - [ ] **Step 1: Write self-tests first (failing)**
@@ -132,43 +132,48 @@ CJK = re.compile(r"[\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uff01-\uff60]")
 ESCAPE = re.compile(r"^\s*zh-TW:")
 
 
-def python_comments(text: str) -> list[str]:
+def python_comments(text: str) -> list[tuple[int, str]]:
     out = []
     for tok in tokenize.generate_tokens(io.StringIO(text).readline):
         if tok.type == tokenize.COMMENT:
-            out.append(tok.string)
+            out.append((tok.start[0], tok.string))
     return out
 
 
-def python_docstrings(text: str) -> list[str]:
-    return [ast.get_docstring(n) for n in ast.walk(ast.parse(text))
-            if isinstance(n, (ast.Module, ast.ClassDef, ast.FunctionDef,
-                              ast.AsyncFunctionDef))
-            and ast.get_docstring(n)]
+def python_docstrings(text: str) -> list[tuple[int, str]]:
+    out = []
+    for n in ast.walk(ast.parse(text)):
+        if isinstance(n, (ast.Module, ast.ClassDef, ast.FunctionDef,
+                          ast.AsyncFunctionDef)):
+            doc = ast.get_docstring(n)
+            if doc:
+                out.append((n.body[0].lineno, doc))
+    return out
 
 
-def marker_comments(text: str, marker: str) -> list[str]:
-    return [ln.split(marker, 1)[1] for ln in text.splitlines()
-            if marker in ln]
+def marker_comments(text: str, marker: str) -> list[tuple[int, str]]:
+    return [(i, ln.split(marker, 1)[1])
+            for i, ln in enumerate(text.splitlines(), 1) if marker in ln]
 
 
-def block_comments(text: str, start: str, end: str) -> list[str]:
-    return re.findall(re.escape(start) + r"(.*?)" + re.escape(end),
-                      text, flags=re.S)
+def block_comments(text: str, start: str, end: str) -> list[tuple[int, str]]:
+    pat = re.compile(re.escape(start) + r"(.*?)" + re.escape(end), re.S)
+    return [(text[:m.start()].count("\n") + 1, m.group(1))
+            for m in pat.finditer(text)]
 ```
 
 Plus: the extension dispatch table, root/exclusion walk, allowlist reader, self-tests, and a `--list` entry point printing `path:lineno` for every violation (drive the sweep from it).
 
 - [ ] **Step 3: Run list mode; save the output**
 
-Run: `cd backend && uv run python tests/test_comment_language.py --list | tee ../.superpowers/sdd/2026-08-23-hygiene-docs/sweep-list.txt`
-Expected: ~230 lines across backend/frontend/deploy. This file is Task 4's work order (per-area partitioning by path prefix).
+Run: `mkdir -p .superpowers/sdd/2026-08-23-hygiene-docs && cd backend && uv run python tests/test_comment_language.py --list | tee ../.superpowers/sdd/2026-08-23-hygiene-docs/sweep-list.txt`
+Expected: ~230 zh-TW comment LINES ≈ 180–210 VIOLATIONS (list mode counts one multi-line docstring as a single entry — a lower number does not mean the scanner is broken). This file is Task 4's work order (per-area partitioning by path prefix).
 
-- [ ] **Step 4: Self-tests + fast suite green; create allowlist; commit**
+- [ ] **Step 4: Create allowlist, then verify, then commit**
 
 ```bash
-cd backend && uv run pytest tests/test_comment_language.py -v && uv run pytest -q -m "not slow"
 printf '# Deliberate CJK-comment exceptions, one path per line, reason as # comment\n' > backend/tests/comment_language_allowlist.txt
+cd backend && uv run pytest tests/test_comment_language.py -v && uv run pytest -q -m "not slow"
 git add backend/tests/test_comment_language.py backend/tests/comment_language_allowlist.txt
 git commit -m "test(guard): CJK comment scanner with list mode, zh-TW escape, allowlist"
 ```
@@ -216,7 +221,7 @@ Commit: `test(guard): repo-scan gate on swept tree`.
 - Consumes: test counts from a FRESH run AFTER Task 3's tests exist (do NOT copy Wave A's numbers — AGENTS.md currently reads 210 tests with key (205 fast) / 51→57-era frontend; Task 3 added self-tests to the backend suite). Run the suites now and use those numbers.
 - Produces: updated language policy everywhere it is stated.
 
-- [ ] **Step 1: AGENTS.md** — comments policy line becomes "Code comments/docstrings: English only — CI-enforced (`backend/tests/test_comment_language.py`); deliberate exceptions escape with a `zh-TW:` prefix"; replace the stale "API responses follow the backend schemas in `api/schemas.py`" sentence with: "API contract surface is the generated OpenAPI document (`openapi.json`, regenerated+diffed in CI); pydantic models live in `api/schemas.py` and per-route modules; frontend types come from `types.generated.ts` (regenerated via `npm run gen:types`; schemas.py docstring changes flow into it — always regen both)"; refresh test counts from the fresh runs; note the 400-line cap excludes committed generated artifacts (`openapi.json`, `types.generated.ts`).
+- [ ] **Step 1: AGENTS.md** — comments policy line becomes "Code comments/docstrings: English only — CI-enforced (`backend/tests/test_comment_language.py`); deliberate exceptions escape with a `zh-TW:` prefix"; replace the stale "API responses follow the backend schemas in `api/schemas.py`" sentence with: "API contract surface is the generated OpenAPI document (`openapi.json`, regenerated+diffed in CI); pydantic models live in `api/schemas.py` and per-route modules; frontend types come from `types.generated.ts` (regenerated via `npm run gen:types`; schemas.py docstring changes flow into it — always regen both)"; refresh test counts from the fresh runs
 - [ ] **Step 2: CONTRIBUTING.md** — replace "zh-TW translations may be added under `docs/zh-TW/` later" with the live policy: `docs/zh-TW/` exists, mirrors the README, and a README change updates the mirror in the same PR; historical specs/plans ≤2026-08-23 stay in their original language (records, not living docs); new documents are English.
 - [ ] **Step 3: frontend/README.md** — replace Vite boilerplate with a 5-line pointer: what the app is (one line), root README link, dev/test commands (Node 24), link to `docs/zh-TW/README.md`.
 - [ ] **Step 4: Verify + commit** — counts match fresh `uv run pytest -q -m "not slow"` and `npx vitest run`.
@@ -243,3 +248,5 @@ git commit -m "docs(policy): English-only comments (CI-enforced), zh-TW mirror r
 - Spec §5 coverage: B1→T1, B2→T2, B4→T3 (scanner), B3→T4 (sweep), B5→T5 — order swapped per review (scanner before sweep), coverage unchanged.
 - Placeholder scan: README skeleton carries the corrected verified facts; scanner code concrete; sweep driven by generated list; no TBDs.
 - Dependency: plan assumes main@8a081a1 (Wave A merged) — confirmed.
+
+- Review round 2 (2026-08-23): nginx.conf restored to roots; .html dispatch added (block_comments `<!--`…`-->`); all four scanner functions return (lineno, text) so --list prints path:lineno; mkdir -p before tee; "~230 lines" re-anchored as ≈180–210 violations (multi-line docstring = one entry); 400-line-cap exception note dropped from T5 (plan-scoped rule, not repo policy); T3 Step 4 reordered create-allowlist→test→commit; .ini `;` support deliberately skipped (dumb scanner).
