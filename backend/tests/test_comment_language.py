@@ -64,7 +64,7 @@ def marker_comments(text: str, marker: str) -> list[tuple[int, str]]:
 
 
 def block_comments(text: str, start: str, end: str) -> list[tuple[int, str]]:
-    pat = re.compile(re.escape(start) + r"(.*?)" + re.escape(end), re.S)
+    pat = re.compile(re.escape(start) + r"(.*?)" + re.escape(end), re.DOTALL)
     return [(text[:m.start()].count("\n") + 1, m.group(1))
             for m in pat.finditer(text)]
 
