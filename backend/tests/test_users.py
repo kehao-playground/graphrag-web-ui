@@ -2,7 +2,7 @@ ADMIN_PW = "admin-new-pass-1"
 
 
 async def _admin_token(client):
-    """bootstrap admin 的 must_change_password=True — 換完密碼才拿得到可用 token。"""
+    """The bootstrap admin starts with must_change_password=True — a usable token requires finishing the change."""
     r = await client.post("/api/auth/login", json={
         "email": "admin@test.local", "password": "admin-pass-123"})
     hdr = {"Authorization": f"Bearer {r.json()['access_token']}"}
@@ -25,7 +25,8 @@ async def test_admin_crud_and_audit(client, db_session):
     r3 = await client.post(f"/api/admin/users/{uid}/reset-password",
                            headers=hdr, json={"new_password": "reset-12345"})
     assert r3.status_code == 204
-    # audit 直接驗表 — 不要用「停用後登不進去」來推論 audit 有寫
+    # Verify the audit table directly — never infer the audit write from
+    # "login fails after deactivation"
     from sqlalchemy import select
 
     from graphrag_ui.adapters.models import AuditLog
@@ -45,7 +46,8 @@ async def test_non_admin_forbidden(client):
     r = await client.post("/api/auth/login", json={
         "email": "u2@test.local", "password": "pass-12345"})
     tok = {"Authorization": f"Bearer {r.json()['access_token']}"}
-    # 新建帳號 must_change_password=True → 先換密碼才能用其他端點
+    # New accounts have must_change_password=True -> the password must be
+    # changed before other endpoints work
     await client.post("/api/auth/change-password", headers=tok, json={
         "current_password": "pass-12345", "new_password": "u2-pass-6789"})
     r2 = await client.post("/api/auth/login", json={
@@ -56,21 +58,23 @@ async def test_non_admin_forbidden(client):
 
 
 async def test_open_user_list_accessible_to_non_admin(client):
-    """GET /api/users:成員管理選人用的窄清單 — 非 admin 可用、未登入 401、
-    只含 id/email/display_name/is_active、依 email 排序。"""
+    """GET /api/users: the narrow list for picking users in member management —
+    usable by non-admins, 401 when not logged in, contains only
+    id/email/display_name/is_active, ordered by email."""
     hdr = await _admin_token(client)
     await client.post("/api/admin/users", headers=hdr, json={
         "email": "aa@test.local", "display_name": "AA", "password": "pass-12345"})
     r = await client.post("/api/admin/users", headers=hdr, json={
         "email": "bb@test.local", "display_name": "BB", "password": "pass-12345"})
-    # bb 停用狀態也要列出(前端負責過濾),is_active 標記就是為此
+    # bb must still be listed while disabled (the frontend filters); the
+    # is_active flag exists exactly for this
     await client.patch(f"/api/admin/users/{r.json()['id']}", headers=hdr,
                        json={"is_active": False})
 
-    # 未登入 → 401
+    # Not logged in -> 401
     assert (await client.get("/api/users")).status_code == 401
 
-    # 非 admin(已完成改密碼)→ 200
+    # Non-admin (password change completed) -> 200
     login = await client.post("/api/auth/login", json={
         "email": "aa@test.local", "password": "pass-12345"})
     tok = {"Authorization": f"Bearer {login.json()['access_token']}"}
@@ -86,11 +90,12 @@ async def test_open_user_list_accessible_to_non_admin(client):
     assert [u["email"] for u in users] == [
         "aa@test.local", "admin@test.local", "bb@test.local"]  # ORDER BY email
     assert {u["is_active"] for u in users} == {True, False}
-    for u in users:  # 窄 schema:不得外洩管理欄位
+    for u in users:  # narrow schema: admin fields must not leak
         assert set(u) == {"id", "email", "display_name", "is_active"}
 
 
-    # must_change_password 未完成 → guard 照常擋(用 active 的新使用者 cc)
+    # must_change_password incomplete -> the guard still blocks (using the
+    # active new user cc)
     await client.post("/api/admin/users", headers=hdr, json={
         "email": "cc@test.local", "display_name": "CC", "password": "pass-12345"})
     login2 = await client.post("/api/auth/login", json={

@@ -22,7 +22,7 @@ async def _login(client, email, password):
 
 
 async def _activate(client, email, initial_pw, new_pw):
-    """所有新帳號(含 bootstrap admin)must_change_password=True — 換完密碼才可用。"""
+    """Every new account (incl. the bootstrap admin) has must_change_password=True — usable only after the change."""
     hdr = await _login(client, email, initial_pw)
     await client.post(
         "/api/auth/change-password",
@@ -85,9 +85,9 @@ async def test_sse_streams_then_done(client, app):
 
     body = await _stream_body(client, f"/api/jobs/{job['id']}/logs", headers=hdr)
     assert "event: log" in body
-    # 單一 data 行,chunk 以 JSON 字串編碼(newline 已轉義,不會斷行)
+    # A single data line; the chunk is JSON-encoded (newlines escaped, so it never breaks the line)
     assert json.dumps("line1\nline2\n") in body
-    assert "id: 12" in body  # 結束時的位元組 offset = 檔案大小
+    assert "id: 12" in body  # final byte offset = file size
     assert "event: done" in body
     assert '"status": "succeeded"' in body
 
@@ -101,7 +101,7 @@ async def test_sse_resume_from_last_event_id(client, app):
     body = await _stream_body(
         client, f"/api/jobs/{job['id']}/logs", headers={**hdr, "Last-Event-ID": "4"}
     )
-    # 只送出 offset 4 之後的位元組:單一 log event,data 為 "456789"
+    # Only bytes after offset 4 are sent: one log event with data "456789"
     logs = [ln for ln in body.splitlines() if ln.startswith("data: ") and '"456789"' in ln]
     assert logs, body
     assert "01234" not in body
@@ -110,7 +110,7 @@ async def test_sse_resume_from_last_event_id(client, app):
 
 
 async def test_sse_live_follows_file_until_terminal(client, app):
-    """串流啟動後才寫入的資料也要送達;job 進入終態且檔案讀完後串流結束。"""
+    """Data written after the stream started must still be delivered; the stream ends once the job reaches a terminal state and the file is drained."""
     hdr = await _owner(client, app)
     pid, job = await _queued_job(client, hdr, "SSEL")
     log = _log_of(pid, job["id"])
@@ -143,7 +143,7 @@ async def test_sse_resume_from_offset_query(client, app):
 async def test_sse_missing_log_file_streams_done_only(client, app):
     hdr = await _owner(client, app)
     _, job = await _queued_job(client, hdr, "SSEN")
-    await _finish(job["id"])  # 從未啟動 → log 檔不存在
+    await _finish(job["id"])  # never started -> no log file exists
 
     body = await _stream_body(client, f"/api/jobs/{job['id']}/logs", headers=hdr)
     assert "event: log" not in body

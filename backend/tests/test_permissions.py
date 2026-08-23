@@ -3,10 +3,11 @@ import pytest
 from graphrag_ui.domain.permissions import Action, can
 
 
-# 注意:每個 case 的 expected 是**一般使用者**的預期值;
-# admin 全通過與停用帳號全拒絕由測試本體最後兩行統一覆蓋,不要再展開成 case。
+# Note: each case's expected is for a **regular** user; admin-passes-all and
+# disabled-account-rejects-all are covered uniformly by the last two lines of
+# the test body — do not expand them into cases.
 @pytest.mark.parametrize("action,project_role,expected", [
-    # 一般使用者 + owner
+    # Regular user + owner
     (Action.view_project, "owner", True),
     (Action.update_project, "owner", True),
     (Action.delete_project, "owner", True),
@@ -24,14 +25,14 @@ from graphrag_ui.domain.permissions import Action, can
     (Action.update_project, "viewer", False),
     (Action.edit_content, "viewer", False),
     (Action.manage_members, "viewer", False),
-    # 非成員
+    # Non-member
     (Action.view_project, None, False),
-    # 建專案:任何 active 使用者
+    # Create project: any active user
     (Action.create_project, None, True),
 ])
 def test_matrix(action, project_role, expected):
     assert can("user", True, action, project_role) is expected
-    # admin 全部允許
+    # Admin: everything allowed
     assert can("admin", True, action, project_role) is True
-    # 停用帳號全部拒絕
+    # Disabled account: everything denied
     assert can("admin", False, action, project_role) is False
