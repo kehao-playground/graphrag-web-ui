@@ -46,15 +46,20 @@ function GraphSync({ payload }: { payload: SyncPayload }) {
   return null;
 }
 
-// Camera-focus helper: animates the camera onto the first search match. The
-// camera now survives filter changes (see GraphSync), so the animation starts
-// from wherever the user last left it.
+// Camera-focus helper: animates the camera onto the first search match.
+// Camera x/y live in normalized display space, NOT graph space — feeding the
+// node's raw coordinates would fly the camera off-canvas and silently blank
+// the view, so the target is resolved through sigma.getNodeDisplayData.
+// That returns undefined when the node has been filtered out mid-flight:
+// skip the animation instead of throwing. The camera survives filter changes
+// (see GraphSync), so the animation starts from wherever the user left it.
 function SearchFocus({ target }: { target: string | null }) {
   const sigma = useSigma();
   useEffect(() => {
     if (!target) return;
-    const { x, y } = sigma.getGraph().getNodeAttributes(target);
-    sigma.getCamera().animate({ x, y, ratio: 0.3 }, { duration: 500 });
+    const pos = sigma.getNodeDisplayData(target);
+    if (!pos) return;
+    sigma.getCamera().animate({ x: pos.x, y: pos.y, ratio: 0.3 }, { duration: 500 });
   }, [sigma, target]);
   return null;
 }
