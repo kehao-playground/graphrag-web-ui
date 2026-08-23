@@ -176,10 +176,10 @@ async def set_env_key(session, project: Project, key: str, value: str,
     """Upsert key=value AND audit it, one transaction (spec A1)."""
     _validate(key, value)          # extracted: _KEY_RE + single-line checks
     try:
-        _atomic_write(project, _upsert_lines(project, key, value))
         await audit(session, actor_id, "env.key_set", "project",
                     str(project.id), {"key": key})
         await session.flush()
+        _atomic_write(project, _upsert_lines(project, key, value))
         await session.commit()
     except Exception:
         await session.rollback()
