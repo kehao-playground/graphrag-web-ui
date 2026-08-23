@@ -101,5 +101,5 @@ another front door with `API_PROXY_TARGET` (see `frontend/vite.config.ts`).
 ## Contributing & docs
 
 - [CONTRIBUTING.md](CONTRIBUTING.md)
-- 繁體中文版（鏡像此文件）: [`docs/zh-TW/README.md`](docs/zh-TW/README.md)
+- Traditional Chinese (zh-TW) mirror: [`docs/zh-TW/README.md`](docs/zh-TW/README.md)
 - Design specs: [`docs/superpowers/specs/`](docs/superpowers/specs/)
