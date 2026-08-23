@@ -7,7 +7,7 @@ metadata:
     app.kubernetes.io/component: api
 spec:
   accessModes:
-    - ReadWriteOnce   # 與 api 單副本 + Recreate 配套(spec §8.2)
+    - ReadWriteOnce   # pairs with api single-replica + Recreate (spec §8.2)
   resources:
     requests:
       storage: {{ .Values.persistence.size }}

@@ -1,9 +1,9 @@
-{{/* Chart 名稱(可用 nameOverride 覆寫) */}}
+{{/* Chart name (overridable via nameOverride) */}}
 {{- define "graphrag-ui.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
-{{/* 完整資源名稱前綴:<release>-graphrag-ui */}}
+{{/* Full resource-name prefix: <release>-graphrag-ui */}}
 {{- define "graphrag-ui.fullname" -}}
 {{- if .Values.fullnameOverride -}}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" -}}
@@ -29,13 +29,13 @@ app.kubernetes.io/name: {{ include "graphrag-ui.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
-{{/* 應用層 Secret(JWT/bootstrap/DATABASE_URL);existingSecret 設定時改用既有 Secret */}}
+{{/* App-layer Secret (JWT/bootstrap/DATABASE_URL); an existingSecret value switches to the pre-existing Secret */}}
 {{- define "graphrag-ui.secretName" -}}
 {{- default (printf "%s-secret" (include "graphrag-ui.fullname" .)) .Values.existingSecret -}}
 {{- end -}}
 
-{{/* 內建 postgresql dependency 的 service 名稱 — 複製 bitnami common.names.fullname 的邏輯:
-     release 名稱含 "postgresql" 時就是 release 名,否則 <release>-postgresql */}}
+{{/* Service name of the bundled postgresql dependency — replicates bitnami common.names.fullname:
+     the release name when it already contains "postgresql", else <release>-postgresql */}}
 {{- define "graphrag-ui.postgresql.fullname" -}}
 {{- if contains "postgresql" .Release.Name -}}
 {{- .Release.Name -}}
@@ -44,7 +44,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 {{- end -}}
 
-{{/* 由 values 組出 DATABASE_URL:外部 DB 直接用 url;內建 DB 用 dependency 的 auth 值拼接 */}}
+{{/* Build DATABASE_URL from values: external DB uses url directly; bundled DB splices the dependency's auth values */}}
 {{- define "graphrag-ui.databaseUrl" -}}
 {{- if .Values.postgresql.enabled -}}
 {{- printf "postgresql+asyncpg://%s:%s@%s:5432/%s" .Values.postgresql.auth.username .Values.postgresql.auth.password (include "graphrag-ui.postgresql.fullname" .) .Values.postgresql.auth.database -}}

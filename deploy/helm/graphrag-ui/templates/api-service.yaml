@@ -14,8 +14,10 @@ spec:
     - name: http
       port: 80
       targetPort: 8000
-    # 8000 直開:web 的 nginx 上游寫死 http://api:8000(nginx.conf 由 brief 釘死),
-    # 經 `api` ExternalName alias 進來的連線打的是這個埠,沒有它會 connection refused
+    # Port 8000 exposed directly: the web nginx upstream is hardcoded to
+    # http://api:8000 (nginx.conf pinned by the brief); connections arriving
+    # via the `api` ExternalName alias land on this port — without it they
+    # get connection refused
     - name: api
       port: 8000
       targetPort: 8000
