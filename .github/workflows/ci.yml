@@ -19,7 +19,9 @@ jobs:
       - run: uv sync --dev
       - run: uv run ruff check
       - run: uv run pytest
-
+      # spec A5.2 contract gate: committed openapi.json must match the code
+      - run: uv run python scripts/gen_openapi.py
+      - run: git diff --exit-code ../openapi.json
   frontend:
     runs-on: ubuntu-latest
     defaults:
@@ -32,9 +34,11 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - run: npm ci
       - run: npm test
       - run: npm run build
+      # spec A5.2 contract gate: committed types.generated.ts must match openapi.json
+      - run: npm run gen:types
+      - run: git diff --exit-code src/api/types.generated.ts
 
   helm:
     runs-on: ubuntu-latest

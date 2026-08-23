@@ -5,7 +5,7 @@ import {
 } from "antd";
 import type { TableProps, UploadProps } from "antd";
 import { api } from "../api/client";
-import type { FileEntry, FilesOut } from "../api/types";
+import type { FileEntry, FilesOut, Project } from "../api/types";
 
 // Mirrors the backend whitelist (services/files.py ALLOWED_EXTENSIONS):
 // text → txt/md, csv → csv, json → json.
@@ -29,9 +29,12 @@ const kib = (bytes: number) => `${(bytes / 1024).toFixed(1)} KiB`;
 
 export default function FilesPanel({ projectId, inputFileType, canEdit }: {
   projectId: string;
-  inputFileType: "text" | "csv" | "json";
+  // ProjectOut.input_file_type is a plain string; the backend Literal on the
+  // create body keeps the runtime values inside ACCEPT's keys.
+  inputFileType: Project["input_file_type"];
   canEdit: boolean;
 }) {
+  const accept = ACCEPT[inputFileType as keyof typeof ACCEPT];
   const qc = useQueryClient();
 
   const files = useQuery({
@@ -113,9 +116,9 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
       {canEdit && (
-        <Upload.Dragger accept={ACCEPT[inputFileType]} customRequest={customRequest} showUploadList={false} multiple>
-          <p className="ant-upload-text">點擊或拖曳檔案上傳</p>
-          <p className="ant-upload-hint">僅接受 {ACCEPT[inputFileType]}</p>
+        <Upload.Dragger accept={accept} customRequest={customRequest} showUploadList={false} multiple>
+          <p className="ant-upload-text">點擊或拖曳上傳</p>
+          <p className="ant-upload-hint">僅接受 {accept}</p>
         </Upload.Dragger>
       )}
       <div>
