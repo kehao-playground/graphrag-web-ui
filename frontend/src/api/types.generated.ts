@@ -851,8 +851,8 @@ export interface components {
         };
         /**
          * UserBriefOut
-         * @description 給所有已登入使用者的窄清單(成員管理選人用)。
-         *     刻意不含 role / must_change_password 等管理資訊。
+         * @description Narrow list shown to every logged-in user (for picking users in member
+         *     management). Deliberately omits admin fields like role / must_change_password.
          */
         UserBriefOut: {
             /** Display Name */
