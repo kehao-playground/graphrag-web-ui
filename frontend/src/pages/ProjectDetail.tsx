@@ -5,7 +5,7 @@ import {
   Alert, Button, Card, Descriptions, Popconfirm, Select, Space, Spin, Table, Tabs, Tag, Typography, message,
 } from "antd";
 import type { TableProps } from "antd";
-import { api } from "../api/client";
+import { api, detailOf } from "../api/client";
 import type { Member, Project, UserBrief } from "../api/types";
 import { useAuth } from "../stores/auth";
 import FilesPanel from "../components/FilesPanel";
@@ -20,15 +20,6 @@ const ROLES = ["editor", "viewer"] as const;
 type Role = (typeof ROLES)[number];
 const ROLE_OPTIONS = ROLES.map((r) => ({ label: r, value: r }));
 
-// 後端錯誤格式固定 {"detail": "..."};owner row 保護的 400 訊息也從這裡帶出
-async function detailOf(r: Response, fallback: string): Promise<string> {
-  try {
-    const body = await r.json() as { detail?: string };
-    return body.detail ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
 
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();

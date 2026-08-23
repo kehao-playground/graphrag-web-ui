@@ -4,22 +4,12 @@ import {
   Alert, Button, Card, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message,
 } from "antd";
 import type { TableProps } from "antd";
-import { api } from "../api/client";
+import { api, detailOf } from "../api/client";
 import type { User } from "../api/types";
 import { useAuth } from "../stores/auth";
 
 const ROLE_OPTIONS = (["admin", "user"] as const).map((r) => ({ label: r, value: r }));
 
-// 後端錯誤格式固定 {"detail": "..."};409 重複 email、
-// 「不能改自己 / 最後一個 active admin」的 400 訊息都從這裡帶出
-async function detailOf(r: Response, fallback: string): Promise<string> {
-  try {
-    const body = await r.json() as { detail?: string };
-    return body.detail ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
 
 interface CreateForm {
   email: string;

@@ -4,7 +4,7 @@ import {
   Button, Popconfirm, Progress, Space, Table, Typography, Upload, message,
 } from "antd";
 import type { TableProps, UploadProps } from "antd";
-import { api } from "../api/client";
+import { api, detailOf } from "../api/client";
 import type { FileEntry, FilesOut, Project } from "../api/types";
 
 // Mirrors the backend whitelist (services/files.py ALLOWED_EXTENSIONS):
@@ -15,15 +15,6 @@ const ACCEPT: Record<"text" | "csv" | "json", string> = {
   json: ".json",
 };
 
-// Backend errors are always {"detail": "..."}; 400/413 upload messages come through here
-async function detailOf(r: Response, fallback: string): Promise<string> {
-  try {
-    const body = await r.json() as { detail?: string };
-    return body.detail ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
 
 const kib = (bytes: number) => `${(bytes / 1024).toFixed(1)} KiB`;
 

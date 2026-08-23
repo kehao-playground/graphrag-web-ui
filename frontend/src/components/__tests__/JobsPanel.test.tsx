@@ -5,6 +5,7 @@ import { Modal } from "antd";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import JobsPanel from "../JobsPanel";
+import type * as ApiClient from "../../api/client";
 
 // Job row fixture matching backend JobOut (types.ts Job).
 function job(over: Record<string, unknown> = {}) {
@@ -63,7 +64,11 @@ const apiMock = vi.fn(async (path: string, init?: RequestInit) => {
   }
   return new Response(JSON.stringify({}), { status: 200 });
 });
-vi.mock("../../api/client", () => ({ api: (...args: unknown[]) => apiMock(...args as [string, RequestInit?]) }));
+// Real bodyOf/detailOf stay under test; only the transport is mocked.
+vi.mock("../../api/client", async (importOriginal) => ({
+  ...(await importOriginal()) as typeof ApiClient,
+  api: (...args: unknown[]) => apiMock(...args as [string, RequestInit?]),
+}));
 
 // Modal.confirm portals live outside the React tree RTL unmounts; close and
 // purge them between tests so leftover ok/cancel buttons (which animate away

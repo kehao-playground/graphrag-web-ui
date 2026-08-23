@@ -5,21 +5,12 @@ import {
   Alert, Button, Card, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message,
 } from "antd";
 import type { TableProps } from "antd";
-import { api } from "../api/client";
+import { api, detailOf } from "../api/client";
 import type { Project, UserBrief } from "../api/types";
 import { useAuth } from "../stores/auth";
 
 const FILE_TYPES: Project["input_file_type"][] = ["text", "csv", "json"];
 
-// 後端錯誤格式固定 {"detail": "..."};403 就是 "forbidden"
-async function detailOf(r: Response, fallback: string): Promise<string> {
-  try {
-    const body = await r.json() as { detail?: string };
-    return body.detail ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
 
 interface CreateForm {
   name: string;

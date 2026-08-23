@@ -4,21 +4,11 @@ import {
   Alert, Button, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message,
 } from "antd";
 import type { TableProps } from "antd";
-import { api } from "../api/client";
+import { api, detailOf } from "../api/client";
 import { JobStatusColor } from "../api/types";
 import type { Job, Preflight } from "../api/types";
 import JobLogViewer from "./JobLogViewer";
 
-// Backend errors are always {"detail": "..."}; 409 conflict / watermark
-// messages from the jobs endpoints surface through here.
-async function detailOf(r: Response, fallback: string): Promise<string> {
-  try {
-    const body = await r.json() as { detail?: string };
-    return body.detail ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
 
 // JobOut types method/type as plain strings; the maps cover the known values
 // and the render fallback shows unknowns raw.
