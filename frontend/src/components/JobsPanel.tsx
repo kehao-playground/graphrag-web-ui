@@ -20,8 +20,10 @@ async function detailOf(r: Response, fallback: string): Promise<string> {
   }
 }
 
-const TYPE_LABEL: Record<"index" | "update", string> = { index: "索引", update: "更新" };
-const METHOD_LABEL: Record<"standard" | "fast", string> = { standard: "標準", fast: "快速" };
+// JobOut types method/type as plain strings; the maps cover the known values
+// and the render fallback shows unknowns raw.
+const TYPE_LABEL: Record<string, string> = { index: "索引", update: "更新" };
+const METHOD_LABEL: Record<string, string> = { standard: "標準", fast: "快速" };
 const TYPE_OPTIONS = (["index", "update"] as const).map((v) => ({ label: TYPE_LABEL[v], value: v }));
 const METHOD_OPTIONS = (["standard", "fast"] as const).map((v) => ({ label: METHOD_LABEL[v], value: v }));
 
