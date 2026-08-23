@@ -14,88 +14,25 @@ query (~20 s each), well under $1.
 import asyncio
 import json
 import os
-import shutil
 import time
 
-import pytest
 import yaml
-from asgi_lifespan import LifespanManager
-from httpx import ASGITransport, AsyncClient
+from real_corpus_fixtures import (
+    DOCS,
+    pytestmark,  # noqa: F401  (pytest consumes module attribute)
+    real_corpus_app,  # noqa: F401  (query_client resolves this dep by name)
+    ws_root,  # noqa: F401  (pytest fixture: test param shadows)
+)
+from real_corpus_fixtures import (
+    real_corpus_client as query_client,  # noqa: F401  (pytest fixture: test param shadows)
+)
 
-from graphrag_ui.adapters.db import reset_engine
-from graphrag_ui.api import auth_routes
 from graphrag_ui.config import get_settings
 from graphrag_ui.domain.jobs import TERMINAL_STATUSES
-from graphrag_ui.main import create_app
 from graphrag_ui.services.rate_limit import reset_rate_limiter
 from tests.test_projects import _setup_two_users
 
-pytestmark = [
-    pytest.mark.slow,
-    pytest.mark.skipif(not os.environ.get("GRAPHRAG_API_KEY"),
-                       reason="needs real LLM key (GRAPHRAG_API_KEY)"),
-]
-
 QUESTION = "Who worked on the Analytical Engine?"
-
-# Factual micro-corpus, 2-3 sentences per document: enough text for the
-# standard pipeline's entity extraction to find something on every doc, and
-# a question basic search can answer from the text units.
-DOCS = {
-    "babbage.txt": (
-        "Charles Babbage, an English mathematician and inventor, designed the "
-        "Analytical Engine between 1834 and 1846. He was Lucasian Professor of "
-        "Mathematics at Cambridge from 1828 to 1839. Babbage funded much of the "
-        "Engine's development from his own fortune after the British government "
-        "withdrew its support."),
-    "lovelace.txt": (
-        "Ada Lovelace, daughter of the poet Lord Byron, translated Menabrea's "
-        "memoir on the Analytical Engine from French and appended her Notes, "
-        "published in 1843. Her Note G described an algorithm for computing "
-        "Bernoulli numbers, often considered the first published computer "
-        "program. She worked closely with Charles Babbage on the Engine."),
-    "engine.txt": (
-        "The Analytical Engine was a proposed mechanical general-purpose "
-        "computer designed around an arithmetic mill, a store for one thousand "
-        "numbers, and punch-card control flow borrowed from the Jacquard loom. "
-        "It was never completed during Babbage's lifetime, yet its architecture "
-        "anticipated the modern CPU."),
-}
-
-
-@pytest.fixture
-def ws_root(tmp_path):
-    """Workspace root shared with the app; removed afterwards — the corpus
-    output/cache artifacts are the test's biggest footprint on disk."""
-    root = tmp_path / "ws"
-    yield root
-    shutil.rmtree(root, ignore_errors=True)
-
-
-@pytest.fixture
-async def query_app(clean_db, monkeypatch, ws_root):
-    """conftest's app fixture disables the runner loop (MAX_CONCURRENT_JOBS=0)
-    so queued jobs are never auto-executed; this variant enables it with cap 1
-    so POSTing the index job actually runs it (test_real_corpus_jobs pattern)."""
-    monkeypatch.setenv("WORKSPACES_DIR", str(ws_root))
-    monkeypatch.setenv("BOOTSTRAP_ADMIN_EMAIL", "admin@test.local")
-    monkeypatch.setenv("BOOTSTRAP_ADMIN_PASSWORD", "admin-pass-123")
-    monkeypatch.setenv("JWT_SECRET", "test-jwt-secret-0123456789abcdef0123456789abcd")
-    monkeypatch.setenv("MAX_CONCURRENT_JOBS", "1")
-    get_settings.cache_clear()
-    await reset_engine()          # env changed → shared engine must be rebuilt
-    auth_routes._LOGIN_FAILURES.clear()
-    return create_app()
-
-
-@pytest.fixture
-async def query_client(query_app):
-    async with (
-        LifespanManager(query_app) as managed,
-        AsyncClient(transport=ASGITransport(app=managed.app), base_url="http://t") as c,
-    ):
-        yield c
-    await reset_engine()
 
 
 async def _job_to_terminal(client, headers, job_id, timeout_s=600):
@@ -130,7 +67,7 @@ TIMING_KEYS = {"frames_ms", "search_ms", "citations_ms", "total_ms"}
 
 
 async def test_real_corpus_query_basic_post_local_stream_rate_limit(
-        query_client, ws_root, monkeypatch):
+        query_client, ws_root, monkeypatch):  # noqa: F811  (fixtures imported above)
     client = query_client
     admin = await _setup_two_users(client)
     # Fresh access token for the SSE ?token= path (helpers return only headers).
