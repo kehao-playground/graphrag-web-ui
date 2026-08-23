@@ -13,29 +13,27 @@ failed", spec §13 row 4) — standard is the only reliable method here.
 
 import asyncio
 import os
-import shutil
 import subprocess
 import time
 from pathlib import Path
 
 import pyarrow.parquet as pq
-import pytest
 import yaml
-from asgi_lifespan import LifespanManager
-from httpx import ASGITransport, AsyncClient
+from real_corpus_fixtures import (
+    pytestmark,  # noqa: F401  (pytest consumes module attribute)
+    real_corpus_app,  # noqa: F401  (runner_client resolves this dep by name)
+    ws_root,  # noqa: F401  (pytest fixture: helper params shadow)
+)
+from real_corpus_fixtures import (
+    real_corpus_client as query_client,  # noqa: F401  (guard's canonical binding)
+)
+from real_corpus_fixtures import (
+    real_corpus_client as runner_client,  # noqa: F401  (pytest fixture: test param shadows)
+)
 
-from graphrag_ui.adapters.db import reset_engine
-from graphrag_ui.api import auth_routes
 from graphrag_ui.config import get_settings
 from graphrag_ui.domain.jobs import TERMINAL_STATUSES
-from graphrag_ui.main import create_app
 from tests.test_projects import _setup_two_users
-
-pytestmark = [
-    pytest.mark.slow,
-    pytest.mark.skipif(not os.environ.get("GRAPHRAG_API_KEY"),
-                       reason="needs real LLM key (GRAPHRAG_API_KEY)"),
-]
 
 # Factual micro-corpus, 2-3 sentences per document: enough text for the
 # standard pipeline's entity extraction to find something on every doc.
@@ -70,42 +68,7 @@ MUTATED_SENTENCE = (
     "altitude, while nitrogen contributes blue and purple hues.")
 
 
-@pytest.fixture
-def ws_root(tmp_path):
-    """Workspace root shared with runner_app; removed afterwards — the corpus
-    output/cache artifacts are the test's biggest footprint on disk."""
-    root = tmp_path / "ws"
-    yield root
-    shutil.rmtree(root, ignore_errors=True)
-
-
-@pytest.fixture
-async def runner_app(clean_db, monkeypatch, ws_root):
-    """conftest's app fixture disables the runner loop (MAX_CONCURRENT_JOBS=0)
-    so queued jobs are never auto-executed; this variant enables it with cap 1
-    so POSTing a job actually runs it, exactly like a single-replica deploy."""
-    monkeypatch.setenv("WORKSPACES_DIR", str(ws_root))
-    monkeypatch.setenv("BOOTSTRAP_ADMIN_EMAIL", "admin@test.local")
-    monkeypatch.setenv("BOOTSTRAP_ADMIN_PASSWORD", "admin-pass-123")
-    monkeypatch.setenv("JWT_SECRET", "test-jwt-secret-0123456789abcdef0123456789abcd")
-    monkeypatch.setenv("MAX_CONCURRENT_JOBS", "1")
-    get_settings.cache_clear()
-    await reset_engine()          # env changed → shared engine must be rebuilt
-    auth_routes._LOGIN_FAILURES.clear()
-    return create_app()
-
-
-@pytest.fixture
-async def runner_client(runner_app):
-    async with (
-        LifespanManager(runner_app) as managed,
-        AsyncClient(transport=ASGITransport(app=managed.app), base_url="http://t") as c,
-    ):
-        yield c
-    await reset_engine()
-
-
-def _graphrag_rss_kib(ws_root: Path) -> int:
+def _graphrag_rss_kib(ws_root: Path) -> int:  # noqa: F811  (fixture imported above)
     """Sum resident memory (KiB) of the live `graphrag` subprocess for this
     workspace (spec §13 row 3 measurement). Job.pid is deliberately never
     recorded (spec demotes it to same-runner internal), so the CLI is found
@@ -127,7 +90,8 @@ def _graphrag_rss_kib(ws_root: Path) -> int:
     return total
 
 
-async def _run_to_terminal(client, headers, job_id, ws_root, timeout_s=600):
+async def _run_to_terminal(client, headers, job_id, ws_root,  # noqa: F811  (fixture imported above)
+                           timeout_s=600):
     """Poll GET /api/jobs/{id} every 2 s until terminal, sampling the CLI's
     RSS on every poll; returns (final job json, peak RSS KiB)."""
     peak, deadline = 0, time.monotonic() + timeout_s
@@ -148,7 +112,7 @@ async def _upload(client, headers, pid, name: str, text: str):
 
 
 async def test_real_corpus_standard_index_then_incremental_update(
-        runner_client, ws_root):
+        runner_client, ws_root):  # noqa: F811  (fixtures imported above)
     client = runner_client
     admin = await _setup_two_users(client)
     # Fresh access token for the SSE ?token= path (helpers return only headers).

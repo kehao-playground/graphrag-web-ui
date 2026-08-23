@@ -1,6 +1,7 @@
 """Real-corpus slow explore test (plan Task 6): indexes the same tiny
-workspace as test_real_corpus_query (fixtures/helpers reused from it), then
-proves the Task 2/3 read path against REAL graphrag 3.1.0 parquet output —
+workspace as test_real_corpus_query (fixtures shared via
+real_corpus_fixtures, helpers reused from the query test), then proves the
+Task 2/3 read path against REAL graphrag 3.1.0 parquet output —
 entities list projection, knowledge-graph shape (community coloring via
 max-level communities, dangling edges dropped), full-row community-report
 detail (findings list + full_content), and the q= keyword filter narrowing
@@ -14,27 +15,23 @@ the artifact reads themselves are pure DuckDB and free.
 
 import os
 
-import pytest
 import yaml
 
-# Index-once fixtures/helpers shared with the Phase-4 query test: query_app
-# enables the runner loop (MAX_CONCURRENT_JOBS=1) so POSTing the index job
-# actually executes it; DOCS is the known-good micro-corpus.
-from tests.test_projects import _setup_two_users
-from tests.test_real_corpus_query import (  # noqa: F401  (pytest fixtures)
+# Index-once fixtures come from real_corpus_fixtures (runner loop enabled,
+# MAX_CONCURRENT_JOBS=1, known-good micro-corpus); poll/upload helpers are
+# still shared with the Phase-4 query test.
+from real_corpus_fixtures import (
     DOCS,
-    _job_to_terminal,
-    _upload,
-    query_app,
-    query_client,
-    ws_root,
+    pytestmark,  # noqa: F401  (pytest consumes module attribute)
+    real_corpus_app,  # noqa: F401  (query_client resolves this dep by name)
+    ws_root,  # noqa: F401  (real_corpus_app resolves this dep by name)
+)
+from real_corpus_fixtures import (
+    real_corpus_client as query_client,  # noqa: F401  (pytest fixture: test param shadows)
 )
 
-pytestmark = [
-    pytest.mark.slow,
-    pytest.mark.skipif(not os.environ.get("GRAPHRAG_API_KEY"),
-                       reason="needs real LLM key (GRAPHRAG_API_KEY)"),
-]
+from tests.test_projects import _setup_two_users
+from tests.test_real_corpus_query import _job_to_terminal, _upload
 
 
 async def test_real_corpus_explore_browse_graph_and_filters(query_client):  # noqa: F811  (fixture imported above)
