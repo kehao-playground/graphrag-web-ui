@@ -92,16 +92,18 @@ async def set_env_key(session: AsyncSession, project: Project, key: str,
                       value: str, actor_id: uuid.UUID | None) -> None:
     """Upsert `key=value` AND audit it, one transaction (spec A1).
 
-    The audit row is flushed before commit, so a failed write rolls it
-    back — no env.key_set row without the real .env change. ValueError
-    (bad key / multi-line value) is raised before touching anything.
+    Payload-known-first shape: the audit row is added and flushed BEFORE
+    the external .env write, so a failed write rolls the flushed row back —
+    no env.key_set row without the real change. ValueError (bad key /
+    multi-line value) is raised before any row or write.
     """
     _validate(key, value)
+    lines = _upsert_lines(project, key, value)
     try:
-        _atomic_write(project, _upsert_lines(project, key, value))
         await audit(session, actor_id, "env.key_set", "project",
                     str(project.id), {"key": key})
         await session.flush()
+        _atomic_write(project, lines)
         await session.commit()
     except Exception:
         await session.rollback()
@@ -112,14 +114,15 @@ async def delete_env_key(session: AsyncSession, project: Project, key: str,
                          actor_id: uuid.UUID | None) -> None:
     """Remove the key's line AND audit it, one transaction (spec A1).
 
-    Missing key → KeyError, raised before any write or audit row.
+    Same payload-known-first shape: audit+flush, then the .env write, then
+    commit. Missing key → KeyError, raised before any row or write.
     """
+    lines = _remove_lines(project, key)
     try:
-        lines = _remove_lines(project, key)
-        _atomic_write(project, lines)
         await audit(session, actor_id, "env.key_deleted", "project",
                     str(project.id), {"key": key})
         await session.flush()
+        _atomic_write(project, lines)
         await session.commit()
     except Exception:
         await session.rollback()
