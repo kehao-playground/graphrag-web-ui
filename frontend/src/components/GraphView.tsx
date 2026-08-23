@@ -55,10 +55,22 @@ function GraphSync({ payload }: { payload: SyncPayload }) {
 // (see GraphSync), so the animation starts from wherever the user left it.
 function SearchFocus({ target }: { target: string | null }) {
   const sigma = useSigma();
+  // Only a focus followed by a clear triggers the overview reset; mounting
+  // with no search must leave the camera untouched.
+  const hadFocus = useRef(false);
   useEffect(() => {
-    if (!target) return;
+    if (!target) {
+      if (hadFocus.current) {
+        // Search cleared: pull the camera back so the focused zoom (one node
+        // filling the viewport) doesn't read as "the graph shrank".
+        hadFocus.current = false;
+        sigma.getCamera().animate({ x: 0.5, y: 0.5, angle: 0, ratio: 1 }, { duration: 500 });
+      }
+      return;
+    }
     const pos = sigma.getNodeDisplayData(target);
     if (!pos) return;
+    hadFocus.current = true;
     sigma.getCamera().animate({ x: pos.x, y: pos.y, ratio: 0.3 }, { duration: 500 });
   }, [sigma, target]);
   return null;
