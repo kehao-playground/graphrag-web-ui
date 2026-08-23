@@ -7,35 +7,48 @@ import GraphView from "../GraphView";
 import { useAuth } from "../../stores/auth";
 import type { GraphData } from "../../api/types";
 
-// Structural slice of graphology Graph — enough for assertions without
-// importing sigma-side types.
+// Structural slice of graphology Graph — the component owns the REAL
+// instance (stable-ref fix), tests only need the read API for assertions.
 interface SigmaGraph {
   order: number;
+  clear: () => void;
   forEachNode: (cb: (key: string, attrs: Record<string, unknown>) => void) => void;
   getNodeAttributes: (key: string) => Record<string, unknown>;
 }
 
-// Sigma mocks: SigmaContainer renders a stub div and captures the graphology
-// instance passed via the `graph` prop so tests can assert nodes/attrs;
-// useSigma serves that graph plus a recording camera. Wrapper v5 ships the
-// synchronous useLayoutForceAtlas2 hook (the FA2Layout component was dropped
-// upstream), so the layout mock provides a noop assign.
-const h = vi.hoisted(() => ({
-  lastGraph: null as SigmaGraph | null,
-  cameraAnimate: vi.fn(),
-}));
+// Sigma mocks: SigmaContainer is a passthrough that renders children and
+// records every `graph` prop it receives — the blank-canvas fix under test
+// keeps that prop referentially stable. useSigma hands the real graphology
+// instance back (GraphView creates it and passes it through the container)
+// plus a refresh spy and a recording camera; the stub object is created once
+// so `sigma` keeps a stable identity across renders, like the real thing.
+// The layout mock records assign calls instead of running FA2.
+const h = vi.hoisted(() => {
+  const graphs: unknown[] = [];
+  const refresh = vi.fn();
+  const cameraAnimate = vi.fn();
+  const assign = vi.fn();
+  return {
+    graphs,
+    refresh,
+    cameraAnimate,
+    assign,
+    sigma: {
+      getGraph: () => graphs[graphs.length - 1],
+      getCamera: () => ({ animate: cameraAnimate }),
+      refresh,
+    },
+  };
+});
 vi.mock("@react-sigma/core", () => ({
-  SigmaContainer: (props: { graph?: SigmaGraph; children?: ReactNode }) => {
-    h.lastGraph = props.graph ?? null;
+  SigmaContainer: (props: { graph?: unknown; children?: ReactNode }) => {
+    h.graphs.push(props.graph);
     return <div data-testid="sigma">{props.children}</div>;
   },
-  useSigma: () => ({
-    getGraph: () => h.lastGraph,
-    getCamera: () => ({ animate: h.cameraAnimate }),
-  }),
+  useSigma: () => h.sigma,
 }));
 vi.mock("@react-sigma/layout-forceatlas2", () => ({
-  useLayoutForceAtlas2: () => ({ positions: () => ({}), assign: () => undefined }),
+  useLayoutForceAtlas2: () => ({ positions: () => ({}), assign: h.assign }),
 }));
 
 // Fixture: degrees 2/1/0 so the default min_degree=1 already filters one node
@@ -62,8 +75,10 @@ afterEach(() => {
   cleanup();
   // Drop lingering select dropdowns so texts don't collide across tests.
   document.querySelectorAll(".ant-select-dropdown").forEach((el) => el.remove());
-  h.lastGraph = null;
+  h.graphs.length = 0;
+  h.refresh.mockClear();
   h.cameraAnimate.mockClear();
+  h.assign.mockClear();
 });
 beforeEach(() => {
   fetchMock.mockClear();
@@ -79,9 +94,13 @@ function mount() {
   );
 }
 
+function sigmaGraph(): SigmaGraph | null {
+  return (h.graphs[h.graphs.length - 1] as SigmaGraph | undefined) ?? null;
+}
+
 function nodeTitles() {
   const titles: string[] = [];
-  h.lastGraph?.forEachNode((key) => titles.push(key));
+  sigmaGraph()?.forEachNode((key) => titles.push(key));
   return titles.sort();
 }
 
@@ -91,6 +110,9 @@ test("initial load fetches the graph without a level param", async () => {
   expect(fetchMock).toHaveBeenCalledWith("/api/projects/p1/artifacts/graph", expect.anything());
   // min_degree default 1 drops the degree-0 node; its dangling edge goes too
   expect(nodeTitles()).toEqual(["Ada Lovelace", "Alan Turing"]);
+  // the initial in-place sync ran FA2 and refreshed sigma
+  expect(h.assign).toHaveBeenCalled();
+  expect(h.refresh).toHaveBeenCalled();
 });
 
 test("stale=true renders the indexing alert above the graph", async () => {
@@ -110,36 +132,67 @@ test("level Select change refetches with level=0", async () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/projects/p1/artifacts/graph?level=0", expect.anything()));
 });
 
+test("graph prop stays referentially stable across search, slider and type changes", async () => {
+  mount();
+  await screen.findByTestId("sigma");
+  const user = userEvent.setup();
+  await user.type(screen.getByRole("searchbox", { name: "搜尋節點" }), "alan{Enter}");
+  const slider = screen.getByRole("slider");
+  fireEvent.keyDown(slider, { key: "ArrowRight", keyCode: 39 });
+  fireEvent.keyUp(slider, { key: "ArrowRight", keyCode: 39 });
+  await waitFor(() => expect(sigmaGraph()?.order).toBe(1));
+  await user.click(screen.getByRole("combobox", { name: "類型" }));
+  // PERSON keeps the degree-2 survivor, so sigma stays mounted throughout
+  await user.click(await screen.findByText("PERSON", { selector: ".ant-select-item-option-content" }));
+  await waitFor(() => expect(sigmaGraph()?.order).toBe(1));
+  // Many SigmaContainer re-renders happened, yet every `graph` prop was the
+  // SAME instance: the kill/re-create/camera-carry path is never taken.
+  expect(h.graphs.length).toBeGreaterThan(1);
+  for (const g of h.graphs) expect(g).toBe(h.graphs[0]);
+});
+
 test("min_degree Slider commits on release: keyDown previews, keyUp applies", async () => {
   mount();
   await screen.findByTestId("sigma");
   const slider = screen.getByRole("slider");
   const fetches = fetchMock.mock.calls.length;
+  const syncs = h.refresh.mock.calls.length;
   // Drag tick. rc-slider fires onChange per keyDown but commits only on
   // keyUp; its keyboard handler reads e.which/e.keyCode, which jsdom does
   // not derive from `key` — fireEvent must pass keyCode explicitly.
   fireEvent.keyDown(slider, { key: "ArrowRight", keyCode: 39 });
   await waitFor(() => expect(slider).toHaveAttribute("aria-valuenow", "2"));
   // The handle moved to 2, but the committed min_degree still filters at 1:
-  // no graphology rebuild, no refetch during the drag.
+  // no payload rebuild, no refetch, no sigma re-sync during the drag.
   expect(nodeTitles()).toEqual(["Ada Lovelace", "Alan Turing"]);
   expect(fetchMock.mock.calls.length).toBe(fetches);
+  expect(h.refresh.mock.calls.length).toBe(syncs);
   // Release: onChangeComplete commits min_degree 1 → 2, dropping Ada
-  // (degree 1) and rebuilding the sigma graph — still client-side only.
+  // (degree 1) and re-syncing sigma's graph in place — still client-side only.
   fireEvent.keyUp(slider, { key: "ArrowRight", keyCode: 39 });
   await waitFor(() => expect(nodeTitles()).toEqual(["Alan Turing"]));
+  expect(sigmaGraph()?.order).toBe(1);
   expect(fetchMock.mock.calls.length).toBe(fetches);
+  expect(h.refresh.mock.calls.length).toBe(syncs + 1);
 });
 
-test("search flags matching nodes highlighted and animates the camera to the first match", async () => {
+test("search change clears sigma's graph, re-imports it highlighted and re-animates", async () => {
   mount();
   await screen.findByTestId("sigma");
+  const syncs = h.refresh.mock.calls.length;
+  const layouts = h.assign.mock.calls.length;
+  const clearSpy = vi.spyOn(sigmaGraph()!, "clear");
   const user = userEvent.setup();
   await user.type(screen.getByRole("searchbox", { name: "搜尋節點" }), "alan{Enter}");
-  await waitFor(() => {
-    expect(h.lastGraph?.getNodeAttributes("Alan Turing").highlighted).toBe(true);
-    expect(h.lastGraph?.getNodeAttributes("Ada Lovelace").highlighted).toBe(false);
-  });
+  await waitFor(() => expect(h.refresh.mock.calls.length).toBe(syncs + 1));
+  // The previous content was dropped, the filtered payload re-imported with
+  // fresh attributes, FA2 re-ran and the camera focused the first match.
+  expect(clearSpy).toHaveBeenCalled();
+  expect(h.assign.mock.calls.length).toBe(layouts + 1);
+  const g = sigmaGraph()!;
+  expect(g.order).toBe(2);
+  expect(g.getNodeAttributes("Alan Turing")).toMatchObject({ label: "Alan Turing", highlighted: true });
+  expect(g.getNodeAttributes("Ada Lovelace")).toMatchObject({ label: "Ada Lovelace", highlighted: false });
   expect(h.cameraAnimate).toHaveBeenCalled();
 });
 
