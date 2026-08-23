@@ -778,7 +778,7 @@
         "type": "object"
       },
       "UserBriefOut": {
-        "description": "\u7d66\u6240\u6709\u5df2\u767b\u5165\u4f7f\u7528\u8005\u7684\u7a84\u6e05\u55ae(\u6210\u54e1\u7ba1\u7406\u9078\u4eba\u7528)\u3002\n\u523b\u610f\u4e0d\u542b role / must_change_password \u7b49\u7ba1\u7406\u8cc7\u8a0a\u3002",
+        "description": "Narrow list shown to every logged-in user (for picking users in member\nmanagement). Deliberately omits admin fields like role / must_change_password.",
         "properties": {
           "display_name": {
             "title": "Display Name",

@@ -32,13 +32,13 @@ class UserOut(BaseModel):
     @field_validator("id", mode="before")
     @classmethod
     def _uuid_to_str(cls, v: object) -> object:
-        # pydantic 2 不會把 UUID 隱性轉成 str;User.id 是 UUID
+        # pydantic 2 does not implicitly coerce UUID to str; User.id is a UUID
         return str(v) if isinstance(v, UUID) else v
 
 
 class UserBriefOut(BaseModel):
-    """給所有已登入使用者的窄清單(成員管理選人用)。
-    刻意不含 role / must_change_password 等管理資訊。"""
+    """Narrow list shown to every logged-in user (for picking users in member
+    management). Deliberately omits admin fields like role / must_change_password."""
 
     model_config = ConfigDict(from_attributes=True)
 
