@@ -28,13 +28,18 @@ const h = vi.hoisted(() => {
   const refresh = vi.fn();
   const cameraAnimate = vi.fn();
   const assign = vi.fn();
+  // Fixed display-space coords: the camera must receive THESE, never the
+  // node's raw graph-space x/y (random FA2 seeds can never equal them).
+  const getNodeDisplayData = vi.fn((): { x: number; y: number } | undefined => ({ x: 0.42, y: 0.58 }));
   return {
     graphs,
     refresh,
     cameraAnimate,
     assign,
+    getNodeDisplayData,
     sigma: {
       getGraph: () => graphs[graphs.length - 1],
+      getNodeDisplayData,
       getCamera: () => ({ animate: cameraAnimate }),
       refresh,
     },
@@ -78,7 +83,7 @@ afterEach(() => {
   h.graphs.length = 0;
   h.refresh.mockClear();
   h.cameraAnimate.mockClear();
-  h.assign.mockClear();
+  h.getNodeDisplayData.mockClear();
 });
 beforeEach(() => {
   fetchMock.mockClear();
@@ -193,7 +198,22 @@ test("search change clears sigma's graph, re-imports it highlighted and re-anima
   expect(g.order).toBe(2);
   expect(g.getNodeAttributes("Alan Turing")).toMatchObject({ label: "Alan Turing", highlighted: true });
   expect(g.getNodeAttributes("Ada Lovelace")).toMatchObject({ label: "Ada Lovelace", highlighted: false });
-  expect(h.cameraAnimate).toHaveBeenCalled();
+  // Camera x/y live in normalized display space: the animate target must be
+  // the coords from sigma.getNodeDisplayData, never the node's raw
+  // graph-space x/y (which would fly the camera off-canvas).
+  expect(h.cameraAnimate).toHaveBeenCalledWith({ x: 0.42, y: 0.58, ratio: 0.3 }, { duration: 500 });
+});
+
+test("camera animation is skipped when the match has no display data", async () => {
+  mount();
+  await screen.findByTestId("sigma");
+  // e.g. the target got filtered out between render and focus: no crash,
+  // no camera move.
+  h.getNodeDisplayData.mockReturnValueOnce(undefined);
+  const user = userEvent.setup();
+  await user.type(screen.getByRole("searchbox", { name: "搜尋節點" }), "ada{Enter}");
+  await waitFor(() => expect(h.getNodeDisplayData).toHaveBeenCalled());
+  expect(h.cameraAnimate).not.toHaveBeenCalled();
 });
 
 test("filters matching nothing render the empty state instead of sigma", async () => {
