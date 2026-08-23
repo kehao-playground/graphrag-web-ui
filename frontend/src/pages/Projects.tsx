@@ -38,9 +38,9 @@ export default function Projects() {
     if (error) message.error(error.message);
   }, [error]);
 
-  // Project 只有 owner_id;GET /api/users 是所有已登入者可用的窄清單,
-  // 直接以同一個 ['users'] query 解析擁有者(同 ProjectDetail 的用法),
-  // 不必再逐一打每個專案的 members(N+1)。
+  // Project carries only owner_id; GET /api/users is the narrow list every
+  // logged-in user can call, so resolve owners through the same ['users']
+  // query (as in ProjectDetail) instead of hitting each project's members (N+1).
   const users = useQuery({
     queryKey: ["users"],
     queryFn: async () => {
@@ -81,7 +81,7 @@ export default function Projects() {
     },
     onSuccess: () => {
       message.success("專案已刪除");
-      // 前綴失效:列表 + 各專案的 members 快取一起清
+      // Prefix invalidation: clears the list plus every project's members cache
       qc.invalidateQueries({ queryKey: ["projects"] });
     },
     onError: (e) => message.error(e.message),

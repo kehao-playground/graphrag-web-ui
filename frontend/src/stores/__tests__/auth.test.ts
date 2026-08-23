@@ -24,11 +24,11 @@ test("parallel restore() calls share one refresh network call (single-flight)", 
   });
   vi.stubGlobal("fetch", fetchMock);
 
-  // StrictMode double-mount:兩個 restore 並行
+  // StrictMode double-mount: two restore() calls in parallel
   await Promise.all([useAuth.getState().restore(), useAuth.getState().restore()]);
 
-  expect(refreshBodies).toEqual(['{"refresh_token":"t0"}']); // 只發一次 refresh,且用同一個舊 token
-  expect(localStorage.getItem("grui_refresh")).toBe("t1");   // 輪替後的新 token
+  expect(refreshBodies).toEqual(['{"refresh_token":"t0"}']); // exactly one refresh, same old token
+  expect(localStorage.getItem("grui_refresh")).toBe("t1");   // the post-rotation new token
   expect(useAuth.getState().user?.email).toBe("a@b.c");
   expect(useAuth.getState().bootstrapping).toBe(false);
 });

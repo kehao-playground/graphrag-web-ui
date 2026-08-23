@@ -17,7 +17,7 @@ const METHOD_LABEL: Record<string, string> = { standard: "標準", fast: "快速
 const TYPE_OPTIONS = (["index", "update"] as const).map((v) => ({ label: TYPE_LABEL[v], value: v }));
 const METHOD_OPTIONS = (["standard", "fast"] as const).map((v) => ({ label: METHOD_LABEL[v], value: v }));
 
-// Seconds → zh-TW humanized duration (耗時 column); at most two units.
+// zh-TW: Seconds → humanized duration for the 耗時 (duration) column; at most two units.
 function humanDuration(seconds: number): string {
   const s = Math.round(seconds);
   if (s < 60) return `${s} 秒`;
