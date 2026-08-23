@@ -3,14 +3,21 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from graphrag_ui.adapters.models import User
 from graphrag_ui.api.deps import AdminUser, DbSession, get_current_user, require_admin
 from graphrag_ui.api.schemas import UserBriefOut, UserOut
-from graphrag_ui.services.users import create_user, reset_password, update_user
+from graphrag_ui.services.users import (
+    LastActiveAdminError,
+    SelfRoleChangeError,
+    UserNotFound,
+    create_user,
+    get_user,
+    list_users_by_email,
+    list_users_ordered,
+    patch_user_guarded,
+    reset_password,
+)
 
 
 class UserCreateIn(BaseModel):
@@ -29,23 +36,13 @@ class ResetPasswordIn(BaseModel):
     new_password: str = Field(min_length=8)
 
 
-async def _other_active_admin_count(session: AsyncSession, user_id: uuid.UUID) -> int:
-    return (await session.execute(
-        select(func.count()).select_from(User).where(
-            User.role == "admin", User.is_active.is_(True), User.id != user_id)
-    )).scalar_one()
-
-
 def register_users_routes(app):
     # router 建在函式內(同 auth_routes):create_app() 在測試會被重複呼叫
     router = APIRouter(prefix="/api/admin/users", dependencies=[Depends(require_admin)])
 
     @router.get("", response_model=list[UserOut])
     async def list_users(db: DbSession):
-        # 明確排序 — 測試與前端不該依賴 DB 的隱含回傳順序
-        users = (await db.execute(
-            select(User).order_by(User.created_at, User.id))).scalars().all()
-        return [UserOut.model_validate(u) for u in users]
+        return [UserOut.model_validate(u) for u in await list_users_ordered(db)]
 
     @router.post("", response_model=UserOut, status_code=status.HTTP_201_CREATED)
     async def post_user(body: UserCreateIn,
@@ -62,29 +59,29 @@ def register_users_routes(app):
     async def patch_user(user_id: uuid.UUID, body: UserUpdateIn,
                          admin: AdminUser,
                          db: DbSession):
-        user = await db.get(User, user_id)
-        if user is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "user not found")
-        if user.id == admin.id and (body.role is not None or body.is_active is not None):
+        try:
+            user = await patch_user_guarded(db, admin, user_id,
+                                            display_name=body.display_name,
+                                            role=body.role,
+                                            is_active=body.is_active)
+        except UserNotFound:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "user not found") from None
+        except SelfRoleChangeError:
             raise HTTPException(status.HTTP_400_BAD_REQUEST,
-                                "cannot change your own role or active status")
-        demotes = body.role is not None and body.role != "admin"
-        # 不能把最後一個 active admin 降級或停用,否則系統會被鎖死
-        if (user.role == "admin" and user.is_active and (demotes or body.is_active is False)
-                and await _other_active_admin_count(db, user.id) == 0):
+                                "cannot change your own role or active status") from None
+        except LastActiveAdminError:
             raise HTTPException(status.HTTP_400_BAD_REQUEST,
-                                "cannot demote or deactivate the last active admin")
-        user = await update_user(db, user, display_name=body.display_name, role=body.role,
-                                 is_active=body.is_active, actor_id=admin.id)
+                                "cannot demote or deactivate the last active admin") from None
         return UserOut.model_validate(user)
 
     @router.post("/{user_id}/reset-password", status_code=status.HTTP_204_NO_CONTENT)
     async def post_reset_password(user_id: uuid.UUID, body: ResetPasswordIn,
                                   admin: AdminUser,
                                   db: DbSession):
-        user = await db.get(User, user_id)
-        if user is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "user not found")
+        try:
+            user = await get_user(db, user_id)
+        except UserNotFound:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "user not found") from None
         await reset_password(db, user, body.new_password, actor_id=admin.id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -96,7 +93,6 @@ def register_users_routes(app):
 
     @open_router.get("", response_model=list[UserBriefOut])
     async def list_users_brief(db: DbSession):
-        users = (await db.execute(select(User).order_by(User.email))).scalars().all()
-        return [UserBriefOut.model_validate(u) for u in users]
+        return [UserBriefOut.model_validate(u) for u in await list_users_by_email(db)]
 
     app.include_router(open_router)
