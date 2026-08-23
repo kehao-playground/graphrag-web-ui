@@ -8,14 +8,23 @@ import { useAuth } from "../../stores/auth";
 import type { GraphData } from "../../api/types";
 
 // GraphView (圖譜 mode) pulls in sigma: stub the WebGL layer so jsdom never
-// touches canvas. GraphView.test.tsx covers the graph in depth.
-vi.mock("@react-sigma/core", () => ({
-  SigmaContainer: (props: { children?: ReactNode }) => <div data-testid="sigma">{props.children}</div>,
-  useSigma: () => ({
-    getGraph: () => ({ getNodeAttributes: () => ({}) }),
-    getCamera: () => ({ animate: vi.fn() }),
-  }),
-}));
+// touches canvas. GraphView.test.tsx covers the graph in depth. GraphView
+// syncs filter results in place, so the stub graph exposes the mutation API
+// (clear/addNode/addEdge) and the stub keeps a stable identity like the real
+// sigma instance.
+vi.mock("@react-sigma/core", () => {
+  const graph = {
+    clear: () => undefined,
+    addNode: () => undefined,
+    addEdge: () => undefined,
+    getNodeAttributes: () => ({}),
+  };
+  const sigma = { getGraph: () => graph, getCamera: () => ({ animate: () => undefined }), refresh: () => undefined };
+  return {
+    SigmaContainer: (props: { children?: ReactNode }) => <div data-testid="sigma">{props.children}</div>,
+    useSigma: () => sigma,
+  };
+});
 vi.mock("@react-sigma/layout-forceatlas2", () => ({
   useLayoutForceAtlas2: () => ({ positions: () => ({}), assign: () => undefined }),
 }));
