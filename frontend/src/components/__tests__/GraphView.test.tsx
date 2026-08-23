@@ -216,6 +216,28 @@ test("camera animation is skipped when the match has no display data", async () 
   expect(h.cameraAnimate).not.toHaveBeenCalled();
 });
 
+test("clearing the search after a focus resets the camera to overview", async () => {
+  mount();
+  await screen.findByTestId("sigma");
+  const user = userEvent.setup();
+  const box = screen.getByRole("searchbox", { name: "搜尋節點" });
+  await user.type(box, "alan{Enter}");
+  expect(h.cameraAnimate).toHaveBeenCalledWith({ x: 0.42, y: 0.58, ratio: 0.3 }, { duration: 500 });
+  h.cameraAnimate.mockClear();
+  // allowClear X: search goes back to "" → target null after a real focus
+  await user.click(box.parentElement!.querySelector(".ant-input-clear-icon")!);
+  await waitFor(() =>
+    expect(h.cameraAnimate).toHaveBeenCalledWith({ x: 0.5, y: 0.5, angle: 0, ratio: 1 }, { duration: 500 }));
+});
+
+test("initial load with no search never moves the camera", async () => {
+  mount();
+  await screen.findByTestId("sigma");
+  // mount-with-null must not animate — only a focus followed by a clear does
+  expect(h.getNodeDisplayData).not.toHaveBeenCalled();
+  expect(h.cameraAnimate).not.toHaveBeenCalled();
+});
+
 test("filters matching nothing render the empty state instead of sigma", async () => {
   mount();
   await screen.findByTestId("sigma");
