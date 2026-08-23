@@ -53,17 +53,17 @@ async def _find(session: AsyncSession, token: str) -> RefreshToken | None:
 
 
 async def rotate_refresh(session: AsyncSession, token: str) -> tuple[uuid.UUID, str] | None:
-    """回 (user_id, new_refresh);失敗回 None。呼叫端自行以 user_id 發 access token。"""
+    """Returns (user_id, new_refresh); None on failure. The caller issues the access token from user_id."""
     row = await _find(session, token)
     if row is None:
         return None
     if row.revoked_at is not None:
-        # 已消費過的 token 再次出現 = 疑似外洩 → 撤銷該使用者整個 token 家族
+        # A consumed token reappearing = suspected leak → revoke the user's entire token family
         await revoke_all_for_user(session, row.user_id)
         return None
     if row.expires_at < datetime.now(UTC):
         return None
-    row.revoked_at = datetime.now(UTC)   # 標記而非刪除,重用偵測才成立
+    row.revoked_at = datetime.now(UTC)   # mark instead of delete, so reuse detection works
     await session.commit()
     return row.user_id, await issue_refresh_token(session, row.user_id)
 
@@ -86,7 +86,7 @@ _DUMMY_HASH = _ph.hash("dummy-for-constant-time")
 async def authenticate(session: AsyncSession, email: str, password: str) -> User | None:
     user = (await session.execute(select(User).where(User.email == email))).scalar_one_or_none()
     if user is None or not user.is_active:
-        verify_password(password, _DUMMY_HASH)   # 拉平回應時間,避免以時間差枚舉帳號
+        verify_password(password, _DUMMY_HASH)   # flatten response time; prevents account enumeration via timing
         return None
     return user if verify_password(password, user.password_hash) else None
 

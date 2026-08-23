@@ -37,7 +37,7 @@ class ResetPasswordIn(BaseModel):
 
 
 def register_users_routes(app):
-    # router 建在函式內(同 auth_routes):create_app() 在測試會被重複呼叫
+    # Router built inside the function (like auth_routes): create_app() is called repeatedly in tests
     router = APIRouter(prefix="/api/admin/users", dependencies=[Depends(require_admin)])
 
     @router.get("", response_model=list[UserOut])
@@ -87,8 +87,9 @@ def register_users_routes(app):
 
     app.include_router(router)
 
-    # 所有已登入 active 使用者可用的窄清單(spec §5:成員管理是專案 owner 的權限,
-    # 非 admin owner 也需要能解析 email → user_id 來加成員;管理欄位不外洩)
+    # Narrow list available to every logged-in active user (spec §5: member
+    # management is the project owner's privilege, so a non-admin owner also
+    # needs to resolve email → user_id to add members; admin fields stay private)
     open_router = APIRouter(prefix="/api/users", dependencies=[Depends(get_current_user)])
 
     @open_router.get("", response_model=list[UserBriefOut])

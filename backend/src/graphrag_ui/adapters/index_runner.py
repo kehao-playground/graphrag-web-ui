@@ -2,7 +2,7 @@
 subprocess touchpoints live in adapters (AGENTS.md). stdout+stderr stream to
 the job's log file; cancellation is SIGTERM -> 30s grace -> SIGKILL; stats
 are scanned from disk by job type (paths empirically verified 2026-08-21,
-spec §13 實測表)."""
+spec §13 verification table)."""
 
 import asyncio
 import contextlib

@@ -11,8 +11,9 @@ from graphrag_ui.config import get_settings
 
 
 def register_health_routes(app):
-    # router 必須建在函式內:create_app() 在測試裡會被呼叫很多次,
-    # 模組級 router 會不斷累積重複路由
+    # The router must be built inside the function: create_app() is called
+    # many times in tests, and a module-level router would accumulate
+    # duplicate routes
     router = APIRouter(prefix="/api")
 
     @router.get("/health")

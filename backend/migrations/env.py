@@ -64,8 +64,8 @@ def do_run_migrations(connection: Connection) -> None:
 
 
 async def run_async_migrations() -> None:
-    # database_url 是 asyncpg — 預設模板的 sync engine_from_config 會炸
-    # MissingGreenlet,必須走 alembic cookbook 的 async 模式。
+    # database_url is asyncpg — the default template's sync engine_from_config
+    # would blow up with MissingGreenlet; the alembic-cookbook async mode is required.
     connectable = async_engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",

@@ -51,7 +51,7 @@ class ProjectOut(BaseModel):
     @field_validator("id", "owner_id", mode="before")
     @classmethod
     def _uuid_to_str(cls, v: object) -> object:
-        # pydantic 2 不會把 UUID 隱性轉成 str;Project.id / owner_id 是 UUID
+        # pydantic 2 does not implicitly coerce UUID to str; Project.id / owner_id are UUIDs
         return str(v) if isinstance(v, uuid.UUID) else v
 
 
@@ -72,7 +72,7 @@ def get_initializer() -> WorkspaceInitializer:
 
 
 def _forbidden() -> HTTPException:
-    # 403 訊息固定(spec):不因原因差異洩漏資訊
+    # 403 message is fixed (spec): never leak the reason
     return HTTPException(status.HTTP_403_FORBIDDEN, "forbidden")
 
 
@@ -86,7 +86,7 @@ async def _project_or_404(db: AsyncSession, project_id: uuid.UUID) -> Project:
 
 
 def register_projects_routes(app):
-    # router 建在函式內(同 users_routes):create_app() 在測試會被重複呼叫
+    # Router built inside the function (like users_routes): create_app() is called repeatedly in tests
     router = APIRouter(prefix="/api/projects", dependencies=[Depends(get_current_user)])
 
     async def _require(db: AsyncSession, project: Project, user: User,
@@ -112,7 +112,7 @@ def register_projects_routes(app):
         except PermissionError:
             raise _forbidden() from None
         except WorkspaceInitError:
-            # service 只拋 WorkspaceInitError;HTTP 轉換屬於 route 層
+            # The service only raises WorkspaceInitError; HTTP conversion belongs to the route layer
             raise HTTPException(
                 status.HTTP_500_INTERNAL_SERVER_ERROR, "graphrag init failed") from None
         return ProjectOut.model_validate(project)
@@ -150,7 +150,7 @@ def register_projects_routes(app):
                            user: CurrentUser):
         project = await _project_or_404(db, project_id)
         await _require(db, project, user, Action.view_project)
-        # join users 帶出 email/display_name;明確排序,不依賴 DB 隱含順序
+        # join users to pull email/display_name; order explicitly, never rely on implicit DB order
         rows = (await db.execute(
             select(ProjectMember.user_id, ProjectMember.role, User.email, User.display_name)
             .join(User, User.id == ProjectMember.user_id)

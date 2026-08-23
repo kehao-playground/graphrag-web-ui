@@ -6,15 +6,19 @@ from typing import Protocol
 
 import yaml
 
-# 鍵名已對 graphrag 原始碼驗證:格式是 input.type(InputConfig.type,無 file_type 欄位;
-# 儲存後端是另一個頂層區段 input_storage.type)。file_pattern 是 regex(TextFileReader
-# 預設 r".*\.txt$"),不是 glob。text 對 txt+md(spec §2 白名單)。
+# Key names verified against graphrag source: the format key is input.type
+# (InputConfig.type; there is no file_type field), and the storage backend is
+# a separate top-level section input_storage.type. file_pattern is a regex
+# (TextFileReader default r".*\.txt$"), not a glob. text covers txt+md
+# (spec §2 allowlist).
 _FILE_PATTERNS = {"text": r".*\.(txt|md)$", "csv": r".*\.csv$", "json": r".*\.json$"}
 _ALLOWED = set(_FILE_PATTERNS)
 
-# graphrag init 的 --model/--embedding 在 typer 宣告了 prompt=:stdin 非 TTY(subprocess
-# /容器)時 click 讀到 EOF 會直接 Abort(已實測)。必須顯式傳值才能非互動執行;
-# 值 = graphrag 3.1.0 的 graphrag.config.defaults 預設(gpt-4.1 / text-embedding-3-large)。
+# graphrag init's --model/--embedding declare prompt= in typer: with a non-TTY
+# stdin (subprocess/container) click reads EOF and aborts outright (verified
+# empirically). Values must be passed explicitly for non-interactive runs;
+# they equal the graphrag 3.1.0 graphrag.config.defaults (gpt-4.1 /
+# text-embedding-3-large).
 _INIT_MODEL = "gpt-4.1"
 
 _INIT_EMBEDDING = "text-embedding-3-large"
@@ -44,7 +48,7 @@ _logger = logging.getLogger(__name__)
 
 
 class WorkspaceInitError(RuntimeError):
-    """graphrag init 失敗。由 api 層轉成 HTTP — services 不得 import FastAPI。"""
+    """graphrag init failed. The api layer converts to HTTP — services must not import FastAPI."""
 
 
 class WorkspaceInitializer(Protocol):
@@ -56,8 +60,9 @@ class GraphragInitInitializer:
         if input_file_type not in _ALLOWED:
             msg = f"unsupported input_file_type: {input_file_type}"
             raise ValueError(msg)
-        # subprocess.run 是阻塞的,直接寫在 async route 會卡住整個 event loop
-        #(單副本部署 = 全服務凍結數秒)
+        # subprocess.run blocks; calling it directly in an async route would
+        # stall the whole event loop (single-replica deploy = entire service
+        # frozen for seconds)
         await asyncio.to_thread(self._run, root, input_file_type)
 
     def _run(self, root: Path, input_file_type: str) -> None:
@@ -66,16 +71,18 @@ class GraphragInitInitializer:
             subprocess.run(
                 ["graphrag", "init", "--root", str(root),
                  "--model", _INIT_MODEL, "--embedding", _INIT_EMBEDDING],
-                # 實測約 7s(滿載 ~10s);300s 對負載尖峰仍保險,同時兜住 hung CLI
+                # ~7s measured (~10s under load); 300s still safe for load spikes
+                # and also covers a hung CLI
                 check=True, capture_output=True, timeout=300)
         except subprocess.CalledProcessError as e:
-            # str(e) 只有 exit code;真正的根因在 stderr — 記 log 供診斷
-            #(HTTP 一律 500 不帶細節,避免洩漏內部資訊給客戶端)
+            # str(e) carries only the exit code; the real root cause is on
+            # stderr — log it for diagnosis (HTTP stays a detail-free 500 so
+            # internals never leak to clients)
             _logger.error("graphrag init failed (exit %s): %s", e.returncode,
                           (e.stderr or b"").decode(errors="replace").strip())
             raise WorkspaceInitError(str(e)) from e
         except (subprocess.TimeoutExpired, FileNotFoundError) as e:
-            _logger.error("graphrag init failed: %r", e)  # FileNotFoundError = CLI 不在 PATH
+            _logger.error("graphrag init failed: %r", e)  # FileNotFoundError = CLI not on PATH
             raise WorkspaceInitError(str(e)) from e
         settings_path = root / "settings.yaml"
         data = yaml.safe_load(settings_path.read_text())
