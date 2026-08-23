@@ -25,5 +25,8 @@ async def test_alembic_head_matches_metadata(migrated_db):
                     MigrationContext.configure(c), Base.metadata))
     finally:
         await engine.dispose()
-    real = [d for d in diffs if d[0] in _FAIL_KINDS]
+    # modify_* diffs arrive nested: AlterColumnOp.to_diff_tuple() yields a
+    # LIST of tuples as one element — flatten one level before filtering.
+    real = [t for d in diffs for t in (d if isinstance(d, list) else [d])
+            if t[0] in _FAIL_KINDS]
     assert real == [], f"schema drift (migrate or revert the model): {real}"
