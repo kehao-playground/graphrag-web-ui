@@ -11,9 +11,11 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v4
+      # node24-runtime actions (Node 20 deprecated on runners 2025-09);
+      # setup-uv pinned exact — floating major tags discontinued after v8
+      - uses: actions/checkout@v7
       # testcontainers needs docker — the GitHub ubuntu runner has it built in
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v10.0.1
         with:
           python-version: "3.12"
       - run: uv sync --dev
@@ -28,8 +30,8 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -44,7 +46,7 @@ jobs:
   helm:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # charts/ contains the vendored bitnami/postgresql; no extra helm repo needed
       - run: helm lint deploy/helm/graphrag-ui
       - run: helm template deploy/helm/graphrag-ui > /dev/null
