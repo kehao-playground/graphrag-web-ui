@@ -119,7 +119,9 @@ async def test_init_failure_leaves_no_row(client, app):
     r = await client.post("/api/projects", headers=alice, json={
         "name": "Exploder", "input_file_type": "text"})
     assert r.status_code == 500
-    assert r.json() == {"detail": "graphrag init failed"}
+    body = r.json()
+    assert body["detail"] == "graphrag init failed"
+    assert body["code"] == "init_failed"
     names = [p["name"] for p in (await client.get("/api/projects", headers=alice)).json()]
     assert "Exploder" not in names  # rollback left no residual row
 

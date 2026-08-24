@@ -111,11 +111,16 @@ async def delete_project(session: AsyncSession, project: Project,
     await session.commit()
 
 
+class MemberOwnerProtectedError(ValueError):
+    """set_member/remove_member targeting the project owner (spec §4.2:
+    member_owner_protected). Subclasses ValueError because that is the
+    historical contract of these services."""
+
+
 async def set_member(session: AsyncSession, project: Project, user_id: uuid.UUID,
                      role: str, actor_id: uuid.UUID | None) -> ProjectMember:
     if user_id == project.owner_id and role != "owner":
-        msg = "cannot demote or remove the project owner"
-        raise ValueError(msg)
+        raise MemberOwnerProtectedError("cannot demote or remove the project owner")
     member = await session.get(ProjectMember, {"project_id": project.id, "user_id": user_id})
     if member is None:
         member = ProjectMember(project_id=project.id, user_id=user_id, role=role)
@@ -135,8 +140,7 @@ async def set_member(session: AsyncSession, project: Project, user_id: uuid.UUID
 async def remove_member(session: AsyncSession, project: Project, user_id: uuid.UUID,
                         actor_id: uuid.UUID | None) -> None:
     if user_id == project.owner_id:
-        msg = "cannot demote or remove the project owner"
-        raise ValueError(msg)
+        raise MemberOwnerProtectedError("cannot demote or remove the project owner")
     member = await session.get(ProjectMember, {"project_id": project.id, "user_id": user_id})
     if member is None:
         raise LookupError("member not found")

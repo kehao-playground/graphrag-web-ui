@@ -1,11 +1,12 @@
 import uuid
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, Response, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.exc import IntegrityError
 
 from graphrag_ui.api.deps import AdminUser, DbSession, get_current_user, require_admin
+from graphrag_ui.api.errors import ApiError
 from graphrag_ui.api.schemas import UserBriefOut, UserOut
 from graphrag_ui.services.users import (
     LastActiveAdminError,
@@ -52,7 +53,8 @@ def register_users_routes(app):
             user = await create_user(db, body.email, body.display_name,
                                      body.password, actor_id=admin.id)
         except IntegrityError:
-            raise HTTPException(status.HTTP_409_CONFLICT, "email already registered") from None
+            raise ApiError(status.HTTP_409_CONFLICT,
+                           "email_registered", "email already registered") from None
         return UserOut.model_validate(user)
 
     @router.patch("/{user_id}", response_model=UserOut)
@@ -65,13 +67,14 @@ def register_users_routes(app):
                                             role=body.role,
                                             is_active=body.is_active)
         except UserNotFound:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "user not found") from None
+            raise ApiError(status.HTTP_404_NOT_FOUND, "user_not_found",
+                           "user not found") from None
         except SelfRoleChangeError:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST,
-                                "cannot change your own role or active status") from None
+            raise ApiError(status.HTTP_400_BAD_REQUEST, "user_self_change_forbidden",
+                           "cannot change your own role or active status") from None
         except LastActiveAdminError:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST,
-                                "cannot demote or deactivate the last active admin") from None
+            raise ApiError(status.HTTP_400_BAD_REQUEST, "user_last_admin_protected",
+                           "cannot demote or deactivate the last active admin") from None
         return UserOut.model_validate(user)
 
     @router.post("/{user_id}/reset-password", status_code=status.HTTP_204_NO_CONTENT)
@@ -81,7 +84,8 @@ def register_users_routes(app):
         try:
             user = await get_user(db, user_id)
         except UserNotFound:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "user not found") from None
+            raise ApiError(status.HTTP_404_NOT_FOUND, "user_not_found",
+                           "user not found") from None
         await reset_password(db, user, body.new_password, actor_id=admin.id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 

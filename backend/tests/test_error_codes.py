@@ -4,6 +4,7 @@ Query-route entries re-wire the test_query_api seams locally (config stub,
 fake adapter/cache) so this file stays lint-clean without fixture imports."""
 
 import uuid
+from types import SimpleNamespace
 
 import pytest
 from test_files import _alice, _make_project
@@ -206,3 +207,28 @@ async def test_job_invalid_last_event_id_carries_code(client, app):
     body = r.json()
     assert body["detail"] == "invalid Last-Event-ID"
     assert body["code"] == "job_invalid_last_event_id"
+
+
+@pytest.fixture
+async def project_with_members(client, app):
+    """Project with owner + a second member, mirroring the members
+    fixtures in test_projects.py. admin_headers belongs to the site
+    admin, who may manage members on any project."""
+    admin, alice, _ = await _setup_users(client, app)
+    pid = await _project(client, alice)
+    members = (await client.get(f"/api/projects/{pid}/members",
+                                headers=alice)).json()
+    owner_id = next(m["user_id"] for m in members if m["role"] == "owner")
+    return SimpleNamespace(id=pid, owner_id=owner_id, admin_headers=admin)
+
+
+async def test_demote_owner_carries_code(client, app, project_with_members):
+    # project_with_members: owner + a second admin, mirrors the members
+    # fixtures in test_projects.py.
+    r = await client.put(
+        f"/api/projects/{project_with_members.id}/members/{project_with_members.owner_id}",
+        json={"role": "editor"}, headers=project_with_members.admin_headers)
+    assert r.status_code == 400
+    body = r.json()
+    assert body["detail"] == "cannot demote or remove the project owner"
+    assert body["code"] == "member_owner_protected"
