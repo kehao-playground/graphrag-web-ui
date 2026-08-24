@@ -232,3 +232,41 @@ async def test_demote_owner_carries_code(client, app, project_with_members):
     body = r.json()
     assert body["detail"] == "cannot demote or remove the project owner"
     assert body["code"] == "member_owner_protected"
+
+
+@pytest.fixture
+async def project(client, app):
+    """Owner-minted project (fake initializer — settings.yaml exists)."""
+    _, alice, _ = await _setup_users(client, app)
+    return SimpleNamespace(id=await _project(client, alice), owner_headers=alice)
+
+
+
+@pytest.fixture
+async def project_with_settings(project):
+    # FakeInitializer writes settings.yaml at creation, so any expected_hash
+    # that differs from disk ("stale") exercises the 409 path.
+    return project
+
+
+async def test_settings_conflict_carries_code(client, app, project_with_settings):
+    # Mirror test_settings.py's stale-hash conflict setup (write twice).
+    r = await client.put(f"/api/projects/{project_with_settings.id}/settings",
+                         headers=project_with_settings.owner_headers,
+                         json={"content": "server: 1\n", "expected_hash": "stale"})
+    assert r.status_code == 409
+    body = r.json()
+    assert body["detail"] == "conflict"
+    assert body["code"] == "settings_conflict"
+    assert "current_content" in body and "current_hash" in body
+
+
+async def test_env_invalid_key_carries_code(client, app, project):
+    r = await client.patch(f"/api/projects/{project.id}/env",
+                           headers=project.owner_headers,
+                           json={"key": "bad key!", "value": "v"})
+    assert r.status_code == 400
+    body = r.json()
+    assert body["detail"] == "invalid key: bad key!"
+    assert body["code"] == "env_invalid_key"
+    assert body["params"] == {"key": "bad key!"}

@@ -3,21 +3,23 @@ version history (task brief 3).
 
 Permissions: write is editor+ (Action.edit_content), reads are viewer+
 (Action.view_project). The 409 body carries the exact keys
-{"detail", "current_content", "current_hash"} — the frontend diff flow
-(task 7) depends on them.
+{"detail", "code", "current_content", "current_hash"} — the frontend diff
+flow (task 7) depends on them.
 """
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from graphrag_ui.api.deps import CurrentUser, DbSession, get_current_user
+from graphrag_ui.api.errors import ApiError
 from graphrag_ui.api.projects_routes import _forbidden, _project_or_404
 from graphrag_ui.domain.permissions import Action, can
 from graphrag_ui.services.projects import get_project_role
 from graphrag_ui.services.settings import (
     SettingsConflictError,
+    SettingsValidationError,
     get_version,
     list_versions,
     read_settings,
@@ -79,11 +81,13 @@ def register_settings_routes(app):
             # frontend's expected keys
             return JSONResponse(status_code=status.HTTP_409_CONFLICT, content={
                 "detail": "conflict",
+                "code": "settings_conflict",
                 "current_content": e.current_content,
                 "current_hash": e.current_hash,
             })
-        except ValueError as e:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from None
+        except SettingsValidationError as e:
+            raise ApiError(status.HTTP_400_BAD_REQUEST, e.code, str(e),
+                           e.params) from None
         return SettingsWriteOut(content_hash=new_hash)
 
     @router.get("/{pid}/settings/versions", response_model=list[VersionOut])
@@ -107,7 +111,8 @@ def register_settings_routes(app):
             raise _forbidden()
         v = await get_version(db, project, vid)
         if v is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "version not found")
+            raise ApiError(status.HTTP_404_NOT_FOUND, "version_not_found",
+                           "version not found")
         return VersionDetailOut(id=v.id, content=v.content,
                                 content_hash=v.content_hash,
                                 saved_by=str(v.saved_by),

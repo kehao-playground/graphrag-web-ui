@@ -1,6 +1,6 @@
 """Settings editor API tests: hash optimistic lock, 409 conflict payload,
 version history (task brief 3; frontend diff flow depends on the exact
-conflict keys {"detail","current_content","current_hash"}).
+conflict keys {"detail","code","current_content","current_hash"}).
 """
 
 import hashlib
@@ -97,8 +97,9 @@ async def test_put_with_stale_hash_returns_conflict_payload(client, app, db_sess
     assert r.status_code == 409
     body = r.json()
     # exact keys — the frontend diff flow (task 7) depends on them
-    assert set(body) == {"detail", "current_content", "current_hash"}
+    assert set(body) == {"detail", "code", "current_content", "current_hash"}
     assert body["detail"] == "conflict"
+    assert body["code"] == "settings_conflict"
     assert body["current_content"] == disk_now
     assert body["current_hash"] == hashlib.sha256(disk_now.encode()).hexdigest()
 

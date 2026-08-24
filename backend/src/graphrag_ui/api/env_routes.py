@@ -10,13 +10,19 @@ raw input, which would return the submitted secret to the client.
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel
 
 from graphrag_ui.api.deps import CurrentUser, DbSession, get_current_user
+from graphrag_ui.api.errors import ApiError
 from graphrag_ui.api.projects_routes import _forbidden, _project_or_404
 from graphrag_ui.domain.permissions import Action, can
-from graphrag_ui.services.env_file import delete_env_key, list_env, set_env_key
+from graphrag_ui.services.env_file import (
+    EnvValidationError,
+    delete_env_key,
+    list_env,
+    set_env_key,
+)
 from graphrag_ui.services.projects import get_project_role
 
 
@@ -41,12 +47,15 @@ async def _secret_body(request: Request) -> dict:
     try:
         body = await request.json()
     except ValueError:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid body") from None
+        raise ApiError(status.HTTP_400_BAD_REQUEST, "env_invalid_body",
+                       "invalid body") from None
     if (not isinstance(body, dict) or not isinstance(body.get("key"), str)
             or not isinstance(body.get("value"), str)):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "key and value are required")
+        raise ApiError(status.HTTP_400_BAD_REQUEST, "env_key_value_required",
+                       "key and value are required")
     if len(body["value"].encode()) > _MAX_VALUE_BYTES:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "value too large")
+        raise ApiError(status.HTTP_400_BAD_REQUEST, "env_value_too_large",
+                       "value too large")
     return body
 
 
@@ -74,10 +83,11 @@ def register_env_routes(app):
         try:
             await set_env_key(db, project, body["key"], body["value"],
                               actor_id=user.id)
-        except ValueError as e:
+        except EnvValidationError as e:
             # str(e) may echo the (non-secret) key but never the value —
             # env_file's messages are fixed to keep it that way
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from None
+            raise ApiError(status.HTTP_400_BAD_REQUEST, e.code, str(e),
+                           e.params) from None
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @router.delete("/{pid}/env/{key}", status_code=status.HTTP_204_NO_CONTENT)
@@ -90,7 +100,8 @@ def register_env_routes(app):
         try:
             await delete_env_key(db, project, key, actor_id=user.id)
         except KeyError:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "key not found") from None
+            raise ApiError(status.HTTP_404_NOT_FOUND, "env_key_not_found",
+                           "key not found") from None
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     app.include_router(router)

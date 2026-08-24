@@ -37,6 +37,18 @@ class SettingsConflictError(Exception):
         super().__init__("settings hash mismatch")
 
 
+class SettingsValidationError(ValueError):
+    """Content-level settings rejection — routes map to 400 (spec §4.2).
+    Subclasses ValueError (historical contract)."""
+
+    def __init__(self, code: str, detail: str,
+                 params: dict[str, str] | None = None) -> None:
+        super().__init__(detail)
+        self.code = code
+        self.params = params
+
+
+
 def _hash_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -53,8 +65,8 @@ async def write_settings(session: AsyncSession, project: Project, content: str,
 
     Raises SettingsConflictError when the disk hash differs from expected_hash
     (checked first — a stale editor must resync before any validation), and
-    ValueError when the content exceeds MAX_CONTENT_BYTES or is not parseable
-    YAML.
+    SettingsValidationError when the content exceeds MAX_CONTENT_BYTES, is
+    not parseable YAML, or breaks graphrag's $ placeholder rules.
     """
     path = ws_path(project.id) / "settings.yaml"
     current_content, current_hash = read_settings(project)
@@ -62,11 +74,12 @@ async def write_settings(session: AsyncSession, project: Project, content: str,
         raise SettingsConflictError(current_content, current_hash)
 
     if len(content.encode()) > MAX_CONTENT_BYTES:
-        raise ValueError("settings content too large")
+        raise SettingsValidationError("settings_too_large", "settings content too large")
     try:
         yaml.safe_load(content)
     except yaml.YAMLError as e:
-        raise ValueError(f"invalid yaml: {e}") from e
+        raise SettingsValidationError(
+            "settings_invalid_yaml", f"invalid yaml: {e}", {"reason": str(e)}) from e
 
     # graphrag 3.1.0 runs STRICT string.Template substitution on settings.yaml
     # BEFORE parsing it (load_config.py): a lone "$" or an undefined
@@ -87,7 +100,8 @@ async def write_settings(session: AsyncSession, project: Project, content: str,
     except (ValueError, KeyError) as e:
         # KeyError: ${X} with X in neither environ nor .env — equally
         # unloadable by the CLI; same 400 as an invalid "$".
-        raise ValueError("invalid $ placeholder in settings") from e
+        raise SettingsValidationError(
+            "settings_invalid_placeholder", "invalid $ placeholder in settings") from e
 
     data = content.encode()
     new_hash = _hash_bytes(data)

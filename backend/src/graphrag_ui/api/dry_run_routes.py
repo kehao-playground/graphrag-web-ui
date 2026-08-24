@@ -6,11 +6,12 @@ failures (CLI missing) become 5xx. No audit rows.
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel
 
 from graphrag_ui.adapters.workspace import WorkspaceInitError, dry_run
 from graphrag_ui.api.deps import CurrentUser, DbSession, get_current_user
+from graphrag_ui.api.errors import ApiError
 from graphrag_ui.api.projects_routes import _forbidden, _project_or_404
 from graphrag_ui.domain.permissions import Action, can
 from graphrag_ui.services.projects import get_project_role, ws_path
@@ -36,9 +37,8 @@ def register_dry_run_routes(app):
             # module-level import above: tests monkeypatch dry_run_routes.dry_run
             result = await dry_run(ws_path(project.id))
         except WorkspaceInitError:
-            raise HTTPException(
-                status.HTTP_500_INTERNAL_SERVER_ERROR,
-                "graphrag dry-run failed") from None
+            raise ApiError(status.HTTP_500_INTERNAL_SERVER_ERROR,
+                           "dry_run_failed", "graphrag dry-run failed") from None
         return DryRunOut(**result)
 
     app.include_router(router)

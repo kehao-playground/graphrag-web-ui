@@ -17,6 +17,17 @@ from graphrag_ui.services.projects import ws_path
 _KEY_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 
 
+class EnvValidationError(ValueError):
+    """Key/value-level .env rejection — routes map to 400 (spec §4.2).
+    Subclasses ValueError (historical contract)."""
+
+    def __init__(self, code: str, detail: str,
+                 params: dict[str, str] | None = None) -> None:
+        super().__init__(detail)
+        self.code = code
+        self.params = params
+
+
 def _mask(value: str) -> str:
     return (value[:2] + "****") if len(value) >= 6 else "****"
 
@@ -57,12 +68,14 @@ def list_env(project: Project) -> list[dict]:
 
 
 def _validate(key: str, value: str) -> None:
-    """Key/shape checks shared by set_env_key's callers; raises ValueError
-    with messages that never contain the value (routes echo str(e))."""
+    """Key/shape checks shared by set_env_key's callers; raises
+    EnvValidationError with messages that never contain the value (routes
+    echo str(e))."""
     if not _KEY_RE.fullmatch(key):
-        raise ValueError(f"invalid key: {key}")
+        raise EnvValidationError("env_invalid_key", f"invalid key: {key}",
+                                 {"key": key})
     if "\n" in value or "\r" in value:
-        raise ValueError("value must be a single line")
+        raise EnvValidationError("env_value_single_line", "value must be a single line")
 
 
 def _upsert_lines(project: Project, key: str, value: str) -> list[str]:
@@ -94,7 +107,7 @@ async def set_env_key(session: AsyncSession, project: Project, key: str,
 
     Payload-known-first shape: the audit row is added and flushed BEFORE
     the external .env write, so a failed write rolls the flushed row back —
-    no env.key_set row without the real change. ValueError (bad key /
+    no env.key_set row without the real change. EnvValidationError (bad key /
     multi-line value) is raised before any row or write.
     """
     _validate(key, value)
