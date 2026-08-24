@@ -319,5 +319,16 @@ def test_list_mode_prints_path_lineno(tmp_path):
     assert list(list_lines(tmp_path, ["mod.py"])) == ["mod.py:2: 中文說明"]
 
 
+def test_repo_scan_gate_no_cjk_comments():
+    """Repo-wide gate (Task 4): the swept tree stays free of CJK comments.
+
+    Walks the real scan roots and asserts zero violations outside the
+    `zh-TW:` escapes and the allowlist; a regression fails with the
+    file:line of the offending comment. Run --list for the full output.
+    """
+    violations = [f"{rel}:{lineno}" for rel, lineno, _ in scan_repo()]
+    assert violations == []
+
+
 if __name__ == "__main__":
     raise SystemExit(main())
