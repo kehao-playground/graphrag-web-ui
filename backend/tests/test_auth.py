@@ -86,3 +86,20 @@ async def test_logout_revokes(client):
     await client.post("/api/auth/logout", json={"refresh_token": body["refresh_token"]})
     r = await client.post("/api/auth/refresh", json={"refresh_token": body["refresh_token"]})
     assert r.status_code == 401
+
+
+async def test_bootstrap_admin_warns_when_admin_already_exists(db_session, app, caplog):
+    # Bootstrap creates the admin only once; a re-run against a persisted
+    # volume (e.g. .env password changed between trials) keeps the OLD
+    # password and login just says "invalid email or password". The startup
+    # must log why BOOTSTRAP_ADMIN_PASSWORD had no effect.
+    import logging
+
+    from graphrag_ui.services.auth import bootstrap_admin
+
+    await bootstrap_admin(db_session)  # first run: creates admin@test.local
+    db_session.expire_all()
+    with caplog.at_level(logging.WARNING, logger="graphrag_ui.services.auth"):
+        await bootstrap_admin(db_session)  # second run: admin exists -> warn
+    assert "BOOTSTRAP_ADMIN_PASSWORD" in caplog.text
+    assert "admin@test.local" in caplog.text

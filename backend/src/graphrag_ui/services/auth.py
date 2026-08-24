@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -11,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.adapters.models import RefreshToken, User
 from graphrag_ui.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 _ph = PasswordHasher()
 
@@ -97,6 +100,14 @@ async def bootstrap_admin(session: AsyncSession) -> None:
         return
     admin = (await session.execute(select(User).where(User.role == "admin"))).scalar_one_or_none()
     if admin is not None:
+        # Silently returning here is the most confusing trial failure: the
+        # .env password was changed between runs, the persisted admin keeps
+        # the old one, and login just says "invalid email or password".
+        logger.warning(
+            "Bootstrap admin %s already exists; BOOTSTRAP_ADMIN_PASSWORD is "
+            "ignored (the admin is created only on first startup of an "
+            "empty database). To recreate it: docker compose down -v "
+            "(destroys all data).", admin.email)
         return
     session.add(User(email=s.bootstrap_admin_email, password_hash=hash_password(
         s.bootstrap_admin_password), display_name="Administrator",
