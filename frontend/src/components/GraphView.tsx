@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { Alert, Empty, Input, Select, Slider, Space, Spin, message } from "antd";
 import Graph from "graphology";
 import { SigmaContainer, useSigma } from "@react-sigma/core";
@@ -77,6 +78,7 @@ function SearchFocus({ target }: { target: string | null }) {
 }
 
 export default function GraphView({ projectId, canUse = true }: { projectId: string; canUse?: boolean }) {
+  const { t } = useTranslation();
   const [level, setLevel] = useState<number | undefined>(undefined);
   const [types, setTypes] = useState<string[]>([]);
   // Draft = what the slider handle shows mid-drag; minDegree = the committed
@@ -134,11 +136,11 @@ export default function GraphView({ projectId, canUse = true }: { projectId: str
 
   return (
     <Space orientation="vertical" size="large" style={{ width: "100%" }}>
-      {graph.data?.stale && <Alert type="warning" showIcon message="索引進行中,結果可能不完整" />}
+      {graph.data?.stale && <Alert type="warning" showIcon message={t("explore.staleWarning")} />}
       <Space wrap>
         <Select
-          aria-label="層級"
-          placeholder="層級"
+          aria-label={t("explore.columns.level")}
+          placeholder={t("explore.columns.level")}
           style={{ width: 120 }}
           allowClear
           disabled={!canUse}
@@ -147,9 +149,9 @@ export default function GraphView({ projectId, canUse = true }: { projectId: str
           onChange={setLevel}
         />
         <Select
-          aria-label="類型"
+          aria-label={t("explore.columns.type")}
           mode="multiple"
-          placeholder="類型"
+          placeholder={t("explore.columns.type")}
           style={{ minWidth: 180 }}
           disabled={!canUse}
           value={types}
@@ -157,7 +159,7 @@ export default function GraphView({ projectId, canUse = true }: { projectId: str
           onChange={setTypes}
         />
         <Slider
-          aria-label="最小度"
+          aria-label={t("graph.minDegree")}
           min={0}
           max={10}
           value={minDegreeDraft}
@@ -167,8 +169,8 @@ export default function GraphView({ projectId, canUse = true }: { projectId: str
           onChangeComplete={(v) => setMinDegree(v as number)}
         />
         <Input.Search
-          aria-label="搜尋節點"
-          placeholder="搜尋節點名稱"
+          aria-label={t("graph.searchNodes")}
+          placeholder={t("graph.searchNodesPlaceholder")}
           style={{ width: 220 }}
           allowClear
           disabled={!canUse}
@@ -178,7 +180,7 @@ export default function GraphView({ projectId, canUse = true }: { projectId: str
       {graph.isPending ? (
         <Spin style={{ display: "block", marginTop: 64 }} />
       ) : payload.nodes.length === 0 ? (
-        <Empty description="沒有可顯示的節點" />
+        <Empty description={t("graph.empty")} />
       ) : (
         <SigmaContainer style={{ height: 640 }} graph={sigmaGraph}>
           <GraphSync payload={payload} />

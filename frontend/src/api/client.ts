@@ -101,7 +101,7 @@ export async function fetchArtifacts(
   if (params.type) usp.set("type", params.type);
   if (params.community !== undefined) usp.set("community", String(params.community));
   const r = await api(`/api/projects/${pid}/artifacts/${table}?${usp.toString()}`);
-  await requireOk(r, `載入資料表失敗(${r.status})`);
+  await requireOk(r, "client.loadTableFailed");
   return (await r.json()) as ArtifactPage;
 }
 
@@ -109,13 +109,13 @@ export async function fetchArtifactDetail(
   pid: string, table: ArtifactTableName, hrid: number,
 ): Promise<ArtifactDetail> {
   const r = await api(`/api/projects/${pid}/artifacts/${table}/${hrid}`);
-  await requireOk(r, `載入資料細節失敗(${r.status})`);
+  await requireOk(r, "client.loadDetailFailed");
   return (await r.json()) as ArtifactDetail;
 }
 
 export async function fetchGraph(pid: string, level?: number): Promise<GraphData> {
   const qs = level !== undefined ? `?level=${level}` : "";
   const r = await api(`/api/projects/${pid}/artifacts/graph${qs}`);
-  await requireOk(r, `載入圖譜失敗(${r.status})`);
+  await requireOk(r, "client.loadGraphFailed");
   return (await r.json()) as GraphData;
 }

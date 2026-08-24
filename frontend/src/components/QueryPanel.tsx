@@ -1,19 +1,24 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button, Collapse, Input, Select, Skeleton, Space, Typography, message } from "antd";
 import type { Citation, QueryMethod, QueryTimings } from "../api/types";
+import { messageOfBody } from "../api/client";
 import { useAuth } from "../stores/auth";
-
-const METHOD_LABEL: Record<QueryMethod, string> = {
-  local: "區域", global: "全域", drift: "DRIFT", basic: "基本",
-};
-const METHOD_OPTIONS = (["local", "global", "drift", "basic"] as const).map((v) => ({
-  label: METHOD_LABEL[v], value: v,
-}));
 
 // Query answers are multi-paragraph prose; the backend default response_type.
 const RESPONSE_TYPE = "multiple paragraphs";
 
 export default function QueryPanel({ projectId, canUse }: { projectId: string; canUse: boolean }) {
+  const { t } = useTranslation();
+  // drift keeps the endonym "DRIFT" in every locale (identifier, not copy).
+  const METHOD_OPTIONS = (["local", "global", "drift", "basic"] as const).map((v) => ({
+    label:
+      v === "local" ? t("query.methodLocal")
+      : v === "global" ? t("query.methodGlobal")
+      : v === "drift" ? t("query.methodDrift")
+      : t("query.methodBasic"),
+    value: v,
+  }));
   const [method, setMethod] = useState<QueryMethod>("local");
   const [query, setQuery] = useState("");
   const [chunks, setChunks] = useState<string[]>([]);
@@ -65,20 +70,22 @@ export default function QueryPanel({ projectId, canUse }: { projectId: string; c
       es.close();
     });
     // One listener covers both failure shapes: an SSE `event: error` frame
-    // carries data {"detail"}, while a transport failure (network drop or a
+    // carries data {"detail", "code"?}, while a transport failure (network drop or a
     // pre-stream 4xx JSON response — EventSource never exposes that body)
     // fires an error with no data. Both close: no auto-reconnect for query.
     es.addEventListener("error", (e) => {
       const raw = (e as MessageEvent).data;
-      let detail: string | null = null;
+      let body: Record<string, unknown> = {};
       if (typeof raw === "string") {
         try {
-          detail = (JSON.parse(raw) as { detail?: string }).detail ?? null;
+          body = JSON.parse(raw) as Record<string, unknown>;
         } catch {
           // Malformed payload → generic message below.
         }
       }
-      message.error(detail ?? "查詢失敗,請稍後再試");
+      // Error frames share the HTTP envelope: a known code localizes
+      // (e.g. query_interrupted), else the detail verbatim, else the fallback.
+      message.error(messageOfBody(body, "query.failedRetry"));
       setStreaming(false);
       es.close();
     });
@@ -101,12 +108,12 @@ export default function QueryPanel({ projectId, canUse }: { projectId: string; c
           onPressEnter={(e) => {
             if (!e.shiftKey) run();
           }}
-          placeholder="輸入查詢問題"
+          placeholder={t("query.placeholder")}
           rows={3}
           disabled={busy}
         />
         <Button type="primary" onClick={run} disabled={!canUse || busy || !query.trim()}>
-          執行查詢
+          {t("query.run")}
         </Button>
       </Space>
 
@@ -124,7 +131,7 @@ export default function QueryPanel({ projectId, canUse }: { projectId: string; c
         <Collapse
           items={[{
             key: "citations",
-            label: `引用 (${citations.length})`,
+            label: t("query.citations", { count: citations.length }),
             children: citations.map((c, i) => (
               <div key={`${c.label}-${i}`} style={{ marginBottom: 8 }}>
                 <Typography.Text strong>
@@ -147,7 +154,12 @@ export default function QueryPanel({ projectId, canUse }: { projectId: string; c
 
       {timings && (
         <Typography.Text type="secondary">
-          {`frames ${Math.round(timings.frames_ms)}ms · 搜尋 ${Math.round(timings.search_ms)}ms · 引用 ${Math.round(timings.citations_ms)}ms · 總計 ${Math.round(timings.total_ms)}ms`}
+          {t("query.timings", {
+            frames: Math.round(timings.frames_ms),
+            search: Math.round(timings.search_ms),
+            citations: Math.round(timings.citations_ms),
+            total: Math.round(timings.total_ms),
+          })}
         </Typography.Text>
       )}
     </Space>

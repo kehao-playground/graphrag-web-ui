@@ -214,6 +214,46 @@ const enUS = {
     startIndex: "Start indexing",
     logsTitle: "Job logs",
   },
+  client: {
+    loadTableFailed: "Failed to load table ({{status}})",
+    loadDetailFailed: "Failed to load row detail ({{status}})",
+    loadGraphFailed: "Failed to load graph ({{status}})",
+  },
+  query: {
+    methodLocal: "Local", methodGlobal: "Global",
+    methodDrift: "DRIFT", methodBasic: "Basic",
+    failedRetry: "Query failed — try again later",
+    placeholder: "Enter your question",
+    run: "Run query",
+    citations: "Citations ({{count}})",
+    timings: "frames {{frames}}ms · search {{search}}ms · citations {{citations}}ms · total {{total}}ms",
+  },
+  explore: {
+    columns: {
+      id: "Internal ID", human_readable_id: "ID", title: "Title", type: "Type",
+      frequency: "Frequency", degree: "Degree", description: "Description",
+      text_unit_ids: "Text unit IDs", source: "Source", target: "Target",
+      weight: "Weight", combined_degree: "Combined degree", community: "Community",
+      level: "Level", parent: "Parent", children: "Children", size: "Size",
+      entity_ids: "Entity IDs", relationship_ids: "Relationship IDs", period: "Period",
+      rank: "Rank", rank_score: "Rank score", summary: "Summary",
+      full_content: "Full content", findings: "Findings",
+      created_at: "Created at", updated_at: "Updated at",
+      n_tokens: "Token count", document_id: "Document ID", text: "Text",
+      raw_data: "Raw content", creation_date: "Creation date",
+    },
+    tableEntities: "Entities", tableRelationships: "Relationships",
+    tableCommunities: "Communities", tableCommunityReports: "Community reports",
+    tableTextUnits: "Text units", tableDocuments: "Documents",
+    staleWarning: "Indexing in progress — results may be incomplete",
+    modeGraph: "Graph", modeTable: "Table",
+    search: "Search", searchPlaceholder: "Search keywords",
+  },
+  graph: {
+    minDegree: "Min degree",
+    searchNodes: "Search nodes", searchNodesPlaceholder: "Search node name",
+    empty: "No nodes to display",
+  },
 } satisfies Shape<typeof zhTW>;
 
 export default enUS;
