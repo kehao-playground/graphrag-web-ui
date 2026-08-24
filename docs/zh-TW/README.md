@@ -67,9 +67,25 @@ drift / basic 四種搜尋模式,全部透過 SSE 串流並附行內引用。可
 
 - graphrag 固定在 `==3.1.0`:較新的 3.1.x 版本會拉入沒有 macOS x86_64
   wheel 的 `lancedb` 版本(見設計規格 §13)。
-- 在 macOS 上,`docker compose build web` 可能卡在鑰匙圈提示。請先解鎖
-  鑰匙圈,或只建置 API(`docker compose build api`),並在本機跑前端
-   來做 UI 工作:`API_PROXY_TARGET=http://localhost:8080 npm run preview`。
+- 在 macOS 上,非互動式工作階段(SSH、agent 終端機)中 `osxkeychain`
+  憑證輔助程式會擋住 Docker:`error getting credentials … keychain cannot
+  be accessed` —— 連公開映像檔的 pull/build 都會失敗。請先解鎖鑰匙圈
+  (`security -v unlock-keychain ~/Library/Keychains/login.keychain-db`),
+  或在只需要公開映像檔時,暫時從 `~/.docker/config.json` 移除
+  `"credsStore"`,結束後再還原。使用 OrbStack 時,`docker compose build`
+  也受影響:daemon 會經由主機的 docker 設定解析 registry 憑證。
+
+## 疑難排解
+
+- **重新執行 `docker compose up` 後立刻出現「invalid email or password」** ——
+  bootstrap 管理員**只在資料庫為空的首次啟動時建立**。若 Postgres volume
+  裡已有管理員(例如兩次執行之間改過 `.env` 的 `BOOTSTRAP_ADMIN_PASSWORD`),
+  生效的仍是*舊*密碼;API 啟動時會在日誌中指出被忽略的變數。想要乾淨的
+  試用狀態:`docker compose down -v`(⚠ 會刪除所有資料)後再 `up`。
+- **web 映像檔建置時 `npm ci` 出現 `ERESOLVE`** —— 前端以
+  `frontend/.npmrc`(`legacy-peer-deps=true`)容忍 typescript 6 ↔
+  openapi-typescript 的 peer 衝突,Dockerfile 必須在 `npm ci` 前把它複製進
+  build stage。若你調整複製步驟,請讓 `.npmrc` 跟著 `package.json` 一起。
 
 ## 本機開發
 

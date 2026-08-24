@@ -66,9 +66,29 @@ Short sketch (full detail in the [design spec](docs/superpowers/specs/)):
 
 - graphrag is pinned to `==3.1.0`: newer 3.1.x releases pull `lancedb` versions that have
   no macOS x86_64 wheel (see §13 of the design spec).
-- On macOS, `docker compose build web` may hang on keychain prompts. Either unlock the
-  keychain first, or build only the API (`docker compose build api`) and serve the frontend
-  locally for UI work: `API_PROXY_TARGET=http://localhost:8080 npm run preview`.
+- On macOS, the `osxkeychain` credential helper blocks Docker in non-interactive
+  sessions (SSH, agent terminals): `error getting credentials … keychain cannot
+  be accessed` — even for public-image pulls/builds. Unlock the keychain first
+  (`security -v unlock-keychain ~/Library/Keychains/login.keychain-db`), or —
+  when only public images are needed — temporarily remove `"credsStore"` from
+  `~/.docker/config.json` and restore it afterwards. With OrbStack this also
+  affects `docker compose build`: the daemon resolves registry credentials
+  through the host's docker config.
+
+## Troubleshooting
+
+- **"invalid email or password" right after re-running `docker compose up`** —
+  the bootstrap admin is created **only on the first startup against an empty
+  database**. If the Postgres volume already holds an admin (e.g.
+  `BOOTSTRAP_ADMIN_PASSWORD` was changed in `.env` between runs), the *old*
+  password still applies; the API log names the ignored variable at startup.
+  For a clean trial state: `docker compose down -v` (⚠ destroys all data),
+  then `up` again.
+- **`npm ci` fails with `ERESOLVE` in the web image build** — the frontend
+  tolerates the typescript 6 ↔ openapi-typescript peer conflict via
+  `frontend/.npmrc` (`legacy-peer-deps=true`), and the Dockerfile must copy it
+  into the build stage before `npm ci`. If you touch the copy steps, keep
+  `.npmrc` with `package.json`.
 
 ## Local development
 
