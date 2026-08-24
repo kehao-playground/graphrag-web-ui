@@ -12,7 +12,7 @@ import { i18n } from "../i18n";
 import JobLogViewer from "./JobLogViewer";
 
 
-// Humanized duration for the 耗時 (duration) column; at most two units.
+// Humanized duration for the duration column; at most two units.
 // Module-level helper outside the component: reads i18n directly, no hook.
 function humanDuration(seconds: number): string {
   const s = Math.round(seconds);
