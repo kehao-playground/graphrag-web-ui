@@ -73,3 +73,11 @@ export interface GraphEdge { source: string; target: string; weight: number }
 export interface GraphData {
   level: number; levels: number[]; nodes: GraphNode[]; edges: GraphEdge[]; stale: boolean;
 }
+
+// Error envelope (i18n spec §4.1): code/params are additive to the
+// legacy detail string. No backend response_model — hand-maintained.
+export interface ApiErrorBody {
+  detail?: string;
+  code?: string;
+  params?: Record<string, string | number>;
+}

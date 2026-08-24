@@ -2,6 +2,10 @@ import type {
   ArtifactDetail, ArtifactPage, ArtifactTableName, GraphData,
 } from "./types";
 import { useAuth, refreshOnce } from "../stores/auth";
+import { i18n } from "../i18n";
+import zhTW from "../i18n/locales/zh-TW";
+import type { ErrorCode } from "../i18n";
+import type { ParseKeys } from "i18next";
 
 export async function api(path: string, init: RequestInit = {}, retried = false): Promise<Response> {
   const token = useAuth.getState().accessToken ?? (await refreshOnce());
@@ -22,31 +26,60 @@ export async function api(path: string, init: RequestInit = {}, retried = false)
   return r;
 }
 
-// Backend errors are always {"detail": zh-TW}; every panel surfaces the
-// detail verbatim and falls back to its own fixed message on non-JSON.
+// Backend error envelope: {"detail"?, "code"?, "params"?} (i18n spec §4.1);
+// detail stays a zh-TW string for legacy errors, code/params localize it.
 export async function bodyOf(r: Response): Promise<Record<string, unknown>> {
   try { return (await r.json()) as Record<string, unknown>; } catch { return {}; }
 }
 
-export async function detailOf(r: Response, fallback: string): Promise<string> {
-  const body = await bodyOf(r);
-  return typeof body.detail === "string" ? body.detail : fallback;
+// Dynamic string keys can't satisfy the typed key union; the cast is
+// confined to the fallback leg (the error-code leg narrows for real).
+// ParseKeys (NOT Parameters<typeof i18n.t>[0], whose union includes
+// TemplateStringsArray and breaks overload matching — verified against
+// i18next 26.4.0 / TS 6.0.3).
+type AnyTKey = ParseKeys;
+
+const isErrorCode = (c: string): c is ErrorCode => c in zhTW.errors;
+
+// Shared code→catalog mapping (spec §5.4): known code → localized
+// message; else verbatim detail; else the fallback key.
+export function messageOfBody(
+  body: Record<string, unknown>,
+  fallbackKey: string,
+  vars: Record<string, string | number> = {},
+): string {
+  const code = body.code;
+  if (typeof code === "string" && isErrorCode(code)) {
+    const params = body.params;
+    // `replace` keeps server-provided params out of the options object
+    // itself, so a param named e.g. "count" or "ns" can never collide
+    // with i18next's own option names.
+    return i18n.t(`errors.${code}`, {
+      ...vars,
+      ...(typeof params === "object" && params !== null
+           ? { replace: params as Record<string, string | number> } : {}),
+    });
+  }
+  if (typeof body.detail === "string") return body.detail; // verbatim
+  return i18n.t(fallbackKey as AnyTKey, vars);
 }
 
-// Explore endpoints share the {"detail": zh-TW} error contract; surface the
-// detail verbatim so panels can message.error it (404/409 shapes included).
+export async function detailOf(r: Response, fallbackKey: string): Promise<string> {
+  const body = await bodyOf(r);
+  return messageOfBody(body, fallbackKey, { status: r.status });
+}
+
+// Explore endpoints share the error envelope; messageOfBody localizes the
+// code or surfaces the detail verbatim (404/409 shapes included).
 async function requireOk(r: Response, fallback: string): Promise<void> {
   if (r.ok) return;
-  let detail: string | undefined;
+  let parsedBody: Record<string, unknown> = {};
   try {
-    const body: unknown = await r.json();
-    if (body && typeof body === "object" && "detail" in body && typeof body.detail === "string") {
-      detail = body.detail;
-    }
+    parsedBody = (await r.json()) as Record<string, unknown>;
   } catch {
-    // non-JSON body → keep the fallback
+    // non-JSON body → messageOfBody falls back to the key
   }
-  throw new Error(detail ?? fallback);
+  throw new Error(messageOfBody(parsedBody, fallback, { status: r.status }));
 }
 
 export interface ArtifactListParams {
