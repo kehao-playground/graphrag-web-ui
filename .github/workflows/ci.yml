@@ -43,6 +43,17 @@ jobs:
       - run: npm run gen:types
       - run: git diff --exit-code src/api/types.generated.ts
 
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # Compose-enforced ${VAR:?} vars: .env.example sets them all (empty
+      # values count as set) — image builds need no secrets.
+      - run: cp .env.example .env
+      # Guards the compose image builds: catches Dockerfile drift that unit
+      # tests never see (e.g. missing .npmrc once broke `npm ci` in-container)
+      - run: docker compose build
+
   helm:
     runs-on: ubuntu-latest
     steps:
