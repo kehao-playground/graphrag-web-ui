@@ -1,4 +1,4 @@
-import { afterAll } from "vitest";
+import { afterAll, afterEach } from "vitest";
 import "@testing-library/jest-dom";
 
 // jsdom lacks matchMedia; AntD's responsive observer needs it
@@ -42,4 +42,14 @@ afterAll(async () => {
     setTimeout(resolve, 0);
     await promise;
   }
+});
+
+import { i18n } from "./i18n";
+
+// jsdom navigator.language is en-US; pin zh-TW so existing assertions
+// keep holding (spec §6). afterEach kills within-file leakage from
+// switcher tests (localStorage resets per file anyway).
+await i18n.changeLanguage("zh-TW");
+afterEach(async () => {
+  await i18n.changeLanguage("zh-TW");
 });
