@@ -13,8 +13,11 @@ briefs; their Global Constraints always apply.
 ## Language & Commits
 
 - Conventional Commits, English subject and body.
-- Documentation and code comments in English (zh-TW translations may be
-  added under `docs/zh-TW/` later; English stays authoritative).
+- Documentation in English (English stays authoritative); `docs/zh-TW/`
+  mirrors the README — README changes update the mirror in the same PR.
+- Code comments/docstrings: English only — CI-enforced
+  (`backend/tests/test_comment_language.py`); deliberate exceptions
+  escape with a `zh-TW:` prefix.
 - When editing a file that still has zh-TW comments, migrate the comments
   in the sections you touch. No repo-wide comment rewrites.
 - Details and examples: `CONTRIBUTING.md`.
@@ -49,12 +52,12 @@ briefs; their Global Constraints always apply.
 ```bash
 # backend (Python 3.12, uv; Docker required for testcontainers; duckdb
 # reads explore parquet artifacts read-only)
-cd backend && uv run pytest -v          # 210 tests with GRAPHRAG_API_KEY (205 fast); 5 slow tests fork the real graphrag CLI and need the key; fast only: uv run pytest -m "not slow"
+cd backend && uv run pytest -v          # 239 tests with GRAPHRAG_API_KEY (234 fast); 5 slow tests fork the real graphrag CLI (3 need the key, skipped without it); fast only: uv run pytest -m "not slow"
 cd backend && uv run ruff check
 
 # frontend (Node 24; jsdom+undici need >=22; explore graph renders via
 # react-sigma + graphology, lazy-loaded as a separate build chunk)
-cd frontend && npm test                 # vitest run (57 tests)
+cd frontend && npm test                 # vitest run (61 tests)
 cd frontend && npx tsc -b --noEmit
 cd frontend && npm run build
 
@@ -74,5 +77,8 @@ helm template deploy/helm/graphrag-ui > /dev/null
   `settings.yaml`.
 - `graphrag init` in a non-TTY subprocess needs `--model/--embedding`
   flags (typer prompts abort otherwise).
-- API responses follow the backend schemas in `api/schemas.py`; frontend
-  `src/api/types.ts` mirrors them — keep both in sync.
+- API contract surface is the generated OpenAPI document (`openapi.json`,
+  regenerated+diffed in CI); pydantic models live in `api/schemas.py` and
+  per-route modules; frontend types come from `types.generated.ts`
+  (regenerated via `npm run gen:types`; schemas.py docstring changes flow
+  into it — always regen both)
