@@ -65,4 +65,13 @@ export default {
     // dry run
     dry_run_failed: "graphrag dry-run 失敗",
   },
+  common: {
+    appName: "GraphRAG Web UI",
+  },
+  layout: {
+    projects: "專案",
+    adminUsers: "管理者 — 使用者",
+    logout: "登出",
+    title: "GraphRAG Web UI",
+  },
 };

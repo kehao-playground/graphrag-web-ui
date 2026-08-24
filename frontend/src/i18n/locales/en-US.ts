@@ -61,6 +61,15 @@ const enUS = {
     user_last_admin_protected: "cannot demote or deactivate the last active admin",
     dry_run_failed: "graphrag dry-run failed",
   },
+  common: {
+    appName: "GraphRAG Web UI",
+  },
+  layout: {
+    projects: "Projects",
+    adminUsers: "Admin — Users",
+    logout: "Log out",
+    title: "GraphRAG Web UI",
+  },
 } satisfies Shape<typeof zhTW>;
 
 export default enUS;
