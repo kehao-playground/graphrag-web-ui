@@ -103,7 +103,7 @@ def _register_must_change_guard(app: FastAPI) -> None:
             async with get_session_factory()() as session:
                 user = await resolve_access_user(auth[7:], session)
             if user is not None and user.must_change_password:
-                return JSONResponse({"detail": "password change required"}, status_code=403)
+                return JSONResponse({"detail": "password change required", "code": "auth_must_change_password"}, status_code=403)
         return await call_next(request)
 
 

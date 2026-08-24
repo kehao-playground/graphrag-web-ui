@@ -14,6 +14,7 @@ from graphrag_ui.adapters.workspace import (
     WorkspaceInitializer,
 )
 from graphrag_ui.api.deps import CurrentUser, DbSession, get_current_user
+from graphrag_ui.api.errors import ApiError
 from graphrag_ui.domain.permissions import Action, can
 from graphrag_ui.services.projects import (
     create_project,
@@ -73,7 +74,7 @@ def get_initializer() -> WorkspaceInitializer:
 
 def _forbidden() -> HTTPException:
     # 403 message is fixed (spec): never leak the reason
-    return HTTPException(status.HTTP_403_FORBIDDEN, "forbidden")
+    return ApiError(status.HTTP_403_FORBIDDEN, "forbidden", "forbidden")
 
 
 async def _project_or_404(db: AsyncSession, project_id: uuid.UUID) -> Project:

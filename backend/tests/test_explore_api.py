@@ -144,7 +144,9 @@ async def test_viewer_200_non_member_403(client, app):
     assert r.status_code == 200
     r = await client.get(f"/api/projects/{pid}/artifacts/entities", headers=carol)
     assert r.status_code == 403
-    assert r.json() == {"detail": "forbidden"}
+    body = r.json()
+    assert body["detail"] == "forbidden"
+    assert body["code"] == "forbidden"
 
 
 async def test_keyword_type_community_filters(client, app):
@@ -294,7 +296,9 @@ async def test_must_change_password_token_403(client, app):
     r = await client.get("/api/projects/00000000-0000-0000-0000-000000000000"
                          "/artifacts/entities", headers=dave)
     assert r.status_code == 403
-    assert r.json() == {"detail": "password change required"}
+    body = r.json()
+    assert body["detail"] == "password change required"
+    assert body["code"] == "auth_must_change_password"
 
 
 async def test_corrupt_parquet_502_list(client, app):

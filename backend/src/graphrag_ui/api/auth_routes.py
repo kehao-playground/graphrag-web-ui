@@ -1,10 +1,11 @@
 from collections import deque
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, Request, Response, status
 
 from graphrag_ui.adapters.models import User
 from graphrag_ui.api.deps import CurrentUser, DbSession
+from graphrag_ui.api.errors import ApiError
 from graphrag_ui.api.schemas import (
     ChangePasswordIn,
     LoginIn,
@@ -51,7 +52,7 @@ def _check_login_rate_limit(request: Request, email: str) -> None:
     while attempts and now - attempts[0] > _LOGIN_WINDOW:
         attempts.popleft()
     if len(attempts) >= _LOGIN_MAX_ATTEMPTS:
-        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "too many attempts")
+        raise ApiError(status.HTTP_429_TOO_MANY_REQUESTS, "auth_too_many_attempts", "too many attempts")
 
 
 def _record_login_failure(request: Request, email: str) -> None:
@@ -70,7 +71,7 @@ def register_auth_routes(app):
         user = await authenticate(db, body.email, body.password)
         if user is None:
             _record_login_failure(request, body.email)
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid email or password")
+            raise ApiError(status.HTTP_401_UNAUTHORIZED, "auth_invalid_credentials", "invalid email or password")
         return LoginOut(
             access_token=create_access_token(user),
             refresh_token=await issue_refresh_token(db, user.id),
@@ -81,11 +82,11 @@ def register_auth_routes(app):
     async def refresh(body: RefreshIn, db: DbSession):
         rotated = await rotate_refresh(db, body.refresh_token)
         if rotated is None:
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid refresh token")
+            raise ApiError(status.HTTP_401_UNAUTHORIZED, "auth_invalid_refresh_token", "invalid refresh token")
         user_id, new_refresh = rotated
         user = await db.get(User, user_id)
         if user is None or not user.is_active:
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid refresh token")
+            raise ApiError(status.HTTP_401_UNAUTHORIZED, "auth_invalid_refresh_token", "invalid refresh token")
         return RefreshOut(access_token=create_access_token(user), refresh_token=new_refresh)
 
     @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
@@ -100,7 +101,7 @@ def register_auth_routes(app):
         db: DbSession,
     ):
         if not verify_password(body.current_password, user.password_hash):
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "incorrect current password")
+            raise ApiError(status.HTTP_400_BAD_REQUEST, "auth_wrong_current_password", "incorrect current password")
         user.password_hash = hash_password(body.new_password)
         user.must_change_password = False
         # Changing the password revokes every refresh token (including this

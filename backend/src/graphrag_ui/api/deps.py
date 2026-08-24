@@ -2,12 +2,13 @@ import uuid
 from typing import Annotated
 
 import jwt
-from fastapi import Depends, HTTPException, Query, Request, status
+from fastapi import Depends, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.adapters.db import get_session_factory
 from graphrag_ui.adapters.models import User
+from graphrag_ui.api.errors import ApiError
 from graphrag_ui.config import get_settings
 
 _bearer = HTTPBearer(auto_error=False)
@@ -57,13 +58,13 @@ async def get_current_user(
 ) -> User:
     """Bearer auth dependency shared by later tasks; every failure is a 401."""
     if creds is None:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated")
+        raise ApiError(status.HTTP_401_UNAUTHORIZED, "auth_not_authenticated", "Not authenticated")
     user = await resolve_access_user(creds.credentials, db)
     if user is None:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or expired token")
+        raise ApiError(status.HTTP_401_UNAUTHORIZED, "auth_invalid_token", "Invalid or expired token")
     # The backend must also enforce the forced password change, not just the frontend modal
     if user.must_change_password and request.url.path not in MUST_CHANGE_ALLOWED_PATHS:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "password change required")
+        raise ApiError(status.HTTP_403_FORBIDDEN, "auth_must_change_password", "password change required")
     return user
 
 
@@ -75,7 +76,7 @@ CurrentUser = Annotated[User, Depends(get_current_user)]
 
 async def require_admin(user: CurrentUser) -> User:
     if user.role != "admin":
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "admin only")
+        raise ApiError(status.HTTP_403_FORBIDDEN, "admin_only", "admin only")
     return user
 
 
@@ -101,11 +102,11 @@ async def sse_user_from_request(
     if token is not None:
         user = await resolve_access_user(token, db)
         if user is None:
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or expired token")
+            raise ApiError(status.HTTP_401_UNAUTHORIZED, "auth_invalid_token", "Invalid or expired token")
         # Mirror get_current_user's forced-change gate so the ?token= path is
         # not a bypass of that check.
         if user.must_change_password and request.url.path not in MUST_CHANGE_ALLOWED_PATHS:
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "password change required")
+            raise ApiError(status.HTTP_403_FORBIDDEN, "auth_must_change_password", "password change required")
         return user
     # No query token: standard Bearer header semantics.
     return await get_current_user(request, creds, db)
