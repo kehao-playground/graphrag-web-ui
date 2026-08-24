@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Drawer } from "antd";
 import { useAuth } from "../stores/auth";
 
@@ -12,6 +13,7 @@ export default function JobLogViewer({ jobId, open, onClose }: {
   onClose: () => void;
 }) {
   const preRef = useRef<HTMLPreElement>(null);
+  const { t } = useTranslation();
   const [chunks, setChunks] = useState<string[]>([]);
 
   useEffect(() => {
@@ -40,7 +42,7 @@ export default function JobLogViewer({ jobId, open, onClose }: {
   }, [chunks]);
 
   return (
-    <Drawer title="任務日誌" open={open} onClose={onClose} size="large">
+    <Drawer title={t("jobs.logsTitle")} open={open} onClose={onClose} size="large">
       <pre
         ref={preRef}
         style={{

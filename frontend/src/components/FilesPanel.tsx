@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import {
   Button, Popconfirm, Progress, Space, Table, Typography, Upload, message,
 } from "antd";
@@ -27,12 +28,13 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
 }) {
   const accept = ACCEPT[inputFileType as keyof typeof ACCEPT];
   const qc = useQueryClient();
+  const { t } = useTranslation();
 
   const files = useQuery({
     queryKey: ["projects", projectId, "files"],
     queryFn: async () => {
       const r = await api(`/api/projects/${projectId}/files`);
-      if (!r.ok) throw new Error(await detailOf(r, `載入檔案失敗(${r.status})`));
+      if (!r.ok) throw new Error(await detailOf(r, "files.loadFailed"));
       return (await r.json()) as FilesOut;
     },
     retry: false,
@@ -45,10 +47,10 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
   const deleteFile = useMutation({
     mutationFn: async (name: string) => {
       const r = await api(`/api/projects/${projectId}/files/${encodeURIComponent(name)}`, { method: "DELETE" });
-      if (!r.ok) throw new Error(await detailOf(r, `刪除檔案失敗(${r.status})`));
+      if (!r.ok) throw new Error(await detailOf(r, "files.deleteFailed"));
     },
     onSuccess: () => {
-      message.success("檔案已刪除");
+      message.success(t("files.deleted"));
       qc.invalidateQueries({ queryKey: ["projects", projectId, "files"] });
     },
     onError: (e) => message.error(e.message),
@@ -63,37 +65,37 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
       const r = await api(`/api/projects/${projectId}/files`, { method: "POST", body: fd });
       if (r.ok) {
         onSuccess?.(await r.json(), file);
-        message.success(`已上傳 ${(file as File).name}`);
+        message.success(t("files.uploaded", { name: (file as File).name }));
         qc.invalidateQueries({ queryKey: ["projects", projectId, "files"] });
       } else {
-        const error = new Error(await detailOf(r, `上傳失敗(${r.status})`));
+        const error = new Error(await detailOf(r, "files.uploadFailed"));
         onError?.(error);
         message.error(error.message);
       }
     } catch (e) {
       // api() rethrows network-level failures; surface them like HTTP errors
-      const error = e instanceof Error ? e : new Error("上傳失敗");
+      const error = e instanceof Error ? e : new Error(t("files.uploadNetworkFailed"));
       onError?.(error);
       message.error(error.message);
     }
   };
 
   const columns: TableProps<FileEntry>["columns"] = [
-    { title: "名稱", dataIndex: "name" },
-    { title: "大小", dataIndex: "size", width: 110, render: (_, f) => kib(f.size) },
-    { title: "修改時間", dataIndex: "modified_at", width: 190, render: (_, f) => new Date(f.modified_at).toLocaleString() },
+    { title: t("common.name"), dataIndex: "name" },
+    { title: t("files.size"), dataIndex: "size", width: 110, render: (_, f) => kib(f.size) },
+    { title: t("files.modifiedAt"), dataIndex: "modified_at", width: 190, render: (_, f) => new Date(f.modified_at).toLocaleString() },
     ...(canEdit
       ? [{
-          title: "操作",
+          title: t("common.actions"),
           width: 90,
           render: (_: unknown, f: FileEntry) => (
             <Popconfirm
-              title={`刪除 ${f.name}?`}
-              okText="刪除"
+              title={t("files.deleteFileTitle", { name: f.name })}
+              okText={t("common.delete")}
               okButtonProps={{ danger: true }}
               onConfirm={() => deleteFile.mutate(f.name)}
             >
-              <Button danger size="small">刪除</Button>
+              <Button danger size="small">{t("common.delete")}</Button>
             </Popconfirm>
           ),
         }]
@@ -108,12 +110,12 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
       {canEdit && (
         <Upload.Dragger accept={accept} customRequest={customRequest} showUploadList={false} multiple>
-          <p className="ant-upload-text">點擊或拖曳檔案上傳</p>
-          <p className="ant-upload-hint">僅接受 {accept}</p>
+          <p className="ant-upload-text">{t("files.uploadHint")}</p>
+          <p className="ant-upload-hint">{t("files.acceptHint", { accept })}</p>
         </Upload.Dragger>
       )}
       <div>
-        <Typography.Text type="secondary">已使用 {kib(usage)} / {kib(quota)}</Typography.Text>
+        <Typography.Text type="secondary">{t("files.usage", { used: kib(usage), quota: kib(quota) })}</Typography.Text>
         {/* explicit format keeps the percent visible in exception status (antd
             swaps the text for an icon when only status is set) */}
         <Progress percent={percent} status={percent > 90 ? "exception" : "normal"} format={(p) => `${p}%`} />

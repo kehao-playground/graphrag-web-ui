@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import {
   Alert, Button, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message,
 } from "antd";
@@ -7,23 +8,24 @@ import type { TableProps } from "antd";
 import { api, detailOf } from "../api/client";
 import { JobStatusColor } from "../api/types";
 import type { Job, Preflight } from "../api/types";
+import { i18n } from "../i18n";
 import JobLogViewer from "./JobLogViewer";
 
 
-// JobOut types method/type as plain strings; the maps cover the known values
-// and the render fallback shows unknowns raw.
-const TYPE_LABEL: Record<string, string> = { index: "索引", update: "更新" };
-const METHOD_LABEL: Record<string, string> = { standard: "標準", fast: "快速" };
-const TYPE_OPTIONS = (["index", "update"] as const).map((v) => ({ label: TYPE_LABEL[v], value: v }));
-const METHOD_OPTIONS = (["standard", "fast"] as const).map((v) => ({ label: METHOD_LABEL[v], value: v }));
-
-// zh-TW: Seconds → humanized duration for the 耗時 (duration) column; at most two units.
+// Humanized duration for the 耗時 (duration) column; at most two units.
+// Module-level helper outside the component: reads i18n directly, no hook.
 function humanDuration(seconds: number): string {
   const s = Math.round(seconds);
-  if (s < 60) return `${s} 秒`;
+  if (s < 60) return i18n.t("jobs.durationSeconds", { s });
   const m = Math.floor(s / 60);
-  if (m < 60) return s % 60 ? `${m} 分 ${s % 60} 秒` : `${m} 分`;
-  return m % 60 ? `${Math.floor(m / 60)} 小時 ${m % 60} 分` : `${Math.floor(m / 60)} 小時`;
+  if (m < 60) {
+    return s % 60
+      ? i18n.t("jobs.durationMinutesSeconds", { m, s: s % 60 })
+      : i18n.t("jobs.durationMinutes", { m });
+  }
+  return m % 60
+    ? i18n.t("jobs.durationHoursMinutes", { h: Math.floor(m / 60), m: m % 60 })
+    : i18n.t("jobs.durationHours", { h: Math.floor(m / 60) });
 }
 
 // A job still counts as active while the runner can transition it; polling
@@ -33,6 +35,15 @@ const isActive = (j: Job) => ["queued", "running"].includes(j.status);
 
 export default function JobsPanel({ projectId, canEdit }: { projectId: string; canEdit: boolean }) {
   const qc = useQueryClient();
+  const { t } = useTranslation();
+  // JobOut types method/type as plain strings; the lookups cover the known
+  // values and the fallback shows unknowns raw.
+  const typeLabel = (v: string) =>
+    v === "index" ? t("jobs.typeIndex") : v === "update" ? t("jobs.typeUpdate") : v;
+  const methodLabel = (v: string) =>
+    v === "standard" ? t("jobs.methodStandard") : v === "fast" ? t("jobs.methodFast") : v;
+  const TYPE_OPTIONS = (["index", "update"] as const).map((v) => ({ label: typeLabel(v), value: v }));
+  const METHOD_OPTIONS = (["standard", "fast"] as const).map((v) => ({ label: methodLabel(v), value: v }));
   const [type, setType] = useState<"index" | "update">("index");
   const [method, setMethod] = useState<"standard" | "fast">("standard");
   const [logJobId, setLogJobId] = useState<string | null>(null);
@@ -42,7 +53,7 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
     queryKey: ["projects", projectId, "jobs", "preflight"],
     queryFn: async () => {
       const r = await api(`/api/projects/${projectId}/jobs/preflight`);
-      if (!r.ok) throw new Error(await detailOf(r, `載入預檢資訊失敗(${r.status})`));
+      if (!r.ok) throw new Error(await detailOf(r, "jobs.loadPreflightFailed"));
       return (await r.json()) as Preflight;
     },
     retry: false,
@@ -54,7 +65,7 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
     queryKey: ["projects", projectId, "jobs"],
     queryFn: async () => {
       const r = await api(`/api/projects/${projectId}/jobs`);
-      if (!r.ok) throw new Error(await detailOf(r, `載入任務失敗(${r.status})`));
+      if (!r.ok) throw new Error(await detailOf(r, "jobs.loadFailed"));
       return (await r.json()) as Job[];
     },
     retry: false,
@@ -84,10 +95,10 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
         method: "POST",
         body: JSON.stringify({ type, method }),
       });
-      if (!r.ok) throw new Error(await detailOf(r, `啟動任務失敗(${r.status})`));
+      if (!r.ok) throw new Error(await detailOf(r, "jobs.startFailed"));
     },
     onSuccess: () => {
-      message.success("任務已加入佇列");
+      message.success(t("jobs.queued"));
       invalidateJobs();
     },
     onError: (e) => message.error(e.message),
@@ -96,10 +107,10 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
   const cancelJob = useMutation({
     mutationFn: async (id: string) => {
       const r = await api(`/api/jobs/${id}/cancel`, { method: "POST" });
-      if (!r.ok) throw new Error(await detailOf(r, `取消失敗(${r.status})`));
+      if (!r.ok) throw new Error(await detailOf(r, "jobs.cancelFailed"));
     },
     onSuccess: () => {
-      message.success("已請求取消");
+      message.success(t("jobs.cancelRequested"));
       invalidateJobs();
     },
     onError: (e) => message.error(e.message),
@@ -112,64 +123,64 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
     const cacheOver = !!pf && pf.cache_bytes > pf.cache_quota_mb * 1024 * 1024;
     const diskLow = !!pf && pf.disk_free_mb < pf.disk_watermark_mb;
     Modal.confirm({
-      title: `確認開始${TYPE_LABEL[type]}?`,
+      title: t("jobs.confirmTitle", { type: typeLabel(type) }),
       content: (
         <Space direction="vertical" style={{ width: "100%" }}>
           {last ? (
             <Typography.Text>
-              上次執行:約 {Math.round(last.total_runtime_seconds ?? 0)} 秒、{last.num_documents ?? 0} 份文件
+              {t("jobs.lastRun", { s: Math.round(last.total_runtime_seconds ?? 0), docs: last.num_documents ?? 0 })}
             </Typography.Text>
           ) : (
-            <Typography.Text type="secondary">此專案尚無執行記錄</Typography.Text>
+            <Typography.Text type="secondary">{t("jobs.noRuns")}</Typography.Text>
           )}
           {cacheOver && pf && (
             <Alert
               type="warning"
               showIcon
-              message={`快取已超過上限(${(pf.cache_bytes / 1024 / 1024).toFixed(0)} MB / ${pf.cache_quota_mb} MB),建議先清理`}
+              message={t("jobs.cacheOver", { used: (pf.cache_bytes / 1024 / 1024).toFixed(0), quota: pf.cache_quota_mb })}
             />
           )}
           {diskLow && pf && (
             <Alert
               type="error"
               showIcon
-              message={`磁碟水位不足(剩餘 ${pf.disk_free_mb} MB 低於水位 ${pf.disk_watermark_mb} MB),任務可能失敗`}
+              message={t("jobs.diskLow", { free: pf.disk_free_mb, watermark: pf.disk_watermark_mb })}
             />
           )}
         </Space>
       ),
-      okText: "開始",
-      cancelText: "取消",
+      okText: t("jobs.start"),
+      cancelText: t("common.cancel"),
       onOk: () => startJob.mutate(),
     });
   };
 
   const columns: TableProps<Job>["columns"] = [
-    { title: "類型", dataIndex: "type", width: 80, render: (_, j) => TYPE_LABEL[j.type] ?? j.type },
-    { title: "方法", dataIndex: "method", width: 80, render: (_, j) => METHOD_LABEL[j.method] ?? j.method },
+    { title: t("jobs.type"), dataIndex: "type", width: 80, render: (_, j) => typeLabel(j.type) },
+    { title: t("jobs.method"), dataIndex: "method", width: 80, render: (_, j) => methodLabel(j.method) },
     {
-      title: "狀態",
+      title: t("common.status"),
       dataIndex: "display_status",
       width: 140,
       render: (_, j) => <Tag color={JobStatusColor[j.display_status] ?? "default"}>{j.display_status}</Tag>,
     },
-    { title: "結束代碼", dataIndex: "exit_code", width: 90, render: (_, j) => (j.exit_code ?? "—") },
+    { title: t("jobs.exitCode"), dataIndex: "exit_code", width: 90, render: (_, j) => (j.exit_code ?? t("common.notApplicable")) },
     {
-      title: "佇列時間",
+      title: t("jobs.queuedAt"),
       dataIndex: "queued_at",
       width: 180,
       render: (_, j) => new Date(j.queued_at).toLocaleString(),
     },
     {
-      title: "耗時",
+      title: t("jobs.duration"),
       width: 110,
       render: (_, j) =>
         j.started_at && j.finished_at
           ? humanDuration((new Date(j.finished_at).getTime() - new Date(j.started_at).getTime()) / 1000)
-          : "—",
+        : t("common.notApplicable"),
     },
     {
-      title: "操作",
+      title: t("common.actions"),
       width: 170,
       render: (_, j) => (
         <Space>
@@ -180,11 +191,11 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
               setLogOpen(true);
             }}
           >
-            日誌
+            {t("jobs.logs")}
           </Button>
           {canEdit && isActive(j) && !j.cancel_requested_at && (
-            <Popconfirm title="取消此任務?" okText="確定取消" onConfirm={() => cancelJob.mutate(j.id)}>
-              <Button danger size="small">取消</Button>
+            <Popconfirm title={t("jobs.cancelJobTitle")} okText={t("jobs.confirmCancel")} onConfirm={() => cancelJob.mutate(j.id)}>
+              <Button danger size="small">{t("common.cancel")}</Button>
             </Popconfirm>
           )}
         </Space>
@@ -196,7 +207,7 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
       <Space wrap>
         <Select
-          aria-label="類型"
+          aria-label={t("jobs.type")}
           style={{ width: 120 }}
           value={type}
           onChange={(v) => setType(v)}
@@ -204,7 +215,7 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
           options={TYPE_OPTIONS}
         />
         <Select
-          aria-label="方法"
+          aria-label={t("jobs.method")}
           style={{ width: 120 }}
           value={method}
           onChange={(v) => setMethod(v)}
@@ -212,7 +223,7 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
           options={METHOD_OPTIONS}
         />
         <Button type="primary" disabled={!canEdit} loading={startJob.isPending} onClick={confirmLaunch}>
-          開始索引
+          {t("jobs.startIndex")}
         </Button>
       </Space>
       <Table
