@@ -12,6 +12,7 @@ from graphrag_ui.api.auth_routes import register_auth_routes
 from graphrag_ui.api.deps import MUST_CHANGE_ALLOWED_PATHS, resolve_access_user
 from graphrag_ui.api.dry_run_routes import register_dry_run_routes
 from graphrag_ui.api.env_routes import register_env_routes
+from graphrag_ui.api.errors import ApiError, api_error_handler
 from graphrag_ui.api.explore_routes import register_explore_routes
 from graphrag_ui.api.files_routes import register_files_routes
 from graphrag_ui.api.health_routes import register_health_routes
@@ -108,6 +109,7 @@ def _register_must_change_guard(app: FastAPI) -> None:
 
 def create_app() -> FastAPI:
     app = FastAPI(title="GraphRAG Web UI", lifespan=lifespan)
+    app.add_exception_handler(ApiError, api_error_handler)
     register_health_routes(app)
     register_auth_routes(app)
     register_users_routes(app)
