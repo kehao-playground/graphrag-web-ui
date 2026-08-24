@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import {
   Alert, Button, Card, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message,
 } from "antd";
@@ -21,6 +22,7 @@ interface CreateForm {
 export default function Projects() {
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const { t } = useTranslation();
   const { user } = useAuth();
   const [createOpen, setCreateOpen] = useState(false);
   const [form] = Form.useForm<CreateForm>();
@@ -29,7 +31,7 @@ export default function Projects() {
     queryKey: ["projects"],
     queryFn: async () => {
       const r = await api("/api/projects");
-      if (!r.ok) throw new Error(await detailOf(r, `載入專案失敗(${r.status})`));
+      if (!r.ok) throw new Error(await detailOf(r, "projects.loadFailed"));
       return (await r.json()) as Project[];
     },
   });
@@ -45,7 +47,7 @@ export default function Projects() {
     queryKey: ["users"],
     queryFn: async () => {
       const r = await api("/api/users");
-      if (!r.ok) throw new Error(await detailOf(r, `載入使用者失敗(${r.status})`));
+      if (!r.ok) throw new Error(await detailOf(r, "projects.loadUsersFailed"));
       return (await r.json()) as UserBrief[];
     },
     retry: false,
@@ -63,10 +65,10 @@ export default function Projects() {
   const create = useMutation({
     mutationFn: async (v: CreateForm) => {
       const r = await api("/api/projects", { method: "POST", body: JSON.stringify(v) });
-      if (!r.ok) throw new Error(await detailOf(r, `建立失敗(${r.status})`));
+      if (!r.ok) throw new Error(await detailOf(r, "projects.createFailed"));
     },
     onSuccess: () => {
-      message.success("專案已建立");
+      message.success(t("projects.created"));
       setCreateOpen(false);
       form.resetFields();
       qc.invalidateQueries({ queryKey: ["projects"] });
@@ -77,10 +79,10 @@ export default function Projects() {
   const remove = useMutation({
     mutationFn: async (id: string) => {
       const r = await api(`/api/projects/${id}`, { method: "DELETE" });
-      if (!r.ok) throw new Error(await detailOf(r, `刪除失敗(${r.status})`));
+      if (!r.ok) throw new Error(await detailOf(r, "projects.deleteFailed"));
     },
     onSuccess: () => {
-      message.success("專案已刪除");
+      message.success(t("projects.deleted"));
       // Prefix invalidation: clears the list plus every project's members cache
       qc.invalidateQueries({ queryKey: ["projects"] });
     },
@@ -89,7 +91,7 @@ export default function Projects() {
 
   const columns: TableProps<Project>["columns"] = [
     {
-      title: "名稱",
+      title: t("common.name"),
       dataIndex: "name",
       render: (_, p) => (
         <Button type="link" style={{ padding: 0 }} onClick={() => navigate(`/projects/${p.id}`)}>
@@ -98,41 +100,41 @@ export default function Projects() {
       ),
     },
     {
-      title: "輸入格式",
+      title: t("projects.inputFormat"),
       dataIndex: "input_file_type",
       width: 110,
-      render: (t: string) => <Tag>{t}</Tag>,
+      render: (v: string) => <Tag>{v}</Tag>,
     },
     {
-      title: "建立時間",
+      title: t("common.createdAt"),
       dataIndex: "created_at",
       width: 210,
       render: (v: string) => new Date(v).toLocaleString(),
     },
     {
-      title: "擁有者",
+      title: t("projects.owner"),
       render: (_, p) => {
         const o = ownerById.get(p.owner_id);
         return o ? (
           <span>
             {o.display_name} <Typography.Text type="secondary">{o.email}</Typography.Text>
           </span>
-        ) : "—";
+        ) : t("common.notApplicable");
       },
     },
     {
-      title: "操作",
+      title: t("common.actions"),
       width: 90,
       render: (_, p) =>
         user && (user.role === "admin" || p.owner_id === user.id) ? (
           <Popconfirm
-            title="刪除專案"
-            description="workspace 內所有檔案將一併刪除,確定嗎?"
-            okText="刪除"
+            title={t("projects.deleteTitle")}
+            description={t("projects.deleteConfirm")}
+            okText={t("common.delete")}
             okButtonProps={{ danger: true }}
             onConfirm={() => remove.mutate(p.id)}
           >
-            <Button danger size="small">刪除</Button>
+            <Button danger size="small">{t("common.delete")}</Button>
           </Popconfirm>
         ) : null,
     },
@@ -141,11 +143,11 @@ export default function Projects() {
   return (
     <Card style={{ marginTop: 16 }}>
       <Space style={{ marginBottom: 16, width: "100%", justifyContent: "space-between" }}>
-        <Typography.Title level={4} style={{ margin: 0 }}>專案</Typography.Title>
-        <Button type="primary" onClick={() => setCreateOpen(true)}>建立專案</Button>
+        <Typography.Title level={4} style={{ margin: 0 }}>{t("projects.pageTitle")}</Typography.Title>
+        <Button type="primary" onClick={() => setCreateOpen(true)}>{t("projects.createButton")}</Button>
       </Space>
       {error && (
-        <Alert type="error" showIcon message="無法載入專案列表" description={error.message} style={{ marginBottom: 16 }} />
+        <Alert type="error" showIcon message={t("projects.listLoadFailed")} description={error.message} style={{ marginBottom: 16 }} />
       )}
       <Table
         rowKey="id"
@@ -157,10 +159,10 @@ export default function Projects() {
       />
 
       <Modal
-        title="建立專案"
+        title={t("projects.createModalTitle")}
         open={createOpen}
-        okText="建立"
-        cancelText="取消"
+        okText={t("common.create")}
+        cancelText={t("common.cancel")}
         confirmLoading={create.isPending}
         onCancel={() => setCreateOpen(false)}
         onOk={() => form.validateFields().then((v) => create.mutate(v))}
@@ -168,19 +170,19 @@ export default function Projects() {
         <Form form={form} layout="vertical" initialValues={{ input_file_type: "text" }}>
           <Form.Item
             name="name"
-            label="名稱"
+            label={t("common.name")}
             rules={[
-              { required: true, whitespace: true, message: "請輸入名稱" },
-              { max: 200, message: "名稱最長 200 字" },
+              { required: true, whitespace: true, message: t("projects.nameRequired") },
+              { max: 200, message: t("projects.nameMax") },
             ]}
           >
             <Input />
           </Form.Item>
-          <Form.Item name="description" label="描述">
+          <Form.Item name="description" label={t("common.description")}>
             <Input.TextArea rows={2} />
           </Form.Item>
-          <Form.Item name="input_file_type" label="輸入格式" rules={[{ required: true, message: "請選擇輸入格式" }]}>
-            <Select options={FILE_TYPES.map((t) => ({ label: t, value: t }))} />
+          <Form.Item name="input_file_type" label={t("projects.inputFormat")} rules={[{ required: true, message: t("projects.inputFormatRequired") }]}>
+            <Select options={FILE_TYPES.map((ft) => ({ label: ft, value: ft }))} />
           </Form.Item>
         </Form>
       </Modal>

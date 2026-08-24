@@ -1,9 +1,11 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Alert, Button, Form, Input, Modal } from "antd";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../stores/auth";
 
 export default function Login() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const login = useAuth((s) => s.login);
   const setUser = useAuth.setState;
@@ -34,9 +36,9 @@ export default function Login() {
       // 400 = wrong current password; 422 = new password failed backend
       // validation (min_length=8) — the two are surfaced separately
       if (r.status === 400) {
-        changeForm.setFields([{ name: "current_password", errors: ["原密碼錯誤"] }]);
+        changeForm.setFields([{ name: "current_password", errors: [t("login.wrongCurrent")] }]);
       } else {
-        changeForm.setFields([{ name: "new_password", errors: ["新密碼不符合規定(至少 8 個字元)"] }]);
+        changeForm.setFields([{ name: "new_password", errors: [t("login.newPasswordInvalid")] }]);
       }
       return;
     }
@@ -47,34 +49,34 @@ export default function Login() {
 
   return (
     <div style={{ maxWidth: 360, margin: "12vh auto" }}>
-      <h2>GraphRAG Web UI 登入</h2>
-      {error && <Alert type="error" message="登入失敗,請檢查帳號密碼" style={{ marginBottom: 16 }} showIcon />}
+      <h2>{t("login.pageTitle")}</h2>
+      {error && <Alert type="error" message={t("login.failed")} style={{ marginBottom: 16 }} showIcon />}
       <Form layout="vertical" onFinish={onFinish}>
-        <Form.Item label="電子郵件" name="email" rules={[{ required: true, message: "請輸入電子郵件" }]}>
+        <Form.Item label={t("common.email")} name="email" rules={[{ required: true, message: t("login.emailRequired") }]}>
           <Input type="email" />
         </Form.Item>
-        <Form.Item label="密碼" name="password" rules={[{ required: true, message: "請輸入密碼" }]}>
+        <Form.Item label={t("login.passwordLabel")} name="password" rules={[{ required: true, message: t("login.passwordRequired") }]}>
           <Input.Password />
         </Form.Item>
-        <Button type="primary" htmlType="submit" block>登入系統</Button>
+        <Button type="primary" htmlType="submit" block>{t("login.submit")}</Button>
       </Form>
       <Modal
-        title="首次登入請修改密碼"
+        title={t("login.changeTitle")}
         open={mustChange}
         closable={false}
         footer={null}
       >
         <Form form={changeForm} layout="vertical" onFinish={onChangePassword}>
-          <Form.Item label="目前密碼" name="current_password" rules={[{ required: true }]}>
+          <Form.Item label={t("login.currentPassword")} name="current_password" rules={[{ required: true }]}>
             <Input.Password />
           </Form.Item>
-          <Form.Item label="新密碼" name="new_password" rules={[
-            { required: true, message: "請輸入新密碼" },
-            { min: 8, message: "新密碼至少 8 個字元" },
+          <Form.Item label={t("login.newPassword")} name="new_password" rules={[
+            { required: true, message: t("login.newPasswordRequired") },
+            { min: 8, message: t("login.newPasswordMin") },
           ]}>
             <Input.Password />
           </Form.Item>
-          <Button type="primary" htmlType="submit" loading={changing} block>送出</Button>
+          <Button type="primary" htmlType="submit" loading={changing} block>{t("common.submit")}</Button>
         </Form>
       </Modal>
     </div>

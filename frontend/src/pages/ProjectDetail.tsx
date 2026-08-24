@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import {
   Alert, Button, Card, Descriptions, Popconfirm, Select, Space, Spin, Table, Tabs, Tag, Typography, message,
 } from "antd";
@@ -24,6 +25,7 @@ const ROLE_OPTIONS = ROLES.map((r) => ({ label: r, value: r }));
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
+  const { t } = useTranslation();
   const { user } = useAuth();
   const [addUserId, setAddUserId] = useState<string>();
   const [addRole, setAddRole] = useState<Role>("viewer");
@@ -32,7 +34,7 @@ export default function ProjectDetail() {
     queryKey: ["projects", id],
     queryFn: async () => {
       const r = await api(`/api/projects/${id}`);
-      if (!r.ok) throw new Error(await detailOf(r, `載入專案失敗(${r.status})`));
+      if (!r.ok) throw new Error(await detailOf(r, "projects.loadFailed"));
       return (await r.json()) as Project;
     },
     enabled: !!id,
@@ -43,7 +45,7 @@ export default function ProjectDetail() {
     queryKey: ["projects", id, "members"],
     queryFn: async () => {
       const r = await api(`/api/projects/${id}/members`);
-      if (!r.ok) throw new Error(await detailOf(r, `載入成員失敗(${r.status})`));
+      if (!r.ok) throw new Error(await detailOf(r, "projectDetail.loadMembersFailed"));
       return (await r.json()) as Member[];
     },
     enabled: !!id,
@@ -71,7 +73,7 @@ export default function ProjectDetail() {
     queryKey: ["users"],
     queryFn: async () => {
       const r = await api("/api/users");
-      if (!r.ok) throw new Error(await detailOf(r, `載入使用者失敗(${r.status})`));
+      if (!r.ok) throw new Error(await detailOf(r, "projects.loadUsersFailed"));
       return (await r.json()) as UserBrief[];
     },
     enabled: canManage,
@@ -88,7 +90,7 @@ export default function ProjectDetail() {
         method: "PUT",
         body: JSON.stringify({ role }),
       });
-      if (!r.ok) throw new Error(await detailOf(r, `更新成員失敗(${r.status})`));
+      if (!r.ok) throw new Error(await detailOf(r, "projectDetail.updateMemberFailed"));
     },
     onSuccess: () => {
       setAddUserId(undefined);
@@ -100,24 +102,24 @@ export default function ProjectDetail() {
   const removeMember = useMutation({
     mutationFn: async (userId: string) => {
       const r = await api(`/api/projects/${id}/members/${userId}`, { method: "DELETE" });
-      if (!r.ok) throw new Error(await detailOf(r, `移除成員失敗(${r.status})`));
+      if (!r.ok) throw new Error(await detailOf(r, "projectDetail.removeMemberFailed"));
     },
     onSuccess: () => {
-      message.success("已移除成員");
+      message.success(t("projectDetail.memberRemoved"));
       qc.invalidateQueries({ queryKey: ["projects", id, "members"] });
     },
     onError: (e) => message.error(e.message),
   });
 
-  if (!id) return <Alert type="warning" showIcon message="缺少專案 ID" />;
+  if (!id) return <Alert type="warning" showIcon message={t("projectDetail.missingId")} />;
   if (project.isPending || members.isPending) return <Spin style={{ display: "block", marginTop: 64 }} />;
   if (project.error || !project.data) {
     return (
       <Alert
         type="error"
         showIcon
-        message="無法載入專案"
-        description={project.error?.message ?? "請確認你具有此專案的存取權"}
+        message={t("projectDetail.loadProjectFailed")}
+        description={project.error?.message ?? t("projectDetail.loadProjectDenied")}
         style={{ marginTop: 16 }}
       />
     );
@@ -128,10 +130,10 @@ export default function ProjectDetail() {
   const memberIds = new Set(members.data?.map((m) => m.user_id));
 
   const memberColumns: TableProps<Member>["columns"] = [
-    { title: "電子郵件", dataIndex: "email" },
-    { title: "顯示名稱", dataIndex: "display_name" },
+    { title: t("common.email"), dataIndex: "email" },
+    { title: t("common.displayName"), dataIndex: "display_name" },
     {
-      title: "角色",
+      title: t("common.role"),
       dataIndex: "role",
       width: 130,
       render: (_, m) => (
@@ -147,17 +149,17 @@ export default function ProjectDetail() {
       ),
     },
     {
-      title: "操作",
+      title: t("common.actions"),
       width: 90,
       render: (_, m) =>
         canManage && m.role !== "owner" ? (
           <Popconfirm
-            title={`移除 ${m.email}?`}
-            okText="移除"
+            title={t("projectDetail.removeTitle", { email: m.email })}
+            okText={t("projectDetail.remove")}
             okButtonProps={{ danger: true }}
             onConfirm={() => removeMember.mutate(m.user_id)}
           >
-            <Button danger size="small">移除</Button>
+            <Button danger size="small">{t("projectDetail.remove")}</Button>
           </Popconfirm>
         ) : null,
     },
@@ -168,33 +170,33 @@ export default function ProjectDetail() {
   const items = [
     {
       key: "overview",
-      label: "Overview",
+      label: t("projectDetail.overviewTab"),
       children: (
         <Space direction="vertical" size="large" style={{ width: "100%" }}>
           <Descriptions
-            title="專案資訊"
+            title={t("projectDetail.infoTitle")}
             bordered
             size="small"
             column={2}
             items={[
-              { key: "name", label: "名稱", children: p.name },
-              { key: "slug", label: "Slug", children: p.slug },
-              { key: "description", label: "描述", children: p.description ?? "—" },
-              { key: "type", label: "輸入格式", children: <Tag>{p.input_file_type}</Tag> },
-              { key: "created", label: "建立時間", children: new Date(p.created_at).toLocaleString() },
-              { key: "owner", label: "擁有者", children: owner ? `${owner.display_name}(${owner.email})` : "—" },
+              { key: "name", label: t("common.name"), children: p.name },
+              { key: "slug", label: t("projectDetail.slug"), children: p.slug },
+              { key: "description", label: t("common.description"), children: p.description ?? t("common.notApplicable") },
+              { key: "type", label: t("projects.inputFormat"), children: <Tag>{p.input_file_type}</Tag> },
+              { key: "created", label: t("common.createdAt"), children: new Date(p.created_at).toLocaleString() },
+              { key: "owner", label: t("projects.owner"), children: owner ? t("projectDetail.ownerWithNameEmail", { name: owner.display_name, email: owner.email }) : t("common.notApplicable") },
             ]}
           />
-          <Card title="成員" size="small">
+          <Card title={t("projectDetail.membersTitle")} size="small">
             {canManage && (
-              <Space style={{ marginBottom: 16 }} title="新增成員">
+              <Space style={{ marginBottom: 16 }} title={t("projectDetail.addMember")}>
                 <Select
                   showSearch
                   optionFilterProp="label"
-                  placeholder="選擇使用者"
+                  placeholder={t("projectDetail.selectUser")}
                   style={{ minWidth: 240 }}
                   value={addUserId}
-                  options={addableUsers.map((u) => ({ label: `${u.display_name}(${u.email})`, value: u.id }))}
+                  options={addableUsers.map((u) => ({ label: t("projectDetail.ownerWithNameEmail", { name: u.display_name, email: u.email }), value: u.id }))}
                   onChange={setAddUserId}
                   loading={users.isPending}
                 />
@@ -210,7 +212,7 @@ export default function ProjectDetail() {
                   loading={putMember.isPending}
                   onClick={() => addUserId && putMember.mutate({ userId: addUserId, role: addRole })}
                 >
-                  新增
+                  {t("projectDetail.add")}
                 </Button>
               </Space>
             )}
@@ -228,29 +230,29 @@ export default function ProjectDetail() {
     },
     {
       key: "settings",
-      label: "Settings",
+      label: t("projectDetail.settingsTab"),
       children: <SettingsPanel projectId={id} canEdit={canEditContent} />,
     },
     {
       key: "jobs",
-      label: "Jobs",
+      label: t("projectDetail.jobsTab"),
       children: <JobsPanel projectId={id} canEdit={canEditContent} />,
     },
     {
       key: "files",
-      label: "Files",
+      label: t("projectDetail.filesTab"),
       children: <FilesPanel projectId={id} inputFileType={p.input_file_type} canEdit={canEditContent} />,
     },
     {
       key: "query",
-      label: "Query",
+      label: t("projectDetail.queryTab"),
       // Tab visible to every member; the backend still enforces viewer+ on
       // the stream (canUse is viewer+ — currently always true).
       children: <QueryPanel projectId={id} canUse />,
     },
     {
       key: "explore",
-      label: "探索",
+      label: t("projectDetail.exploreTab"),
       // Same gating as Query: every member can browse the indexed artifacts.
       children: <ExplorePanel projectId={id} canUse />,
     },
