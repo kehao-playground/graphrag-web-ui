@@ -12,7 +12,7 @@ export default function Layout() {
   ...(user?.role === "admin" ? [{ key: "/admin/users", label: "管理者 — 使用者" }] : []),
   ];
 
-  // /projects/:id must also highlight the 專案 (projects) item; same for the /admin prefix
+  // zh-TW: /projects/:id must also highlight the 專案 (projects) nav item; same for the /admin prefix
   const selectedKey = location.pathname.startsWith("/projects") ? "/projects"
     : location.pathname.startsWith("/admin") ? "/admin/users"
     : location.pathname;
