@@ -319,11 +319,11 @@ async def test_mid_stream_adapter_error_event_then_close(client, app, fake_adapt
     body, _ = await _stream(client, _url(pid, method="basic", query="q"), alice)
 
     events = _events(body)
-    assert events == [
-        ("chunk", "The "),
-        ("chunk", "Analytical "),
-        ("error", {"detail": "查詢中斷"}),
-    ]
+    assert events[:2] == [("chunk", "The "), ("chunk", "Analytical ")]
+    assert events[2][0] == "error"
+    assert events[2][1]["detail"] == "查詢中斷"
+    assert events[2][1]["code"] == "query_interrupted"
+    assert len(events) == 3
 
 
 async def test_pre_chunk_adapter_failure_502_json(client, app, fake_adapter, fake_cache):

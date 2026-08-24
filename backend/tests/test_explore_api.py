@@ -174,13 +174,17 @@ async def test_unsupported_filter_422(client, app):
         headers=alice, params={"type": "x"},
     )
     assert r.status_code == 422
-    assert r.json() == {"detail": "此資料表不支援該篩選條件"}
+    body = r.json()
+    assert body["detail"] == "此資料表不支援該篩選條件"
+    assert body["code"] == "explore_unsupported_filter"
     r = await client.get(
         f"/api/projects/{pid}/artifacts/documents",
         headers=alice, params={"community": 0},
     )
     assert r.status_code == 422
-    assert r.json() == {"detail": "此資料表不支援該篩選條件"}
+    body = r.json()
+    assert body["detail"] == "此資料表不支援該篩選條件"
+    assert body["code"] == "explore_unsupported_filter"
 
 
 async def test_limit_offset_returns_exactly_second_row(client, app):
@@ -257,7 +261,9 @@ async def test_detail_missing_row_404(client, app):
     pid, alice, _, _ = await _indexed_project(client, app)
     r = await client.get(f"/api/projects/{pid}/artifacts/entities/99", headers=alice)
     assert r.status_code == 404
-    assert r.json() == {"detail": "找不到該筆資料"}
+    body = r.json()
+    assert body["detail"] == "找不到該筆資料"
+    assert body["code"] == "explore_row_not_found"
 
 
 async def test_unknown_table_404_list_and_detail(client, app):
@@ -265,10 +271,14 @@ async def test_unknown_table_404_list_and_detail(client, app):
     base = f"/api/projects/{pid}/artifacts"
     r = await client.get(f"{base}/bogus", headers=alice)
     assert r.status_code == 404
-    assert r.json() == {"detail": "未知的資料表"}
+    body = r.json()
+    assert body["detail"] == "未知的資料表"
+    assert body["code"] == "explore_unknown_table"
     r = await client.get(f"{base}/bogus/1", headers=alice)
     assert r.status_code == 404
-    assert r.json() == {"detail": "未知的資料表"}
+    body = r.json()
+    assert body["detail"] == "未知的資料表"
+    assert body["code"] == "explore_unknown_table"
 
 
 async def test_not_indexed_409_list_and_graph(client, app):
@@ -279,7 +289,9 @@ async def test_not_indexed_409_list_and_graph(client, app):
     for path in ("entities", "graph"):
         r = await client.get(f"{base}/{path}", headers=alice)
         assert r.status_code == 409, r.text
-        assert r.json() == {"detail": "尚未建立索引,請先執行索引任務"}
+        body = r.json()
+        assert body["detail"] == "尚未建立索引,請先執行索引任務"
+        assert body["code"] == "not_indexed"
 
 
 async def test_must_change_password_token_403(client, app):
@@ -307,4 +319,6 @@ async def test_corrupt_parquet_502_list(client, app):
     (ws_path(uuid.UUID(pid)) / "output" / "entities.parquet").write_bytes(b"not parquet")
     r = await client.get(f"/api/projects/{pid}/artifacts/entities", headers=alice)
     assert r.status_code == 502
-    assert r.json() == {"detail": "讀取索引輸出失敗"}
+    body = r.json()
+    assert body["detail"] == "讀取索引輸出失敗"
+    assert body["code"] == "explore_read_failed"

@@ -7,10 +7,11 @@ failures map to fixed zh-TW details; adapter tails stay in server logs."""
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 
 from graphrag_ui.adapters.artifacts import ArtifactsNotIndexedError
 from graphrag_ui.api.deps import CurrentUser, DbSession, get_current_user
+from graphrag_ui.api.errors import ApiError
 from graphrag_ui.api.projects_routes import _forbidden, _project_or_404
 from graphrag_ui.domain.permissions import Action, can
 from graphrag_ui.services.explore import (
@@ -28,16 +29,16 @@ _ExploreErrors = (
 )
 
 
-def _explore_error_http(exc: Exception) -> HTTPException:
-    """Single zh-TW error mapping for every explore route (fixed messages)."""
+def _explore_error_http(exc: Exception) -> ApiError:
+    """Single error mapping for every explore route (fixed messages)."""
     if isinstance(exc, UnknownTableError):
-        return HTTPException(status.HTTP_404_NOT_FOUND, "未知的資料表")
+        return ApiError(status.HTTP_404_NOT_FOUND, "explore_unknown_table", "未知的資料表")
     if isinstance(exc, ArtifactsNotIndexedError):
-        return HTTPException(status.HTTP_409_CONFLICT, "尚未建立索引,請先執行索引任務")
+        return ApiError(status.HTTP_409_CONFLICT, "not_indexed", "尚未建立索引,請先執行索引任務")
     if isinstance(exc, UnsupportedFilterError):
-        return HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "此資料表不支援該篩選條件")
+        return ApiError(status.HTTP_422_UNPROCESSABLE_ENTITY, "explore_unsupported_filter", "此資料表不支援該篩選條件")
     # detail (exception tail) stays server-side; fixed message only
-    return HTTPException(status.HTTP_502_BAD_GATEWAY, "讀取索引輸出失敗")
+    return ApiError(status.HTTP_502_BAD_GATEWAY, "explore_read_failed", "讀取索引輸出失敗")
 
 
 def register_explore_routes(app):
@@ -94,7 +95,7 @@ def register_explore_routes(app):
         except _ExploreErrors as exc:
             raise _explore_error_http(exc) from None
         if data is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "找不到該筆資料")
+            raise ApiError(status.HTTP_404_NOT_FOUND, "explore_row_not_found", "找不到該筆資料")
         return data
 
     app.include_router(router)

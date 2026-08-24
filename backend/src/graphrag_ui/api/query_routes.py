@@ -7,12 +7,13 @@ import json
 import uuid
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from graphrag_ui.adapters.frame_cache import WorkspaceNotIndexedError
 from graphrag_ui.api.deps import CurrentUser, DbSession, SseUser, get_current_user
+from graphrag_ui.api.errors import ApiError
 from graphrag_ui.api.projects_routes import _forbidden, _project_or_404
 from graphrag_ui.domain.permissions import Action, can
 from graphrag_ui.services.projects import get_project_role
@@ -28,23 +29,24 @@ class QueryIn(BaseModel):
     response_type: str | None = None
 
 
-def _query_error_http(exc: Exception) -> HTTPException:
+def _query_error_http(exc: Exception) -> ApiError:
     """Single error mapping for both query paths (POST + SSE pre-stream)."""
     if isinstance(exc, QueryRateLimitedError):
-        return HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "查詢過於頻繁,請稍後再試")
+        return ApiError(status.HTTP_429_TOO_MANY_REQUESTS, "query_rate_limited", "查詢過於頻繁,請稍後再試")
     if isinstance(exc, WorkspaceNotIndexedError):
-        return HTTPException(status.HTTP_409_CONFLICT, "尚未建立索引,請先執行索引任務")
+        return ApiError(status.HTTP_409_CONFLICT, "not_indexed", "尚未建立索引,請先執行索引任務")
     # detail (exception tail) stays server-side; fixed message only
     if isinstance(exc, QueryError) and exc.code == "config":
-        return HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "設定載入失敗")
-    return HTTPException(status.HTTP_502_BAD_GATEWAY, "查詢失敗")
+        return ApiError(status.HTTP_500_INTERNAL_SERVER_ERROR, "query_config_failed", "設定載入失敗")
+    return ApiError(status.HTTP_502_BAD_GATEWAY, "query_failed", "查詢失敗")
 
 
 def _format_event(kind: str, payload) -> str:
     """One SSE frame. Data lines are single-line; json.dumps escapes newlines
     (same convention as the job-log stream). The error event wraps its fixed
-    message in {"detail": ...} like every other API error body."""
-    data = {"detail": payload} if kind == "error" else payload
+    message plus the machine code in {"detail", "code"} (spec §4.3)."""
+    data = ({"detail": payload, "code": "query_interrupted"}
+            if kind == "error" else payload)
     return f"event: {kind}\ndata: {json.dumps(data)}\n\n"
 
 
