@@ -4,6 +4,7 @@ Query-route entries re-wire the test_query_api seams locally (config stub,
 fake adapter/cache) so this file stays lint-clean without fixture imports."""
 
 import pytest
+from test_files import _alice, _make_project
 from test_query_api import FakeAdapter, FakeCache, _post, _viewer_setup
 
 from graphrag_ui.config import get_settings
@@ -102,3 +103,18 @@ async def test_query_rate_limited_carries_code(client, app, _seams, fake_adapter
     r = await _post(client, pid, alice)
     assert r.status_code == 429
     assert r.json()["code"] == "query_rate_limited"
+
+
+async def test_upload_bad_extension_carries_code_and_params(client):
+    # Same mint as test_files.py: activated alice + real-API project (real
+    # graphrag init) so validation runs against the real workspace layout.
+    alice = await _alice(client)
+    pid = await _make_project(client, alice)
+    files = {"file": ("notes.exe", b"x")}
+    r = await client.post(f"/api/projects/{pid}/files", files=files,
+                          headers=alice)
+    assert r.status_code == 400
+    body = r.json()
+    assert body["code"] == "file_ext_not_allowed"
+    assert body["params"] == {"ext": ".exe", "input_file_type": "text"}
+    assert body["detail"].startswith("extension '.exe' not allowed")

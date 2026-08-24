@@ -26,15 +26,32 @@ ALLOWED_EXTENSIONS: dict[str, set[str]] = {
 
 
 class FileServiceError(Exception):
-    """Invalid filename/extension — routes map to 400."""
+    """Invalid filename/extension — routes map to 400 (ApiError carries
+    e.code/e.params so the client can localize)."""
+
+    def __init__(self, code: str, detail: str,
+                 params: dict[str, str] | None = None) -> None:
+        super().__init__(detail)
+        self.code = code
+        self.params = params
 
 
 class FileTooLargeError(Exception):
     """Single file above upload_max_file_mb — routes map to 413."""
 
+    def __init__(self, max_mb: int) -> None:
+        super().__init__(f"file exceeds the {max_mb} MiB upload limit")
+        self.code = "file_too_large"
+        self.params = {"max_mb": max_mb}
+
 
 class QuotaExceededError(Exception):
     """input/+output/ usage above project_quota_mb — routes map to 413."""
+
+    def __init__(self, quota_mb: int) -> None:
+        super().__init__(f"project storage quota of {quota_mb} MiB exceeded")
+        self.code = "quota_exceeded"
+        self.params = {"quota_mb": quota_mb}
 
 
 _MIB = 1024 * 1024
@@ -48,21 +65,25 @@ def _safe_name(project_input_file_type: str, filename: str) -> str:
     no path variant (separator, '..', leading dot) can escape input/.
     """
     if not filename:
-        raise FileServiceError("filename must not be empty")
+        raise FileServiceError("file_name_empty", "filename must not be empty")
     if len(filename) > 255:
-        raise FileServiceError("filename exceeds 255 characters")
+        raise FileServiceError("file_name_too_long", "filename exceeds 255 characters")
     if "/" in filename or "\\" in filename or ".." in filename:
-        raise FileServiceError("filename must not contain path separators or '..'")
+        raise FileServiceError("file_name_unsafe",
+                               "filename must not contain path separators or '..'")
     if filename.startswith("."):
-        raise FileServiceError("filename must not start with '.'")
+        raise FileServiceError("file_name_leading_dot",
+                               "filename must not start with '.'")
     allowed = ALLOWED_EXTENSIONS.get(project_input_file_type, set())
     # Compare lowercased: Windows clients commonly send .MD / .Txt. The
     # stored name keeps its original case (only the match is case-blind).
     ext = Path(filename).suffix.lower()
     if ext not in allowed:
         raise FileServiceError(
+            "file_ext_not_allowed",
             f"extension '{ext or '(none)'}' not allowed for "
-            f"input_file_type '{project_input_file_type}'")
+            f"input_file_type '{project_input_file_type}'",
+            {"ext": ext or "(none)", "input_file_type": project_input_file_type})
     return filename
 
 
@@ -126,15 +147,13 @@ async def save_file(session: AsyncSession, project: Project, filename: str,
             while chunk := await source.read(_CHUNK_BYTES):
                 size += len(chunk)
                 if size > max_file_bytes():
-                    raise FileTooLargeError(
-                        f"file exceeds the {get_settings().upload_max_file_mb} MiB upload limit")
+                    raise FileTooLargeError(get_settings().upload_max_file_mb)
                 out.write(chunk)
         # Quota check needs the final size, so it runs after the stream is
         # fully consumed, against the pre-write usage snapshot — before the
         # audit row, so an over-quota upload leaves no trace.
         if base_usage + size > quota_bytes():
-            raise QuotaExceededError(
-                f"project storage quota of {get_settings().project_quota_mb} MiB exceeded")
+            raise QuotaExceededError(get_settings().project_quota_mb)
         await audit(session, actor_id, "file.uploaded", "project",
                     str(project.id), {"name": name, "size": size})
         await session.flush()

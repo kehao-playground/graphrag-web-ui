@@ -8,11 +8,12 @@ with payload {name, size}.
 import re
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, UploadFile, status
+from fastapi import APIRouter, Depends, Request, Response, UploadFile, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from graphrag_ui.api.deps import CurrentUser, DbSession, get_current_user
+from graphrag_ui.api.errors import ApiError
 from graphrag_ui.api.projects_routes import _forbidden, _project_or_404
 from graphrag_ui.config import get_settings
 from graphrag_ui.domain.permissions import Action, can
@@ -73,7 +74,9 @@ def _register_upload_size_guard(app):
                 and int(declared) > max_file_bytes() + _DECLARED_LENGTH_SLACK):
             return JSONResponse(
                 {"detail": (f"file exceeds the "
-                            f"{get_settings().upload_max_file_mb} MiB upload limit")},
+                            f"{get_settings().upload_max_file_mb} MiB upload limit"),
+                 "code": "file_too_large",
+                 "params": {"max_mb": get_settings().upload_max_file_mb}},
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
         return await call_next(request)
 
@@ -98,10 +101,10 @@ def register_files_routes(app):
             name, size = await files_service.save_file(
                 db, project, file.filename or "", file, actor_id=user.id)
         except FileServiceError as e:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from None
+            raise ApiError(status.HTTP_400_BAD_REQUEST, e.code, str(e), e.params) from None
         except (FileTooLargeError, QuotaExceededError) as e:
             # 413 for both single-file cap and project quota (spec §9 error handling)
-            raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, str(e)) from None
+            raise ApiError(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, e.code, str(e), e.params) from None
         return FileOut(name=name, size=size)
 
     @router.get("/{pid}/files", response_model=FileListOut)
@@ -128,9 +131,9 @@ def register_files_routes(app):
             await files_service.delete_file(db, project, filename,
                                             actor_id=user.id)
         except FileServiceError as e:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from None
+            raise ApiError(status.HTTP_400_BAD_REQUEST, e.code, str(e), e.params) from None
         except FileNotFoundError:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "file not found") from None
+            raise ApiError(status.HTTP_404_NOT_FOUND, "file_not_found", "file not found") from None
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     app.include_router(router)
