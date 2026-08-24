@@ -86,6 +86,11 @@ drift / basic 四種搜尋模式,全部透過 SSE 串流並附行內引用。可
   `frontend/.npmrc`(`legacy-peer-deps=true`)容忍 typescript 6 ↔
   openapi-typescript 的 peer 衝突,Dockerfile 必須在 `npm ci` 前把它複製進
   build stage。若你調整複製步驟,請讓 `.npmrc` 跟著 `package.json` 一起。
+- **每份 index 工作日誌開頭的「LiteLLM:WARNING … could not pre-load
+  bedrock/sagemaker response stream shape」** —— 無害:graphrag 的 LLM 層
+  (litellm)會在 import 時探測選用的 AWS(botocore)整合。兩個 graphrag
+  接觸點都預設 `LITELLM_LOG=ERROR`,讓這些雜訊不再進入工作日誌;需要
+  除錯 LLM 呼叫時,自行 export `LITELLM_LOG`(例如 `DEBUG`)即可覆蓋。
 
 ## 本機開發
 

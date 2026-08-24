@@ -31,6 +31,40 @@ async def test_success_captures_log_and_stats(tmp_path):
     assert b"hello" in log.read_bytes()
     assert res.stats is None  # no stats.json written by the fake
 
+async def test_subprocess_env_silences_litellm_import_warnings(tmp_path):
+    # litellm (graphrag's LLM layer) logs "could not pre-load bedrock/sagemaker
+    # response stream shape — No module named 'botocore'" at WARNING on every
+    # import; its handler level comes from LITELLM_LOG. The job subprocess must
+    # carry LITELLM_LOG=ERROR or those two lines top EVERY index job log.
+    r = IndexRunner(argv_prefix=("sh", "-c"))
+    log = log_path_for(tmp_path, uuid.uuid4())
+    res = await r.run(
+        argv=["echo LITELLM_LOG=$LITELLM_LOG; exit 0"],
+        root=tmp_path,
+        log_path=log,
+        job_type="index",
+        heartbeat=_hb,
+        cancel_requested=lambda: False,
+    )
+    assert res.status == "succeeded"
+    assert b"LITELLM_LOG=ERROR" in log.read_bytes()
+
+
+async def test_subprocess_env_respects_explicit_litellm_log(tmp_path, monkeypatch):
+    # an operator debugging LLM calls may set LITELLM_LOG=DEBUG — never stomp it
+    monkeypatch.setenv("LITELLM_LOG", "DEBUG")
+    r = IndexRunner(argv_prefix=("sh", "-c"))
+    log = log_path_for(tmp_path, uuid.uuid4())
+    await r.run(
+        argv=["echo LITELLM_LOG=$LITELLM_LOG; exit 0"],
+        root=tmp_path,
+        log_path=log,
+        job_type="index",
+        heartbeat=_hb,
+        cancel_requested=lambda: False,
+    )
+    assert b"LITELLM_LOG=DEBUG" in log.read_bytes()
+
 
 async def test_failure_error_is_log_tail(tmp_path):
     r = IndexRunner(argv_prefix=("sh", "-c"))

@@ -23,6 +23,11 @@ import pandas as pd
 # intentional workspace-.env loading at query time (load_config(root)) is
 # untouched.
 _environ_before_import = os.environ.copy()
+# Same litellm noise as index_runner (botocore pre-load warnings on import);
+# the handler level is read from LITELLM_LOG at import time, so default it
+# before graphrag pulls litellm in. Restored below — the API process env is
+# untouched; only the already-built litellm handler keeps the level.
+os.environ.setdefault("LITELLM_LOG", "ERROR")
 try:
     from graphrag.api.query import (
         basic_search,

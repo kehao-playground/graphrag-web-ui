@@ -89,6 +89,12 @@ Short sketch (full detail in the [design spec](docs/superpowers/specs/)):
   `frontend/.npmrc` (`legacy-peer-deps=true`), and the Dockerfile must copy it
   into the build stage before `npm ci`. If you touch the copy steps, keep
   `.npmrc` with `package.json`.
+- **"LiteLLM:WARNING … could not pre-load bedrock/sagemaker response stream
+  shape" topping every index job log** — harmless: graphrag's LLM layer
+  (litellm) probes for its optional AWS (botocore) integrations at import.
+  Both graphrag touchpoints default `LITELLM_LOG=ERROR` so the noise never
+  reaches job logs; export `LITELLM_LOG` explicitly (e.g. `DEBUG`) to
+  override when debugging LLM calls.
 
 ## Local development
 
