@@ -16,7 +16,11 @@ config = context.config
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers defaults to True, which would flip .disabled
+    # on EVERY logger not named in alembic.ini — when migrations run
+    # in-process (tests' conftest), that silently kills all graphrag_ui.*
+    # loggers for the rest of the session.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # add your model's MetaData object here
 # for 'autogenerate' support
