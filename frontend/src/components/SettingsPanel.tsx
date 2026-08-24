@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { dump as yamlDump, load as yamlLoad } from "js-yaml";
 import {
   Alert, Button, Collapse, Descriptions, Input, Modal, Radio, Space, Table, Typography, message,
 } from "antd";
 import type { TableProps } from "antd";
-import { api, bodyOf } from "../api/client";
+import { api, bodyOf, messageOfBody } from "../api/client";
 import type {
   EnvKeyOut, SettingsOut, SettingsVersionDetail, SettingsVersionOut,
 } from "../api/types";
@@ -29,6 +30,7 @@ export default function SettingsPanel({ projectId, canEdit }: {
   canEdit: boolean;
 }) {
   const qc = useQueryClient();
+  const { t } = useTranslation();
   const [mode, setMode] = useState<"yaml" | "form">("yaml");
   const [conflict, setConflict] = useState<Conflict | null>(null);
   const [viewVersion, setViewVersion] = useState<SettingsVersionDetail | null>(null);
@@ -40,7 +42,7 @@ export default function SettingsPanel({ projectId, canEdit }: {
     queryKey: ["projects", projectId, "settings"],
     queryFn: async () => {
       const r = await api(`/api/projects/${projectId}/settings`);
-      if (!r.ok) throw new Error(String((await bodyOf(r)).detail ?? "無法載入設定"));
+      if (!r.ok) throw new Error(messageOfBody(await bodyOf(r), "settings.loadFailed"));
       return (await r.json()) as SettingsOut;
     },
   });
@@ -57,7 +59,7 @@ export default function SettingsPanel({ projectId, canEdit }: {
     queryKey: ["projects", projectId, "versions"],
     queryFn: async () => {
       const r = await api(`/api/projects/${projectId}/settings/versions`);
-      if (!r.ok) throw new Error("無法載入版本");
+      if (!r.ok) throw new Error(t("settings.loadVersionsFailed"));
       return (await r.json()) as SettingsVersionOut[];
     },
   });
@@ -66,7 +68,7 @@ export default function SettingsPanel({ projectId, canEdit }: {
     queryKey: ["projects", projectId, "env"],
     queryFn: async () => {
       const r = await api(`/api/projects/${projectId}/env`);
-      if (!r.ok) throw new Error("無法載入環境變數");
+      if (!r.ok) throw new Error(t("settings.loadEnvFailed"));
       return (await r.json()) as { keys: EnvKeyOut[] };
     },
   });
@@ -78,7 +80,7 @@ export default function SettingsPanel({ projectId, canEdit }: {
   async function fetchVersion(id: number): Promise<SettingsVersionDetail | null> {
     const r = await api(`/api/projects/${projectId}/settings/versions/${id}`);
     if (!r.ok) {
-      message.error("無法取得版本內容");
+      message.error(t("settings.loadVersionFailed"));
       return null;
     }
     return (await r.json()) as SettingsVersionDetail;
@@ -105,11 +107,11 @@ export default function SettingsPanel({ projectId, canEdit }: {
         return;
       }
       if (!r.ok) {
-        message.error(String((await bodyOf(r)).detail ?? "儲存失敗"));
+        message.error(messageOfBody(await bodyOf(r), "settings.saveFailed"));
         return;
       }
       setConflict(null);
-      message.success("已儲存");
+      message.success(t("settings.saved"));
       await qc.invalidateQueries({ queryKey: ["projects", projectId, "settings"] });
       await qc.invalidateQueries({ queryKey: ["projects", projectId, "versions"] });
     },
@@ -125,7 +127,7 @@ export default function SettingsPanel({ projectId, canEdit }: {
       if (r.ok) {
         setDryRun({ ok: Boolean((body as { ok?: boolean }).ok), output: String(body.output ?? "") });
       } else {
-        setDryRun({ ok: false, output: String(body.detail ?? "dry-run 失敗") });
+        setDryRun({ ok: false, output: messageOfBody(body, "settings.dryRunFailed") });
       }
     },
   });
@@ -140,12 +142,12 @@ export default function SettingsPanel({ projectId, canEdit }: {
     },
     onSuccess: async ({ r }) => {
       if (!r.ok) {
-        message.error(String((await bodyOf(r)).detail ?? "設定失敗"));
+        message.error(messageOfBody(await bodyOf(r), "settings.envSetFailed"));
         return;
       }
       setEnvKey("");
       setEnvValue("");
-      message.success("已設定");
+      message.success(t("settings.envSet"));
       await qc.invalidateQueries({ queryKey: ["projects", projectId, "env"] });
     },
   });
@@ -157,10 +159,10 @@ export default function SettingsPanel({ projectId, canEdit }: {
     },
     onSuccess: async ({ r }) => {
       if (!r.ok) {
-        message.error("刪除失敗");
+        message.error(t("settings.envDeleteFailed"));
         return;
       }
-      message.success("已刪除");
+      message.success(t("settings.envDeleted"));
       await qc.invalidateQueries({ queryKey: ["projects", projectId, "env"] });
     },
   });
@@ -231,7 +233,7 @@ export default function SettingsPanel({ projectId, canEdit }: {
     if (mode === "form") {
       const merged = applyFormEdits();
       if (merged === null) {
-        message.error("YAML 內容無法解析，請切回 YAML 模式修正後再儲存");
+        message.error(t("settings.yamlUnparsable"));
         return;
       }
       save.mutate({ content: merged, expectedHash: diskHash });
@@ -246,12 +248,12 @@ export default function SettingsPanel({ projectId, canEdit }: {
     {
       title: "",
       render: (_, row) => (
-        <Button size="small" danger disabled={!canEdit} onClick={() => deleteEnv.mutate(row.key)}>刪除</Button>
+        <Button size="small" danger disabled={!canEdit} onClick={() => deleteEnv.mutate(row.key)}>{t("common.delete")}</Button>
       ),
     },
   ];
 
-  if (settings.isPending) return <Text>載入中…</Text>;
+  if (settings.isPending) return <Text>{t("common.loading")}</Text>;
   if (settings.error) return <Alert type="error" showIcon message={settings.error.message} />;
 
   return (
@@ -262,7 +264,7 @@ export default function SettingsPanel({ projectId, canEdit }: {
             <Radio.Button value="yaml">YAML</Radio.Button>
             <Radio.Button value="form">Form</Radio.Button>
           </Radio.Group>
-          <Button type="primary" disabled={!canEdit} loading={save.isPending} onClick={saveCurrent}>儲存設定</Button>
+          <Button type="primary" disabled={!canEdit} loading={save.isPending} onClick={saveCurrent}>{t("settings.saveSettings")}</Button>
         </Space>
         {mode === "yaml" ? (
           <TextArea
@@ -276,11 +278,11 @@ export default function SettingsPanel({ projectId, canEdit }: {
         ) : (
           <Space direction="vertical" style={{ width: "100%" }}>
             {base === null && (
-              <Alert type="warning" showIcon message="設定 YAML 為空或非物件結構，無法以表單編輯；請切回 YAML 模式" />
+              <Alert type="warning" showIcon message={t("settings.yamlNotObject")} />
             )}
             {[
-              ["completion_models.default_completion_model", "模型 (model)"],
-              ["embedding_models.default_embedding_model", "嵌入模型 (model)"],
+              ["completion_models.default_completion_model", t("settings.modelTitle")],
+              ["embedding_models.default_embedding_model", t("settings.embeddingModelTitle")],
             ].map(([section, label]) => (
               <Descriptions key={section} title={label} size="small" bordered column={1}>
                 {COMPLETION_PATHS.map((leaf) => (
@@ -294,7 +296,7 @@ export default function SettingsPanel({ projectId, canEdit }: {
               <Descriptions.Item label="size"><Input aria-label="chunk-size" {...formField("chunking", "size")} /></Descriptions.Item>
               <Descriptions.Item label="overlap"><Input aria-label="chunk-overlap" {...formField("chunking", "overlap")} /></Descriptions.Item>
             </Descriptions>
-            <Descriptions title="input (建立時鎖定,spec §6.5)" size="small" bordered column={2}>
+            <Descriptions title={t("settings.inputTitle")} size="small" bordered column={2}>
               <Descriptions.Item label="type"><Text>{formValue("input", "type")}</Text></Descriptions.Item>
               <Descriptions.Item label="file_pattern"><Text code>{formValue("input", "file_pattern")}</Text></Descriptions.Item>
             </Descriptions>
@@ -304,30 +306,30 @@ export default function SettingsPanel({ projectId, canEdit }: {
 
       <Modal
         open={conflict !== null}
-        title="設定已被他人修改 (衝突)"
+        title={t("settings.conflictTitle")}
         footer={[
           <Button key="reload" onClick={() => {
             if (!conflict) return;
             setContent(conflict.currentContent);
             setConflict(null);
             qc.invalidateQueries({ queryKey: ["projects", projectId, "settings"] });
-          }}>重新載入</Button>,
+          }}>{t("settings.reload")}</Button>,
           <Button key="overwrite" danger type="primary" onClick={() => {
             if (!conflict) return;
             save.mutate({ content: conflict.myContent, expectedHash: conflict.currentHash });
-          }}>覆寫</Button>,
+          }}>{t("settings.overwrite")}</Button>,
         ]}
       >
         <Space direction="vertical" style={{ width: "100%" }}>
-          <Text strong>伺服器上的內容</Text>
+          <Text strong>{t("settings.serverContent")}</Text>
           <pre style={{ background: "#fafafa", padding: 8 }}>{conflict?.currentContent}</pre>
-          <Text strong>你的內容</Text>
+          <Text strong>{t("settings.yourContent")}</Text>
           <pre style={{ background: "#fafafa", padding: 8 }}>{conflict?.myContent}</pre>
         </Space>
       </Modal>
 
       <div>
-        <Typography.Title level={5}>版本歷史</Typography.Title>
+        <Typography.Title level={5}>{t("settings.versionHistory")}</Typography.Title>
         <Collapse items={(versions.data ?? []).map((v) => ({
           key: v.id,
           label: <span>{v.created_at} · <Text code>{v.content_hash.slice(0, 8)}</Text></span>,
@@ -336,37 +338,37 @@ export default function SettingsPanel({ projectId, canEdit }: {
               <Button size="small" onClick={async () => {
                 const detail = await fetchVersion(v.id);
                 if (detail) setViewVersion(detail);
-              }}>檢視</Button>
+              }}>{t("settings.view")}</Button>
               <Button size="small" disabled={!canEdit} onClick={async () => {
                 const detail = await fetchVersion(v.id);
                 if (detail) save.mutate({ content: detail.content, expectedHash: diskHash });
-              }}>還原</Button>
+              }}>{t("settings.restore")}</Button>
             </Space>
           ),
         }))} />
       </div>
 
-      <Modal open={viewVersion !== null} title={`版本 #${viewVersion?.id}`} footer={<Button onClick={() => setViewVersion(null)}>關閉</Button>}>
+      <Modal open={viewVersion !== null} title={t("settings.versionTitle", { id: viewVersion?.id })} footer={<Button onClick={() => setViewVersion(null)}>{t("settings.close")}</Button>}>
         <pre style={{ background: "#fafafa", padding: 8, maxHeight: 400, overflow: "auto" }}>{viewVersion?.content}</pre>
       </Modal>
 
       <div>
         <Space style={{ marginBottom: 8 }}>
           <Button disabled={!canEdit} loading={dryRunMutation.isPending}
-                  onClick={() => dryRunMutation.mutate()}>驗證設定 (dry-run)</Button>
+                  onClick={() => dryRunMutation.mutate()}>{t("settings.dryRunButton")}</Button>
         </Space>
         {dryRun && (
           <Alert
             type={dryRun.ok ? "success" : "error"}
             showIcon
-            message={dryRun.ok ? "dry-run 通過" : "dry-run 失敗"}
+            message={dryRun.ok ? t("settings.dryRunPassed") : t("settings.dryRunFailed")}
             description={<pre style={{ margin: 0, maxHeight: 240, overflow: "auto" }}>{dryRun.output}</pre>}
           />
         )}
       </div>
 
       <div>
-        <Typography.Title level={5}>環境變數 (workspace .env)</Typography.Title>
+        <Typography.Title level={5}>{t("settings.envTitle")}</Typography.Title>
         <Table rowKey="key" size="small" columns={envColumns} dataSource={env.data?.keys ?? []}
                pagination={false} loading={env.isPending} />
         <Space.Compact style={{ marginTop: 8, width: "100%" }}>
@@ -375,7 +377,7 @@ export default function SettingsPanel({ projectId, canEdit }: {
           <Input.Password placeholder="value" value={envValue}
                           disabled={!canEdit} onChange={(e) => setEnvValue(e.target.value)} />
           <Button type="primary" disabled={!canEdit || !envKey || !envValue}
-                  loading={patchEnv.isPending} onClick={() => patchEnv.mutate()}>設定</Button>
+                  loading={patchEnv.isPending} onClick={() => patchEnv.mutate()}>{t("settings.envSetButton")}</Button>
         </Space.Compact>
       </div>
     </Space>
