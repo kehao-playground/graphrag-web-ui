@@ -52,7 +52,7 @@ briefs; their Global Constraints always apply.
 ```bash
 # backend (Python 3.12, uv; Docker required for testcontainers; duckdb
 # reads explore parquet artifacts read-only)
-cd backend && uv run pytest -v          # 240 tests with GRAPHRAG_API_KEY (235 fast); 5 slow tests fork the real graphrag CLI (3 need the key, skipped without it); fast only: uv run pytest -m "not slow"
+cd backend && uv run pytest -v          # 242 tests with GRAPHRAG_API_KEY (237 fast); 5 slow tests fork the real graphrag CLI (3 need the key, skipped without it); fast only: uv run pytest -m "not slow"
 cd backend && uv run ruff check
 
 # frontend (Node 24; jsdom+undici need >=22; explore graph renders via
