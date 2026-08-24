@@ -19,13 +19,14 @@ sliding window on client IP alone collapses to one shared bucket.
 ## Documentation
 
 - Write project documentation (specs, plans, README, runbooks, chart docs)
-  in **English**. English is the primary and authoritative version.
-- Traditional Chinese (zh-TW) translations may be added later under
-  `docs/zh-TW/`; they follow the English version, which stays authoritative
-  when they drift.
-- Historical documents written in zh-TW before this convention (the
-  Foundation-A spec and plan) remain as-is until replaced; do not
-  mass-translate them retroactively.
+  in **English**; new documents are English. English is the primary and
+  authoritative version.
+- `docs/zh-TW/` exists and mirrors the root README: a README change
+  updates its zh-TW mirror in the same PR. The English version stays
+  authoritative when they drift.
+- Historical specs/plans dated ≤2026-08-23 stay in their original
+  language — they are records, not living docs; do not mass-translate
+  them retroactively.
 
 ## Code Comments
 
