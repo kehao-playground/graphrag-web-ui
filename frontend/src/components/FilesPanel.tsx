@@ -28,7 +28,7 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
 }) {
   const accept = ACCEPT[inputFileType as keyof typeof ACCEPT];
   const qc = useQueryClient();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
 
   const files = useQuery({
     queryKey: ["projects", projectId, "files"],
@@ -83,7 +83,7 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
   const columns: TableProps<FileEntry>["columns"] = [
     { title: t("common.name"), dataIndex: "name" },
     { title: t("files.size"), dataIndex: "size", width: 110, render: (_, f) => kib(f.size) },
-    { title: t("files.modifiedAt"), dataIndex: "modified_at", width: 190, render: (_, f) => new Date(f.modified_at).toLocaleString() },
+    { title: t("files.modifiedAt"), dataIndex: "modified_at", width: 190, render: (_, f) => new Date(f.modified_at).toLocaleString(i18n.language) },
     ...(canEdit
       ? [{
           title: t("common.actions"),

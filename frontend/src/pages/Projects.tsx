@@ -22,7 +22,7 @@ interface CreateForm {
 export default function Projects() {
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { user } = useAuth();
   const [createOpen, setCreateOpen] = useState(false);
   const [form] = Form.useForm<CreateForm>();
@@ -109,7 +109,7 @@ export default function Projects() {
       title: t("common.createdAt"),
       dataIndex: "created_at",
       width: 210,
-      render: (v: string) => new Date(v).toLocaleString(),
+      render: (v: string) => new Date(v).toLocaleString(i18n.language),
     },
     {
       title: t("projects.owner"),

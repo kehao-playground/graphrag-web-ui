@@ -39,7 +39,7 @@ export async function bodyOf(r: Response): Promise<Record<string, unknown>> {
 // i18next 26.4.0 / TS 6.0.3).
 type AnyTKey = ParseKeys;
 
-const isErrorCode = (c: string): c is ErrorCode => c in zhTW.errors;
+const isErrorCode = (c: string): c is ErrorCode => Object.hasOwn(zhTW.errors, c);
 
 // Shared code→catalog mapping (spec §5.4): known code → localized
 // message; else verbatim detail; else the fallback key.
@@ -75,7 +75,7 @@ async function requireOk(r: Response, fallback: string): Promise<void> {
   if (r.ok) return;
   let parsedBody: Record<string, unknown> = {};
   try {
-    parsedBody = (await r.json()) as Record<string, unknown>;
+    parsedBody = ((await r.json()) ?? {}) as Record<string, unknown>;
   } catch {
     // non-JSON body → messageOfBody falls back to the key
   }

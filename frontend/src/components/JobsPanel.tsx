@@ -35,7 +35,7 @@ const isActive = (j: Job) => ["queued", "running"].includes(j.status);
 
 export default function JobsPanel({ projectId, canEdit }: { projectId: string; canEdit: boolean }) {
   const qc = useQueryClient();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   // JobOut types method/type as plain strings; the lookups cover the known
   // values and the fallback shows unknowns raw.
   const typeLabel = (v: string) =>
@@ -169,7 +169,7 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
       title: t("jobs.queuedAt"),
       dataIndex: "queued_at",
       width: 180,
-      render: (_, j) => new Date(j.queued_at).toLocaleString(),
+      render: (_, j) => new Date(j.queued_at).toLocaleString(i18n.language),
     },
     {
       title: t("jobs.duration"),

@@ -25,7 +25,7 @@ const ROLE_OPTIONS = ROLES.map((r) => ({ label: r, value: r }));
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { user } = useAuth();
   const [addUserId, setAddUserId] = useState<string>();
   const [addRole, setAddRole] = useState<Role>("viewer");
@@ -183,7 +183,7 @@ export default function ProjectDetail() {
               { key: "slug", label: t("projectDetail.slug"), children: p.slug },
               { key: "description", label: t("common.description"), children: p.description ?? t("common.notApplicable") },
               { key: "type", label: t("projects.inputFormat"), children: <Tag>{p.input_file_type}</Tag> },
-              { key: "created", label: t("common.createdAt"), children: new Date(p.created_at).toLocaleString() },
+              { key: "created", label: t("common.createdAt"), children: new Date(p.created_at).toLocaleString(i18n.language) },
               { key: "owner", label: t("projects.owner"), children: owner ? t("projectDetail.ownerWithNameEmail", { name: owner.display_name, email: owner.email }) : t("common.notApplicable") },
             ]}
           />
