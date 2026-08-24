@@ -5,7 +5,7 @@ read/list/logs = viewer+."""
 import json
 import uuid
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, status
 from fastapi.responses import StreamingResponse
 
 from graphrag_ui.adapters.db import get_session_factory
@@ -13,6 +13,7 @@ from graphrag_ui.adapters.index_runner import log_path_for
 from graphrag_ui.adapters.job_logs import tail_log
 from graphrag_ui.adapters.models import Job
 from graphrag_ui.api.deps import CurrentUser, DbSession, SseUser, get_current_user
+from graphrag_ui.api.errors import ApiError
 from graphrag_ui.api.projects_routes import _forbidden, _project_or_404
 from graphrag_ui.api.schemas import (
     JobCreateIn,
@@ -51,7 +52,7 @@ def job_out(j: Job) -> dict:
 async def _job_or_404(db: DbSession, job_id: uuid.UUID) -> Job:
     job = await jobs_service.get(db, job_id)
     if job is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "job not found")
+        raise ApiError(status.HTTP_404_NOT_FOUND, "job_not_found", "job not found")
     return job
 
 
@@ -77,9 +78,9 @@ def register_jobs_routes(app):
         try:
             job = await jobs_service.enqueue(db, project, body.type, body.method, user)
         except JobConflictError:
-            raise HTTPException(status.HTTP_409_CONFLICT, "此專案已有進行中的索引任務") from None
+            raise ApiError(status.HTTP_409_CONFLICT, "job_conflict", "此專案已有進行中的索引任務") from None
         except DiskWatermarkError:
-            raise HTTPException(status.HTTP_409_CONFLICT, "磁碟剩餘空間不足") from None
+            raise ApiError(status.HTTP_409_CONFLICT, "disk_watermark", "磁碟剩餘空間不足") from None
         return job_out(job)
 
     @router.get("/projects/{pid}/jobs", response_model=list[JobOut])
@@ -115,7 +116,7 @@ def register_jobs_routes(app):
         if not can(user.role, user.is_active, Action.edit_content, await _job_role(db, user, job)):
             raise _forbidden()
         if not await jobs_service.cancel(db, job):
-            raise HTTPException(status.HTTP_409_CONFLICT, "任務已結束")
+            raise ApiError(status.HTTP_409_CONFLICT, "job_already_finished", "任務已結束")
         return {"detail": "已請求取消"}
 
     @sse_router.get("/jobs/{job_id}/logs")
@@ -133,7 +134,7 @@ def register_jobs_routes(app):
         try:
             start = offset if offset >= 0 else int(last_event_id or 0)
         except ValueError:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid Last-Event-ID") from None
+            raise ApiError(status.HTTP_400_BAD_REQUEST, "job_invalid_last_event_id", "invalid Last-Event-ID") from None
         log_path = log_path_for(ws_path(job.project_id), job.id)
 
         async def gen():
