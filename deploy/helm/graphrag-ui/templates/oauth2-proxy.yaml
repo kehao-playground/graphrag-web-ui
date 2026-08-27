@@ -1,17 +1,20 @@
-{{- if and .Values.proxyAuth.enabled (not .Values.proxyAuth.external.url) }}
+{{/* Chart-managed proxy-auth Secret (client/cookie/proxy-auth): rendered whenever proxyAuth is
+     enabled without an existingSecret — including external mode, where the api's PROXY_AUTH_SECRET
+     secretKeyRef must still resolve. Nothing Secret-shaped renders when existingSecret is set. */}}
+{{- if and .Values.proxyAuth.enabled (not .Values.proxyAuth.existingSecret) }}
 apiVersion: v1
 kind: Secret
 metadata:
   name: {{ include "graphrag-ui.proxyAuthSecretName" . }}
   labels:
     {{- include "graphrag-ui.labels" . | nindent 4 }}
-{{- if not .Values.proxyAuth.existingSecret }}
 type: Opaque
 stringData:
   client-secret: {{ .Values.proxyAuth.clientSecret | quote }}
   cookie-secret: {{ .Values.proxyAuth.cookieSecret | quote }}
   proxy-auth-secret: {{ .Values.proxyAuth.authSecret | quote }}
 {{- end }}
+{{- if and .Values.proxyAuth.enabled (not .Values.proxyAuth.external.url) }}
 ---
 apiVersion: v1
 kind: ConfigMap
