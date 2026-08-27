@@ -25,7 +25,7 @@ interface EditForm {
 export default function AdminUsers() {
   const qc = useQueryClient();
   const { t } = useTranslation();
-  const { user: me } = useAuth();
+  const { user: me, authMode } = useAuth();
   const [createOpen, setCreateOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<User>();
   const [resetTarget, setResetTarget] = useState<User>();
@@ -123,7 +123,12 @@ export default function AdminUsers() {
             >
               {t("adminUsers.edit")}
             </Button>
-            <Button size="small" onClick={() => setResetTarget(u)}>{t("adminUsers.resetPassword")}</Button>
+            {/* Proxy mode: the IdP owns passwords, so reset lives only in local mode (spec §5.4). */}
+            {authMode !== "proxy" && (
+              <Button size="small" data-testid="reset-password-button" onClick={() => setResetTarget(u)}>
+                {t("adminUsers.resetPassword")}
+              </Button>
+            )}
             <Popconfirm
               title={u.is_active ? t("adminUsers.disableTitle", { email: u.email }) : t("adminUsers.enableTitle", { email: u.email })}
               description={t("adminUsers.disableWarning")}

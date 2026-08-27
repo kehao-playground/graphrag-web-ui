@@ -14,6 +14,7 @@ export default {
     auth_not_authenticated: "未登入",
     auth_invalid_token: "token 無效或已過期",
     auth_must_change_password: "需先更改密碼",
+    auth_user_disabled: "此帳號已停用",
     admin_only: "僅管理者可用",
     // explore
     explore_unknown_table: "未知的資料表",

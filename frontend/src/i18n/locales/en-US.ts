@@ -18,6 +18,7 @@ const enUS = {
     auth_not_authenticated: "Not authenticated",
     auth_invalid_token: "Invalid or expired token",
     auth_must_change_password: "Password change required",
+    auth_user_disabled: "This account is disabled",
     admin_only: "Admin only",
     explore_unknown_table: "Unknown table",
     explore_unsupported_filter: "This table does not support that filter",

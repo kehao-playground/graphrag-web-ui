@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Button, Form, Input, Modal } from "antd";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "../stores/auth";
+import { redirectToProxyLogin, useAuth } from "../stores/auth";
 
 export default function Login() {
   const { t } = useTranslation();
@@ -13,6 +13,13 @@ export default function Login() {
   const [mustChange, setMustChange] = useState(false);
   const [changeForm] = Form.useForm();
   const [changing, setChanging] = useState(false);
+
+  const authMode = useAuth((s) => s.authMode);
+  useEffect(() => {
+    if (authMode === "proxy") redirectToProxyLogin();
+  }, [authMode]);
+  // The proxy IdP owns sign-in; the local form never shows (spec §6.3).
+  if (authMode === "proxy") return null;
 
   const onFinish = async (values: { email: string; password: string }) => {
     setError(false);

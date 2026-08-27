@@ -151,3 +151,17 @@ test("canUse=false disables 執行查詢", () => {
   mount(false);
   expect(screen.getByRole("button", { name: "執行查詢" })).toBeDisabled();
 });
+
+test("proxy mode: EventSource URL carries no empty token param", async () => {
+  useAuth.setState({ authMode: "proxy", accessToken: null });
+  mount();
+  const es = await startStream();
+  expect(es.url).not.toContain("token=");
+});
+
+test("local mode: token still included", async () => {
+  useAuth.setState({ authMode: "local", accessToken: "test-token" });
+  mount();
+  const es = await startStream();
+  expect(es.url).toContain("token=test-token");
+});

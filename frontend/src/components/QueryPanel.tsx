@@ -53,7 +53,9 @@ export default function QueryPanel({ projectId, canUse }: { projectId: string; c
       `?method=${method}` +
       `&query=${encodeURIComponent(q)}` +
       `&response_type=${encodeURIComponent(RESPONSE_TYPE)}` +
-      `&token=${encodeURIComponent(token ?? "")}`;
+      // No token in proxy mode (cookie auth); an empty token= param would
+      // just read as an invalid bearer upstream (spec §6.4).
+      (token ? `&token=${encodeURIComponent(token)}` : "");
     const es = new EventSource(url);
     esRef.current = es;
 
