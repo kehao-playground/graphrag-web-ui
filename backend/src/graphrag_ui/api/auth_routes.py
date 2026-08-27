@@ -7,6 +7,7 @@ from graphrag_ui.adapters.models import User
 from graphrag_ui.api.deps import CurrentUser, DbSession
 from graphrag_ui.api.errors import ApiError
 from graphrag_ui.api.schemas import (
+    AuthConfigOut,
     ChangePasswordIn,
     LoginIn,
     LoginOut,
@@ -14,6 +15,7 @@ from graphrag_ui.api.schemas import (
     RefreshOut,
     UserOut,
 )
+from graphrag_ui.config import get_settings
 from graphrag_ui.services.auth import (
     authenticate,
     create_access_token,
@@ -65,6 +67,22 @@ def register_auth_routes(app):
     # called repeatedly in tests
     router = APIRouter(prefix="/api/auth")
 
+    @router.get("/config", response_model=AuthConfigOut)
+    async def auth_config():
+        """Public mode probe: the SPA's single source of truth (spec §5.3)."""
+        return AuthConfigOut(auth_mode=get_settings().auth_mode)
+
+    @router.get("/me", response_model=UserOut)
+    async def me(user: CurrentUser):
+        return UserOut.model_validate(user)
+
+    if get_settings().auth_mode == "proxy":
+        # Proxy mode replaces the local login surface entirely (spec §5.3):
+        # unregistered routes 404. This is also the first get_settings()
+        # call create_app() makes, so the §4 secret validator fires here.
+        app.include_router(router)
+        return
+
     @router.post("/login", response_model=LoginOut)
     async def login(body: LoginIn, request: Request, db: DbSession):
         _check_login_rate_limit(request, body.email)
@@ -108,9 +126,5 @@ def register_auth_routes(app):
         # login's); the commit also flushes the user mutation above
         await revoke_all_for_user(db, user.id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-    @router.get("/me", response_model=UserOut)
-    async def me(user: CurrentUser):
-        return UserOut.model_validate(user)
 
     app.include_router(router)

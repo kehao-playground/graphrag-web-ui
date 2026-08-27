@@ -159,6 +159,11 @@ async def authenticate(session: AsyncSession, email: str, password: str) -> User
 
 
 async def bootstrap_admin(session: AsyncSession) -> None:
+    if get_settings().auth_mode == "proxy":
+        # Proxy mode: the initial admin comes from PROXY_ADMIN_EMAILS JIT
+        # (spec §5.2); local login is disabled, so a password-having admin
+        # would be unreachable anyway.
+        return
     s = get_settings()
     if not s.bootstrap_admin_email or not s.bootstrap_admin_password:
         return

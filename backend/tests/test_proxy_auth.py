@@ -3,13 +3,16 @@
 import asyncio
 
 import pytest
+from asgi_lifespan import LifespanManager
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select, text
 from starlette.requests import Request
 
-from graphrag_ui.adapters.db import make_engine, make_session_factory
+from graphrag_ui.adapters.db import make_engine, make_session_factory, reset_engine
 from graphrag_ui.adapters.models import User
 from graphrag_ui.api.deps import resolve_proxy_user
 from graphrag_ui.config import Settings, get_settings
+from graphrag_ui.main import create_app
 from graphrag_ui.services.auth import (
     UNUSABLE_PASSWORD_HASH,
     get_or_provision_user,
@@ -224,3 +227,73 @@ async def test_resolver_skips_must_change_gate(db_session, proxy_env):
     user = await resolve_proxy_user(make_request({
         "X-Proxy-Secret": SECRET, "X-Forwarded-Email": "stuck@test.local"}), db_session)
     assert user.must_change_password is True  # flag kept, gate skipped
+
+# ---- route matrix (spec §5.3) ----
+
+@pytest.fixture
+async def proxy_client(proxy_env, clean_db, monkeypatch, tmp_path):
+    monkeypatch.setenv("WORKSPACES_DIR", str(tmp_path / "ws"))
+    monkeypatch.setenv("MAX_CONCURRENT_JOBS", "0")
+    get_settings.cache_clear()
+    await reset_engine()
+    app = create_app()
+    async with (
+        LifespanManager(app) as managed,
+        AsyncClient(transport=ASGITransport(app=managed.app), base_url="http://t") as c,
+    ):
+        yield c
+    await reset_engine()
+
+
+def _hdrs(email="alice@test.local"):
+    return {"X-Proxy-Secret": SECRET, "X-Forwarded-Email": email,
+            "X-Forwarded-Preferred-Username": "Alice"}
+
+
+async def test_local_auth_routes_404_in_proxy_mode(proxy_client):
+    for path in ("/api/auth/login", "/api/auth/refresh", "/api/auth/logout",
+                 "/api/auth/change-password"):
+        r = await proxy_client.post(path, json={})
+        assert r.status_code == 404, path
+
+
+async def test_auth_config_proxy(proxy_client):
+    assert (await proxy_client.get("/api/auth/config")).json() == {"auth_mode": "proxy"}
+
+
+async def test_auth_config_local(client):
+    assert (await client.get("/api/auth/config")).json() == {"auth_mode": "local"}
+
+
+async def test_me_jits_via_headers(proxy_client, db_session):
+    r = await proxy_client.get("/api/auth/me", headers=_hdrs("newbie@test.local"))
+    assert r.status_code == 200
+    assert r.json()["email"] == "newbie@test.local"
+
+
+async def test_me_401_without_headers(proxy_client):
+    assert (await proxy_client.get("/api/auth/me")).status_code == 401
+
+
+async def test_sse_route_uses_header_identity(proxy_client):
+    # 401 before the 404 job lookup: the auth dependency runs first
+    r = await proxy_client.get("/api/jobs/00000000-0000-0000-0000-000000000000/logs")
+    assert r.status_code == 401
+    r2 = await proxy_client.get("/api/jobs/00000000-0000-0000-0000-000000000000/logs",
+                                headers=_hdrs())
+    assert r2.status_code == 404  # authenticated, but the job does not exist
+
+
+async def test_auth_config_reachable_during_must_change(client, db_session):
+    # /api/auth/config joins MUST_CHANGE_ALLOWED_PATHS (spec §5.3): a public
+    # endpoint answering 403 during the forced-password-change bootstrap is
+    # a confusing failure with no diagnostic value.
+    from graphrag_ui.adapters.models import User as U
+    from graphrag_ui.services.auth import create_access_token
+    u = U(email="mc@test.local", password_hash="x", display_name="M",
+          must_change_password=True)
+    db_session.add(u)
+    await db_session.commit()
+    h = {"Authorization": f"Bearer {create_access_token(u)}"}
+    assert (await client.get("/api/auth/config", headers=h)).status_code == 200
+    assert (await client.get("/api/users", headers=h)).status_code == 403  # guard intact

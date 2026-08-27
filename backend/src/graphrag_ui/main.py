@@ -21,6 +21,7 @@ from graphrag_ui.api.projects_routes import register_projects_routes
 from graphrag_ui.api.query_routes import register_query_routes
 from graphrag_ui.api.settings_routes import register_settings_routes
 from graphrag_ui.api.users_routes import register_users_routes
+from graphrag_ui.config import get_settings
 from graphrag_ui.services.auth import bootstrap_admin
 
 
@@ -121,5 +122,6 @@ def create_app() -> FastAPI:
     register_dry_run_routes(app)
     register_query_routes(app)
     register_explore_routes(app)
-    _register_must_change_guard(app)
+    if get_settings().auth_mode == "local":
+        _register_must_change_guard(app)
     return app

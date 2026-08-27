@@ -21,7 +21,7 @@ _bearer = HTTPBearer(auto_error=False)
 # main.py's global middleware and get_current_user share it; neither may drift.
 MUST_CHANGE_ALLOWED_PATHS = frozenset({
     "/api/auth/login", "/api/auth/refresh", "/api/auth/logout",
-    "/api/auth/change-password", "/api/auth/me",
+    "/api/auth/change-password", "/api/auth/me", "/api/auth/config",
     "/api/health", "/api/ready",
 })
 

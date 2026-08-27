@@ -1,6 +1,24 @@
 {
   "components": {
     "schemas": {
+      "AuthConfigOut": {
+        "description": "Runtime auth mode for SPA boot detection (spec \u00a75.3).",
+        "properties": {
+          "auth_mode": {
+            "enum": [
+              "local",
+              "proxy"
+            ],
+            "title": "Auth Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "auth_mode"
+        ],
+        "title": "AuthConfigOut",
+        "type": "object"
+      },
       "Body_upload_file_api_projects__pid__files_post": {
         "properties": {
           "file": {
@@ -1234,6 +1252,25 @@
           }
         ],
         "summary": "Change Password"
+      }
+    },
+    "/api/auth/config": {
+      "get": {
+        "description": "Public mode probe: the SPA's single source of truth (spec \u00a75.3).",
+        "operationId": "auth_config_api_auth_config_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthConfigOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Auth Config"
       }
     },
     "/api/auth/login": {

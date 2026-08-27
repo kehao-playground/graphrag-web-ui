@@ -64,6 +64,11 @@ class RefreshOut(BaseModel):
     refresh_token: str
 
 
+class AuthConfigOut(BaseModel):
+    """Runtime auth mode for SPA boot detection (spec §5.3)."""
+    auth_mode: Literal["local", "proxy"]
+
+
 class JobCreateIn(BaseModel):
     type: Literal["index", "update"]
     method: Literal["standard", "fast"]
