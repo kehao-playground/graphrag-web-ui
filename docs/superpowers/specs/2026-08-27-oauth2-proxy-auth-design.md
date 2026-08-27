@@ -477,24 +477,35 @@ proxyAuth:
   provider: oidc
   issuerUrl: ""
   clientId: ""
-  existingSecret: ""   # keys: client-secret, cookie-secret, proxy-auth-secret
+  clientSecret: ""     # plaintext fallbacks used only when existingSecret is empty;
+  cookieSecret: ""     # all three feed the chart Secret's extra keys
+  authSecret: ""       # PROXY_AUTH_SECRET — >= 32 chars, validated by the api at startup
+  existingSecret: ""   # when set, must contain: client-secret, cookie-secret, proxy-auth-secret
   adminEmails: []
   emailDomains: []     # REQUIRED when enabled (see §7.1); ["*"] = open registration
 ```
 
-- `proxyAuth.enabled=true` and no `external.url`: vendor the official
-  `oauth2-proxy/oauth2-proxy` chart (same pattern as the vendored
-  `postgresql-18.8.12.tgz`), configured with alphaConfig
-  `injectResponseHeaders` (email / preferred_username claims +
-  `X-Proxy-Secret` from the secret) since the ingress external-auth
-  flow copies headers from oauth2-proxy's **auth response**. The
-  sub-chart's own ingress is enabled under path `/oauth2` so the
-  `auth-signin` redirect below has a public endpoint; it must be
-  rendered with **our** `ingress.host` and `ingress.className`, or it
-  lands on a different host/controller and the longest-prefix match
-  that puts `/oauth2` ahead of our `/` rule never happens. Those two
-  values are threaded from the parent chart, not re-declared under
-  `proxyAuth`.
+- `proxyAuth.enabled=true` and no `external.url`: the chart ships its
+  own **hand-rolled** oauth2-proxy Deployment + Service + ConfigMap
+  (`templates/oauth2-proxy.yaml`), like the hand-rolled api/web
+  templates — NOT the official chart as a dependency. Reason: Helm
+  sub-chart values are static and cannot reference parent values, so
+  threading `proxyAuth.issuerUrl`/`ingress.host` into a sub-chart's
+  alphaConfig/ingress would force operators to declare every value
+  twice. The ConfigMap carries the alpha config with `${ENV}`
+  placeholders (oauth2-proxy's own envsubst) fed by container env:
+  provider/client/cookie secrets from the chart Secret,
+  `OAUTH2_PROXY_EMAIL_DOMAINS` from `proxyAuth.emailDomains`,
+  `OAUTH2_PROXY_API_ROUTES=^/api/`. Because nginx-ingress
+  external-auth copies headers from the **auth response**, the alpha
+  config declares `injectResponseHeaders` (email /
+  preferred_username claims + `X-Proxy-Secret` via a secret-file
+  volume mount), not `injectRequestHeaders`.
+- A **third parent-rendered Ingress** routes `/oauth2` → the
+  oauth2-proxy Service on the same `ingress.host`/`className`, so the
+  `auth-signin` redirect below has a public endpoint and the
+  longest-prefix match that puts `/oauth2` ahead of our `/` rule
+  happens on the same controller.
 - `templates/ingress.yaml` **splits into two Ingress objects** when
   `proxyAuth.enabled` (decision 5). Today's single object routes
   `/api` → api service and `/` → web service; nginx-ingress applies
