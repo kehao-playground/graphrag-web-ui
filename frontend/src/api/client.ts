@@ -14,7 +14,17 @@ export async function api(path: string, init: RequestInit = {}, retried = false)
     // TypeError (spec §6.2); a real network rejection also counts as
     // session-expired and is re-thrown after scheduling the redirect.
     try {
-      const r = await fetch(path, { ...init, redirect: "manual" });
+      const r = await fetch(path, {
+        ...init,
+        redirect: "manual",
+        headers: {
+          // Same JSON-only rule as the local branch below: string bodies
+          // are JSON (FastAPI 422s on the text/plain default), FormData
+          // keeps the browser-set multipart boundary, caller headers win.
+          ...(typeof init.body === "string" ? { "Content-Type": "application/json" } : {}),
+          ...init.headers,
+        },
+      });
       if (r.status === 401 || r.type === "opaqueredirect") redirectToProxyLogin();
       return r;
     } catch (err) {

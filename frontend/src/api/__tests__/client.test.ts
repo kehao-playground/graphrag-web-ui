@@ -97,3 +97,28 @@ test("proxy mode: 403 does NOT redirect (account disabled is a normal error)", a
   expect(r.status).toBe(403);
   expect(assign).not.toHaveBeenCalled();
 });
+
+test("proxy mode: JSON string body sends Content-Type application/json, still no Authorization", async () => {
+  // The proxy branch must mirror the local branch's header merge: without
+  // it a string body defaults to text/plain and FastAPI 422s every JSON
+  // mutation (review C1).
+  const calls: RequestInit[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (_p: string, init?: RequestInit) => {
+    calls.push(init ?? {});
+    return { ok: true, status: 200, type: "basic", json: async () => ({}) } as unknown as Response;
+  }));
+  vi.resetModules();
+  const { api } = await import("../client");
+  const { useAuth } = await import("../../stores/auth");
+  useAuth.setState({ authMode: "proxy", accessToken: null });
+
+  const r = await api("/api/projects", { method: "POST", body: JSON.stringify({ name: "p" }) });
+
+  expect(r.status).toBe(200);
+  expect(calls).toHaveLength(1);
+  expect((calls[0].headers ?? {}) as Record<string, unknown>).toMatchObject({
+    "Content-Type": "application/json",
+  });
+  expect((calls[0].headers ?? {}) as Record<string, unknown>).not.toHaveProperty("Authorization");
+  expect(assign).not.toHaveBeenCalled();
+});
