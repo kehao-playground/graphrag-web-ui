@@ -1,13 +1,27 @@
 import type {
   ArtifactDetail, ArtifactPage, ArtifactTableName, GraphData,
 } from "./types";
-import { useAuth, refreshOnce } from "../stores/auth";
+import { useAuth, refreshOnce, redirectToProxyLogin } from "../stores/auth";
 import { i18n } from "../i18n";
 import zhTW from "../i18n/locales/zh-TW";
 import type { ErrorCode } from "../i18n";
 import type { ParseKeys } from "i18next";
 
 export async function api(path: string, init: RequestInit = {}, retried = false): Promise<Response> {
+  if (useAuth.getState().authMode === "proxy") {
+    // Proxy mode: no app token. redirect:"manual" keeps an edge login
+    // redirect a detectable opaqueredirect signal instead of a CORS
+    // TypeError (spec §6.2); a real network rejection also counts as
+    // session-expired and is re-thrown after scheduling the redirect.
+    try {
+      const r = await fetch(path, { ...init, redirect: "manual" });
+      if (r.status === 401 || r.type === "opaqueredirect") redirectToProxyLogin();
+      return r;
+    } catch (err) {
+      redirectToProxyLogin();
+      throw err;
+    }
+  }
   const token = useAuth.getState().accessToken ?? (await refreshOnce());
   const r = await fetch(path, {
     ...init,
