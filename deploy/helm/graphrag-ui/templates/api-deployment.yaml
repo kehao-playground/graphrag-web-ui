@@ -64,6 +64,16 @@ spec:
               value: {{ .Values.queryCacheMb | quote }}
             - name: QUERY_RATE_LIMIT_PER_HOUR
               value: {{ .Values.queryRateLimitPerHour | quote }}
+            {{- if .Values.proxyAuth.enabled }}
+            # Proxy-auth mode (spec §7.2): identity arrives via trusted headers injected by oauth2-proxy
+            - name: AUTH_MODE
+              value: proxy
+            - name: PROXY_ADMIN_EMAILS
+              value: {{ join "," .Values.proxyAuth.adminEmails | quote }}
+            - name: PROXY_AUTH_SECRET
+              valueFrom:
+                secretKeyRef: { name: {{ include "graphrag-ui.proxyAuthSecretName" . }}, key: proxy-auth-secret }
+            {{- end }}
           volumeMounts:
             - name: workspaces
               mountPath: /data/workspaces

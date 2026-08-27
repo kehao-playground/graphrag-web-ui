@@ -1,0 +1,126 @@
+{{- if and .Values.proxyAuth.enabled (not .Values.proxyAuth.external.url) }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "graphrag-ui.proxyAuthSecretName" . }}
+  labels:
+    {{- include "graphrag-ui.labels" . | nindent 4 }}
+{{- if not .Values.proxyAuth.existingSecret }}
+type: Opaque
+stringData:
+  client-secret: {{ .Values.proxyAuth.clientSecret | quote }}
+  cookie-secret: {{ .Values.proxyAuth.cookieSecret | quote }}
+  proxy-auth-secret: {{ .Values.proxyAuth.authSecret | quote }}
+{{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "graphrag-ui.fullname" . }}-oauth2-proxy
+  labels:
+    {{- include "graphrag-ui.labels" . | nindent 4 }}
+data:
+  # ${...} below is expanded by oauth2-proxy's own envsubst from the
+  # container env — helm does NOT interpolate ${} (only {{"{{"}} }}).
+  alpha-config.yaml: |
+    # external-auth mode never proxies, but the alpha schema requires an
+    # upstream; a static 200 is the documented pattern
+    upstreamConfig:
+      upstreams:
+        - id: static
+          path: /
+          static: true
+          staticCode: 200
+    providers:
+      - id: primary
+        provider: {{ .Values.proxyAuth.provider }}
+        clientID: {{ .Values.proxyAuth.clientId | quote }}
+        clientSecret: ${CLIENT_SECRET}
+        oidcConfig:
+          issuerURL: {{ .Values.proxyAuth.issuerUrl | quote }}
+    # nginx-ingress copies these from oauth2-proxy's auth RESPONSE onto the
+    # request to the api (auth-response-headers), overwriting any forged
+    # values (spec §7.2)
+    injectResponseHeaders:
+      - name: X-Forwarded-Email
+        values: [{ claimSource: { claim: email } }]
+      - name: X-Forwarded-Preferred-Username
+        values: [{ claimSource: { claim: preferred_username } }]
+      - name: X-Proxy-Secret
+        values: [{ secretSource: { fromFile: /etc/oauth2-proxy/proxy-auth-secret } }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "graphrag-ui.fullname" . }}-oauth2-proxy
+  labels:
+    {{- include "graphrag-ui.labels" . | nindent 4 }}
+    app.kubernetes.io/component: oauth2-proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "graphrag-ui.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: oauth2-proxy
+  template:
+    metadata:
+      labels:
+        {{- include "graphrag-ui.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: oauth2-proxy
+    spec:
+      containers:
+        - name: oauth2-proxy
+          image: {{ .Values.proxyAuth.image | quote }}
+          args: ["--alpha-config=/etc/oauth2-proxy/alpha-config.yaml"]
+          ports:
+            - name: http
+              containerPort: 4180
+          env:
+            - name: CLIENT_SECRET
+              valueFrom:
+                secretKeyRef: { name: {{ include "graphrag-ui.proxyAuthSecretName" . }}, key: client-secret }
+            - name: OAUTH2_PROXY_HTTP_ADDRESS
+              value: 0.0.0.0:4180
+            - name: OAUTH2_PROXY_COOKIE_SECRET
+              valueFrom:
+                secretKeyRef: { name: {{ include "graphrag-ui.proxyAuthSecretName" . }}, key: cookie-secret }
+            # /api/* must 401, not redirect (spec decision 5)
+            - name: OAUTH2_PROXY_API_ROUTES
+              value: ^/api/
+            - name: OAUTH2_PROXY_EMAIL_DOMAINS
+              value: {{ join "," .Values.proxyAuth.emailDomains | quote }}
+            - name: OAUTH2_PROXY_SKIP_PROVIDER_BUTTON
+              value: "true"
+          volumeMounts:
+            - name: alpha-config
+              mountPath: /etc/oauth2-proxy/alpha-config.yaml
+              subPath: alpha-config.yaml
+            - name: proxy-auth-secret
+              mountPath: /etc/oauth2-proxy/proxy-auth-secret
+              subPath: proxy-auth-secret
+          resources:
+            {{- toYaml .Values.proxyAuth.resources | nindent 12 }}
+      volumes:
+        - name: alpha-config
+          configMap:
+            name: {{ include "graphrag-ui.fullname" . }}-oauth2-proxy
+        - name: proxy-auth-secret
+          secret:
+            secretName: {{ include "graphrag-ui.proxyAuthSecretName" . }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "graphrag-ui.fullname" . }}-oauth2-proxy
+  labels:
+    {{- include "graphrag-ui.labels" . | nindent 4 }}
+    app.kubernetes.io/component: oauth2-proxy
+spec:
+  selector:
+    {{- include "graphrag-ui.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: oauth2-proxy
+  ports:
+    - name: http
+      port: 80
+      targetPort: 4180
+{{- end }}

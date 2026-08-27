@@ -1,4 +1,20 @@
 {{- if .Values.ingress.enabled }}
+{{- $auth := dict "url" "" "signin" "" }}
+{{- if .Values.proxyAuth.enabled }}
+  {{- if .Values.proxyAuth.external.url }}
+    {{- $_ := set $auth "url" (printf "%s/oauth2/auth" .Values.proxyAuth.external.url) }}
+    {{- $_ := set $auth "signin" (printf "%s/oauth2/start?rd=$escaped_request_uri" .Values.proxyAuth.external.url) }}
+  {{- else }}
+    {{- $_ := set $auth "url" (printf "http://%s-oauth2-proxy.%s.svc.cluster.local/oauth2/auth" (include "graphrag-ui.fullname" .) .Release.Namespace) }}
+    {{- $_ := set $auth "signin" (printf "https://%s/oauth2/start?rd=$escaped_request_uri" .Values.ingress.host) }}
+  {{- end }}
+{{- end }}
+{{- $sse := dict "nginx.ingress.kubernetes.io/proxy-buffering" "off" "nginx.ingress.kubernetes.io/proxy-read-timeout" "3600" }}
+{{- $authAnnotations := dict }}
+{{- if .Values.proxyAuth.enabled }}
+  {{- $authAnnotations = dict "nginx.ingress.kubernetes.io/auth-url" $auth.url "nginx.ingress.kubernetes.io/auth-response-headers" "X-Forwarded-Email,X-Forwarded-Preferred-Username,X-Proxy-Secret" }}
+{{- end }}
+{{- if not .Values.proxyAuth.enabled }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -34,4 +50,87 @@ spec:
               service:
                 name: {{ include "graphrag-ui.fullname" . }}-web
                 port: { number: 80 }
+{{- else }}
+{{- $apiAnnotations := merge (dict) $sse $authAnnotations }}
+{{- $appAnnotations := merge (dict) $sse $authAnnotations (dict "nginx.ingress.kubernetes.io/auth-signin" $auth.signin) .Values.ingress.annotations }}
+# /api sends no signin redirect: fetch clients get 401 instead of an HTML redirect-to-login (spec decision 5)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "graphrag-ui.fullname" . }}-api
+  labels:
+    {{- include "graphrag-ui.labels" . | nindent 4 }}
+  annotations:
+    # SSE (spec §8.2): the ingress must disable buffering and extend the read timeout, or streamed queries stall
+    {{- toYaml $apiAnnotations | nindent 4 }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  rules:
+    - {{- with .Values.ingress.host }}
+      host: {{ . }}
+      {{- end }}
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "graphrag-ui.fullname" . }}-api
+                port: { number: 80 }
+---
+# app root: browser navigation still gets the interactive oauth2-proxy login
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "graphrag-ui.fullname" . }}
+  labels:
+    {{- include "graphrag-ui.labels" . | nindent 4 }}
+  annotations:
+    # SSE (spec §8.2): the ingress must disable buffering and extend the read timeout, or streamed queries stall
+    {{- toYaml $appAnnotations | nindent 4 }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  rules:
+    - {{- with .Values.ingress.host }}
+      host: {{ . }}
+      {{- end }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "graphrag-ui.fullname" . }}-web
+                port: { number: 80 }
+{{- if not .Values.proxyAuth.external.url }}
+---
+# /oauth2 unguarded: oauth2-proxy's own login/callback endpoints must stay reachable
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "graphrag-ui.fullname" . }}-oauth2-proxy
+  labels:
+    {{- include "graphrag-ui.labels" . | nindent 4 }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  rules:
+    - {{- with .Values.ingress.host }}
+      host: {{ . }}
+      {{- end }}
+      http:
+        paths:
+          - path: /oauth2
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "graphrag-ui.fullname" . }}-oauth2-proxy
+                port: { number: 80 }
+{{- end }}
+{{- end }}
 {{- end }}

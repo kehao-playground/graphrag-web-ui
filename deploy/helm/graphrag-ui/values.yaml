@@ -70,3 +70,20 @@ queryCacheMb: 1024     # QUERY_CACHE_MB — LRU budget for cached query parquet 
                        # 2026-08-22: 1 GiB fits within the shared 2 GiB pod limit; peak RSS measured
                        # 566/565 MiB while indexing, leaving headroom for query-time frames)
 queryRateLimitPerHour: 30  # QUERY_RATE_LIMIT_PER_HOUR — max queries per (user, project) per hour → 429
+
+proxyAuth:
+  enabled: false        # OAuth2-Proxy in front of the app (spec 2026-08-27 §7.2);
+                        # requires ingress.enabled and a concrete ingress.host
+  external:
+    url: ""             # e.g. https://sso.example.com — reuse a cluster-wide oauth2-proxy; chart ships none of its own
+  provider: oidc
+  issuerUrl: ""         # OIDC issuer URL
+  clientId: ""
+  clientSecret: ""      # plaintext fallbacks used only when existingSecret is empty;
+  cookieSecret: ""      # all three feed the chart's proxy-auth Secret keys
+  authSecret: ""        # PROXY_AUTH_SECRET — >= 32 chars, validated by the api at startup
+  existingSecret: ""    # when set, must contain: client-secret, cookie-secret, proxy-auth-secret
+  adminEmails: []       # PROXY_ADMIN_EMAILS — held at role=admin (spec §5.2)
+  emailDomains: []      # REQUIRED when enabled (spec §7.1); ["*"] = open registration
+  image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.4
+  resources: {}

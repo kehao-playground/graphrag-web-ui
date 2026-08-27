@@ -52,3 +52,8 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- required "externalDatabase.url is required when postgresql.enabled=false" .Values.externalDatabase.url -}}
 {{- end -}}
 {{- end -}}
+
+{{/* Secret holding oauth2-proxy material: operator-provided or chart-created (spec §7.2) */}}
+{{- define "graphrag-ui.proxyAuthSecretName" -}}
+{{- if .Values.proxyAuth.existingSecret -}}{{ .Values.proxyAuth.existingSecret }}{{- else -}}{{ include "graphrag-ui.fullname" . }}-proxy-auth{{- end -}}
+{{- end -}}
