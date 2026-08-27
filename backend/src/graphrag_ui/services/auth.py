@@ -7,11 +7,13 @@ from datetime import UTC, datetime, timedelta
 import jwt
 from argon2 import PasswordHasher
 from argon2.exceptions import Argon2Error
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.adapters.models import RefreshToken, User
 from graphrag_ui.config import get_settings
+from graphrag_ui.services.audit import audit
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +29,68 @@ def verify_password(pw: str, hashed: str) -> bool:
         return _ph.verify(hashed, pw)
     except (Argon2Error, ValueError):  # VerifyMismatchError / InvalidHashError
         return False
+
+
+# JIT rows have no usable password: this literal never parses as an argon2
+# hash, so verify_password is always False — flipping AUTH_MODE back to
+# local cannot let a proxy-provisioned account sign in without a reset
+# (spec §5.2).
+UNUSABLE_PASSWORD_HASH = "!proxy-no-local-password"
+
+
+async def get_or_provision_user(
+    session: AsyncSession, email: str, display_name: str
+) -> User:
+    """Case-insensitive get-or-create for proxy-mode identity (spec §5.2).
+
+    Legacy rows may store the local part with its original case (create_user
+    keeps EmailStr's normalization, which only lowercases the domain), so the
+    lookup lowercases both sides; new rows are written lowercased and the
+    data converges without a migration. Concurrent first logins race on the
+    users.email unique index; the loser rolls back and returns the winner's
+    row — the rollback is safe because identity resolution is the first
+    thing touching this request's session.
+    """
+    addr = email.strip().lower()
+    settings = get_settings()
+
+    async def _lookup() -> User | None:
+        return (await session.execute(
+            select(User).where(func.lower(User.email) == addr))).scalar_one_or_none()
+
+    user = await _lookup()
+    if user is None:
+        user = User(
+            email=addr,
+            display_name=display_name,
+            password_hash=UNUSABLE_PASSWORD_HASH,
+            role="admin" if addr in settings.proxy_admin_set else "user",
+            is_active=True,
+            must_change_password=False,
+        )
+        session.add(user)
+        try:
+            await session.flush()
+            await audit(session, user.id, "user.created", "user", str(user.id),
+                        payload={"email": addr, "origin": "proxy-jit"})
+            await session.commit()
+        except IntegrityError:
+            # Lost the insert race: the unique-index winner's row is
+            # committed (PG blocks our insert until theirs resolves).
+            await session.rollback()
+            user = await _lookup()
+            assert user is not None
+
+    # Authoritative-upward admin reconciliation (spec decision 7): a listed
+    # email is promoted whenever it is seen. Only-up means "grant an admin"
+    # stays a config change even when the list was set late; the flip side
+    # (a listed email cannot be demoted from the UI) is documented intent.
+    if user.role != "admin" and addr in settings.proxy_admin_set:
+        user.role = "admin"
+        await audit(session, user.id, "user.role_promoted", "user", str(user.id),
+                    payload={"via": "proxy_admin_emails"})
+        await session.commit()
+    return user
 
 
 def create_access_token(user: User) -> str:
