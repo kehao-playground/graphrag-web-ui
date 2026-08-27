@@ -15,6 +15,9 @@ stringData:
   proxy-auth-secret: {{ .Values.proxyAuth.authSecret | quote }}
 {{- end }}
 {{- if and .Values.proxyAuth.enabled (not .Values.proxyAuth.external.url) }}
+{{- if not .Values.proxyAuth.emailDomains }}
+{{- fail "proxyAuth.enabled with a chart-managed oauth2-proxy requires proxyAuth.emailDomains to be set (spec §7.1): an empty allowlist renders OAUTH2_PROXY_EMAIL_DOMAINS=\"\" and allows open registration. Pass --set proxyAuth.emailDomains={example.com} (or {\"*\"} to explicitly opt into open registration), or set proxyAuth.external.url to reuse an instance that enforces its own allowlist." }}
+{{- end }}
 ---
 apiVersion: v1
 kind: ConfigMap

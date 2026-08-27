@@ -51,7 +51,7 @@ spec:
                 name: {{ include "graphrag-ui.fullname" . }}-web
                 port: { number: 80 }
 {{- else }}
-{{- $apiAnnotations := merge (dict) $sse $authAnnotations }}
+{{- $apiAnnotations := merge (dict) $sse $authAnnotations .Values.ingress.annotations }}
 {{- $appAnnotations := merge (dict) $sse $authAnnotations (dict "nginx.ingress.kubernetes.io/auth-signin" $auth.signin) .Values.ingress.annotations }}
 # /api sends no signin redirect: fetch clients get 401 instead of an HTML redirect-to-login (spec decision 5)
 apiVersion: networking.k8s.io/v1
