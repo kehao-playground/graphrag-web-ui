@@ -4,9 +4,11 @@ import asyncio
 
 import pytest
 from sqlalchemy import func, select, text
+from starlette.requests import Request
 
 from graphrag_ui.adapters.db import make_engine, make_session_factory
 from graphrag_ui.adapters.models import User
+from graphrag_ui.api.deps import resolve_proxy_user
 from graphrag_ui.config import Settings, get_settings
 from graphrag_ui.services.auth import (
     UNUSABLE_PASSWORD_HASH,
@@ -119,3 +121,106 @@ async def test_concurrent_first_provision_single_row(migrated_db, monkeypatch):
             text("select count(*) from users where email = 'race@ex.com'"))).scalar_one()
     await engine.dispose()
     assert n == 1
+
+# ---- resolve_proxy_user (spec §5.1) ----
+
+SECRET = "p" * 40  # >= 32 chars, satisfies the Task 1 validator
+
+
+def make_request(headers: dict[str, str]) -> Request:
+    return Request(scope={
+        "type": "http",
+        "method": "GET",
+        "path": "/",
+        "query_string": b"",
+        "headers": [(k.lower().encode(), v.encode()) for k, v in headers.items()],
+    })
+
+
+@pytest.fixture
+def proxy_env(monkeypatch):
+    """AUTH_MODE=proxy with a valid secret; restores the cached settings after."""
+    monkeypatch.setenv("AUTH_MODE", "proxy")
+    monkeypatch.setenv("PROXY_AUTH_SECRET", SECRET)
+    monkeypatch.setenv("PROXY_ADMIN_EMAILS", "admin@test.local")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+async def test_resolver_rejects_missing_secret(db_session, proxy_env):
+    from graphrag_ui.api.errors import ApiError
+    with pytest.raises(ApiError) as e:
+        await resolve_proxy_user(make_request({"X-Forwarded-Email": "a@b.com"}), db_session)
+    assert e.value.status_code == 401
+
+
+async def test_resolver_rejects_wrong_secret(db_session, proxy_env):
+    from graphrag_ui.api.errors import ApiError
+    with pytest.raises(ApiError):
+        await resolve_proxy_user(make_request({
+            "X-Proxy-Secret": "nope", "X-Forwarded-Email": "a@b.com"}), db_session)
+
+
+async def test_resolver_rejects_duplicate_secret(db_session, proxy_env):
+    # getlist must see exactly one value; append-vs-replace differences at
+    # the edge must fail closed (spec §5.1)
+    from graphrag_ui.api.errors import ApiError
+    req = Request(scope={
+        "type": "http", "method": "GET", "path": "/", "query_string": b"",
+        "headers": [(b"x-proxy-secret", SECRET.encode()), (b"x-proxy-secret", SECRET.encode()),
+                    (b"x-forwarded-email", b"a@b.com")],
+    })
+    with pytest.raises(ApiError):
+        await resolve_proxy_user(req, db_session)
+
+
+async def test_resolver_rejects_missing_or_malformed_email(db_session, proxy_env):
+    from graphrag_ui.api.errors import ApiError
+    with pytest.raises(ApiError):
+        await resolve_proxy_user(make_request({"X-Proxy-Secret": SECRET}), db_session)
+    with pytest.raises(ApiError):
+        await resolve_proxy_user(make_request({
+            "X-Proxy-Secret": SECRET, "X-Forwarded-Email": "not-an-email"}), db_session)
+    with pytest.raises(ApiError):
+        await resolve_proxy_user(make_request({
+            "X-Proxy-Secret": SECRET, "X-Forwarded-Email": "x" * 320 + "@ex.com"}), db_session)
+
+
+async def test_resolver_provisions_and_returns_user(db_session, proxy_env):
+    user = await resolve_proxy_user(make_request({
+        "X-Proxy-Secret": SECRET,
+        "X-Forwarded-Email": "admin@test.local",
+        "X-Forwarded-Preferred-Username": "The Admin",
+    }), db_session)
+    assert user.role == "admin"          # listed in PROXY_ADMIN_EMAILS
+    assert user.display_name == "The Admin"
+
+
+async def test_resolver_display_name_falls_back_to_local_part(db_session, proxy_env):
+    user = await resolve_proxy_user(make_request({
+        "X-Proxy-Secret": SECRET, "X-Forwarded-Email": "plain@test.local"}), db_session)
+    assert user.display_name == "plain"
+
+
+async def test_resolver_inactive_user_403(db_session, proxy_env):
+    from graphrag_ui.api.errors import ApiError
+    db_session.add(User(email="gone@test.local", password_hash="x",
+                        display_name="G", is_active=False))
+    await db_session.commit()
+    with pytest.raises(ApiError) as e:
+        await resolve_proxy_user(make_request({
+            "X-Proxy-Secret": SECRET, "X-Forwarded-Email": "gone@test.local"}), db_session)
+    assert e.value.status_code == 403
+
+
+async def test_resolver_skips_must_change_gate(db_session, proxy_env):
+    # A local-mode user stuck at must_change_password must not be locked out
+    # after the switch (spec §5.1): the change-password route is gone, so
+    # the gate could never be satisfied.
+    db_session.add(User(email="stuck@test.local", password_hash="x",
+                        display_name="S", must_change_password=True))
+    await db_session.commit()
+    user = await resolve_proxy_user(make_request({
+        "X-Proxy-Secret": SECRET, "X-Forwarded-Email": "stuck@test.local"}), db_session)
+    assert user.must_change_password is True  # flag kept, gate skipped
