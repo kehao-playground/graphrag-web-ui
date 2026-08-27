@@ -66,7 +66,13 @@ async def resolve_proxy_user(request: Request, db: AsyncSession) -> User:
     instead of looping into /oauth2/start)."""
     s = get_settings()
     secrets = request.headers.getlist("X-Proxy-Secret")
-    if len(secrets) != 1 or not hmac.compare_digest(secrets[0], s.proxy_auth_secret):
+    # compare_digest on str raises TypeError when either side is non-ASCII
+    # (e.g. a latin-1-decoded header value) — compare bytes so a weird
+    # secret header is just a mismatch (401), never a 500. ASGI headers
+    # are latin-1; "replace" makes the encode total even for surrogates.
+    if len(secrets) != 1 or not hmac.compare_digest(
+        secrets[0].encode("latin-1", errors="replace"), s.proxy_auth_secret.encode()
+    ):
         raise ApiError(status.HTTP_401_UNAUTHORIZED, "auth_not_authenticated", "Not authenticated")
     emails = request.headers.getlist("X-Forwarded-Email")
     if len(emails) != 1 or len(emails[0]) > 320:

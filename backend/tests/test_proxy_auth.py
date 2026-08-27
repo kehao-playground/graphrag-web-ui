@@ -177,6 +177,29 @@ async def test_resolver_rejects_duplicate_secret(db_session, proxy_env):
     with pytest.raises(ApiError):
         await resolve_proxy_user(req, db_session)
 
+async def test_resolver_rejects_duplicate_email(db_session, proxy_env):
+    # Spec §10: the duplicate-identity twin of the duplicate-secret test —
+    # two X-Forwarded-Email values must fail closed (spec §5.1)
+    from graphrag_ui.api.errors import ApiError
+    req = Request(scope={
+        "type": "http", "method": "GET", "path": "/", "query_string": b"",
+        "headers": [(b"x-proxy-secret", SECRET.encode()),
+                    (b"x-forwarded-email", b"a@b.com"), (b"x-forwarded-email", b"a@b.com")],
+    })
+    with pytest.raises(ApiError) as e:
+        await resolve_proxy_user(req, db_session)
+    assert e.value.status_code == 401
+
+
+async def test_resolver_rejects_non_ascii_secret_as_401(db_session, proxy_env):
+    # compare_digest raises TypeError on non-ASCII str; the byte comparison
+    # must keep this a 401, not an unhandled 500
+    from graphrag_ui.api.errors import ApiError
+    with pytest.raises(ApiError) as e:
+        await resolve_proxy_user(make_request({
+            "X-Proxy-Secret": "sécret-不是ascii-" + "p" * 40, "X-Forwarded-Email": "a@b.com"}), db_session)
+    assert e.value.status_code == 401
+
 
 async def test_resolver_rejects_missing_or_malformed_email(db_session, proxy_env):
     from graphrag_ui.api.errors import ApiError
