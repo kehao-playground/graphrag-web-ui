@@ -45,7 +45,8 @@ briefs; their Global Constraints always apply.
   `UPLOAD_MAX_FILE_MB`, `PROJECT_QUOTA_MB`, `MAX_CONCURRENT_JOBS`,
   `JOB_LOG_RETENTION_DAYS`, `JOB_LOG_FAILED_RETENTION_DAYS`,
   `UPDATE_OUTPUT_KEEP_LATEST`, `CACHE_QUOTA_MB`, `DISK_WATERMARK_MB`,
-  `QUERY_CACHE_MB`, `QUERY_RATE_LIMIT_PER_HOUR`.
+  `QUERY_CACHE_MB`, `QUERY_RATE_LIMIT_PER_HOUR`, `AUTH_MODE`,
+  `PROXY_ADMIN_EMAILS`, `PROXY_AUTH_SECRET`.
 
 ## Commands
 
@@ -63,6 +64,7 @@ cd frontend && npm run build
 
 # deploy checks (compose needs .env for ${VAR:?}: cp .env.example .env)
 docker compose config
+docker compose -f docker-compose.yml -f docker-compose.proxy-auth.yml config   # needs the proxy .env vars
 docker compose build                     # catches Dockerfile drift (e.g. .npmrc must ship with npm ci)
 helm lint deploy/helm/graphrag-ui
 helm template deploy/helm/graphrag-ui > /dev/null

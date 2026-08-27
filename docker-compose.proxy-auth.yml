@@ -1,0 +1,71 @@
+# Opt-in OAuth2-Proxy authentication (docs/superpowers/specs/2026-08-27
+# -oauth2-proxy-auth-design.md §7.1).
+# Usage: docker compose -f docker-compose.yml -f docker-compose.proxy-auth.yml up
+# Requires Compose >= 2.24 (the !reset tag) and these .env vars:
+#   PROXY_AUTH_SECRET (>= 32 chars; openssl rand -hex 32)
+#   OAUTH2_PROXY_ISSUER_URL / CLIENT_ID / CLIENT_SECRET / COOKIE_SECRET /
+#   REDIRECT_URL / EMAIL_DOMAINS (allowlist — REQUIRED, never "*" with a
+#   public IdP: JIT provisioning would let anyone self-register, spec §7.1)
+services:
+  api:
+    environment:
+      AUTH_MODE: proxy
+      PROXY_ADMIN_EMAILS: ${PROXY_ADMIN_EMAILS:-}
+      PROXY_AUTH_SECRET: ${PROXY_AUTH_SECRET:?set in .env (>= 32 chars)}
+  web:
+    # Only the auth service stays published: direct access to nginx would
+    # bypass oauth2-proxy. Belt-and-suspenders — the api still requires the
+    # X-Proxy-Secret that path never carries.
+    ports: !reset []
+  auth:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.4
+    # alpha config MUST be passed with --alpha-config (--config is legacy
+    # TOML and rejects this YAML); api-route / email-domain are legacy env
+    # options and stay valid alongside it (not on the removed-options list)
+    command: ["--alpha-config=/etc/oauth2-proxy/alpha-config.yaml"]
+    ports: ["8080:4180"]
+    depends_on: [web]
+    environment:
+      OAUTH2_PROXY_HTTP_ADDRESS: 0.0.0.0:4180
+      # /api/* answers 401 instead of a login redirect so the SPA's fetch
+      # layer can react (spec decision 5); browser routes keep the redirect
+      OAUTH2_PROXY_API_ROUTES: ^/api/
+      OAUTH2_PROXY_EMAIL_DOMAINS: ${OAUTH2_PROXY_EMAIL_DOMAINS:?allowlist required — never * with a public IdP}
+      OAUTH2_PROXY_COOKIE_SECRET: ${OAUTH2_PROXY_COOKIE_SECRET:?set in .env}
+      OAUTH2_PROXY_REDIRECT_URL: ${OAUTH2_PROXY_REDIRECT_URL:?set in .env}
+      OAUTH2_PROXY_SKIP_PROVIDER_BUTTON: "true"
+    configs:
+      - source: oauth2proxy_alpha
+        target: /etc/oauth2-proxy/alpha-config.yaml
+    secrets:
+      - source: proxy_auth_secret
+        target: proxy_auth_secret
+configs:
+  oauth2proxy_alpha:
+    # Compose interpolates ${...} from .env into this content (single
+    # interpolation layer — no ${} sequences are left for oauth2-proxy's
+    # own envsubst). Nested claimSource/secretSource form requires
+    # oauth2-proxy >= v7.14.0; move it with the image pin.
+    content: |
+      upstreamConfig:
+        upstreams:
+          - id: web
+            path: /
+            uri: http://web:80
+      providers:
+        - id: primary
+          provider: ${OAUTH2_PROXY_PROVIDER:-oidc}
+          clientID: ${OAUTH2_PROXY_CLIENT_ID:?set in .env}
+          clientSecret: ${OAUTH2_PROXY_CLIENT_SECRET:?set in .env}
+          oidcConfig:
+            issuerURL: ${OAUTH2_PROXY_ISSUER_URL:?set in .env}
+      injectRequestHeaders:
+        - name: X-Forwarded-Email
+          values: [{ claimSource: { claim: email } }]
+        - name: X-Forwarded-Preferred-Username
+          values: [{ claimSource: { claim: preferred_username } }]
+        - name: X-Proxy-Secret
+          values: [{ secretSource: { fromFile: /run/secrets/proxy_auth_secret } }]
+secrets:
+  proxy_auth_secret:
+    environment: PROXY_AUTH_SECRET

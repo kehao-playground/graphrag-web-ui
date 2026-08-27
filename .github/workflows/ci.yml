@@ -50,6 +50,17 @@ jobs:
       # Compose-enforced ${VAR:?} vars: .env.example sets them all (empty
       # values count as set) — image builds need no secrets.
       - run: cp .env.example .env
+      - run: docker compose config
+      - name: proxy-auth overlay compose config
+        env:
+          PROXY_AUTH_SECRET: ci-secret-0123456789abcdef0123456789abcdef
+          PROXY_ADMIN_EMAILS: admin@example.com
+          OAUTH2_PROXY_ISSUER_URL: https://idp.example.com
+          OAUTH2_PROXY_CLIENT_ID: graphrag-ui
+          OAUTH2_PROXY_CLIENT_SECRET: ci
+          OAUTH2_PROXY_COOKIE_SECRET: Y2ktY29va2llLXNlY3JldC0zMg==
+          OAUTH2_PROXY_REDIRECT_URL: http://localhost:8080/oauth2/callback
+        run: docker compose -f docker-compose.yml -f docker-compose.proxy-auth.yml config
       # Guards the compose image builds: catches Dockerfile drift that unit
       # tests never see (e.g. missing .npmrc once broke `npm ci` in-container)
       - run: docker compose build
