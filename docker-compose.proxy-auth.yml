@@ -66,6 +66,12 @@ configs:
           values: [{ claimSource: { claim: preferred_username } }]
         - name: X-Proxy-Secret
           values: [{ secretSource: { fromFile: /run/secrets/proxy_auth_secret } }]
+      # Without a server section oauth2-proxy configures fully and then
+      # exits 0 with no error — nothing to bind (verified against
+      # v7.15.4). BindAddress is authoritative; the OAUTH2_PROXY_HTTP_
+      # ADDRESS env below is kept only as documentation.
+      server:
+        BindAddress: 0.0.0.0:4180
 secrets:
   proxy_auth_secret:
     environment: PROXY_AUTH_SECRET
