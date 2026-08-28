@@ -114,19 +114,19 @@ async function pickOption(user: ReturnType<typeof userEvent.setup>, label: strin
   await user.click(await screen.findByText(label, { selector: ".ant-select-item-option-content" }));
 }
 
-test("renders Segmented Graph|資料表; default 資料表 fetches entities page 0", async () => {
+test("renders Segmented 圖譜|資料表; default 資料表 fetches entities page 0", async () => {
   mount();
-  expect(screen.getByText("Graph")).toBeInTheDocument();
+  expect(screen.getByText("圖譜")).toBeInTheDocument();
   expect(screen.getByText("資料表")).toBeInTheDocument();
   await screen.findByText("Alan Turing");
   expect(fetchMock).toHaveBeenCalledWith("/api/projects/p1/artifacts/entities?limit=50&offset=0", expect.anything());
 });
 
-test("Graph mode renders the WebGL graph and fetches the graph endpoint", async () => {
+test("圖譜 mode renders the WebGL graph and fetches the graph endpoint", async () => {
   mount();
   const user = userEvent.setup();
   await screen.findByText("Alan Turing");
-  await user.click(screen.getByText("Graph"));
+  await user.click(screen.getByText("圖譜"));
   expect(await screen.findByTestId("sigma")).toBeInTheDocument();
   expect(fetchMock).toHaveBeenCalledWith("/api/projects/p1/artifacts/graph", expect.anything());
 });

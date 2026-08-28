@@ -74,7 +74,7 @@ drift / basic 四種搜尋模式,全部透過 SSE 串流並附行內引用。可
 9. **查詢** — 四種模式(`local`、`global`、`drift`、`basic`)全部以 SSE
    串流回應,並附行內引用。
 10. **探索** — 產物資料表(entities / relationships / communities / documents /
-    community_reports / text_units)與 Graph（圖譜）WebGL 圖形檢視。
+    community_reports / text_units)與圖譜 WebGL 圖形檢視。
 
 管理者另可使用使用者管理頁面(角色、密碼重設、停用):
 
