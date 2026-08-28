@@ -42,15 +42,11 @@ export default function Layout() {
           selectable={false}
           items={[{ key: "logout", label: t("layout.logout") }]}
           onClick={() => { logout().catch(() => {}).finally(() => navigate("/login")); }}
-          // marginTop:auto pushes logout (and the language select below it)
-          // to the Sider bottom; the language select must NOT add its own
-          // auto margin — two autos would split the free space and park
-          // logout mid-column.
-          style={{ marginTop: "auto" }}
         />
-        {/* Language dropdown at the very bottom-left corner. Option values
-            are the i18n language codes themselves. */}
-        <div style={{ padding: "0 16px 16px" }}>
+        {/* Language dropdown pinned to the very bottom-left corner, with
+            the free space between logout and it absorbing the stretch.
+            Option values are the i18n language codes themselves. */}
+        <div style={{ marginTop: "auto", padding: "0 16px 16px" }}>
           <Select
             aria-label={t("layout.language")}
             value={i18n.language}
