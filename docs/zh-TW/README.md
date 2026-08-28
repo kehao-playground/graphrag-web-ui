@@ -285,3 +285,7 @@ JIT 建立會把「IdP 通過了這個人」直接變成「一列 `User` 資料�
 - [CONTRIBUTING.md](../../CONTRIBUTING.md)
 - 正體中文(zh-TW)鏡像:[`README.md`](README.md)
 - 設計規格:[`docs/superpowers/specs/`](../../docs/superpowers/specs/)
+
+## 授權
+
+[MIT](../../LICENSE) — Copyright (c) 2026 Kehao Chen。

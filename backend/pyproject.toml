@@ -2,6 +2,7 @@
 name = "graphrag-ui"
 version = "0.1.0"
 description = "GraphRAG Web UI backend (FastAPI)"
+license = "MIT"
 requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.19.1",

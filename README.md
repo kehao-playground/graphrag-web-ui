@@ -302,3 +302,7 @@ Run against the compose overlay once it is up:
 - [CONTRIBUTING.md](CONTRIBUTING.md)
 - Traditional Chinese (zh-TW) mirror: [`docs/zh-TW/README.md`](docs/zh-TW/README.md)
 - Design specs: [`docs/superpowers/specs/`](docs/superpowers/specs/)
+
+## License
+
+[MIT](LICENSE) — Copyright (c) 2026 Kehao Chen.
