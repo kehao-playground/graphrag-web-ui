@@ -32,7 +32,31 @@ const PROJECT_NAME = "demo-corpus";
 const ANALYST = {
   email: "analyst@example.com", display_name: "王分析", password: "analyst-docs-pass-1",
 };
-const OUT_DIR = fileURLToPath(new URL("../../docs/assets/screenshots/", import.meta.url));
+const OUT_ROOT = fileURLToPath(new URL("../../docs/assets/screenshots/", import.meta.url));
+// Two captures per run: zh/ (the product's primary interface) feeds
+// docs/zh-TW/README.md, en/ feeds README.md. All UI text comes from the
+// locale dictionaries — keep these labels in sync with src/i18n/locales/.
+const LOCALES = [
+  {
+    locale: "zh-TW", outDir: `${OUT_ROOT}zh/`,
+    labels: {
+      email: "電子郵件", password: "密碼", signIn: "登入系統",
+      changeTitle: "首次登入請修改密碼", currentPassword: "目前密碼",
+      newPassword: "新密碼", submit: "送出", filesTab: "檔案",
+      settingsTab: "設定", adminUsers: "管理者 — 使用者",
+    },
+  },
+  {
+    locale: "en-US", outDir: `${OUT_ROOT}en/`,
+    labels: {
+      email: "Email", password: "Password", signIn: "Sign in",
+      changeTitle: "Change your password before continuing",
+      currentPassword: "Current password", newPassword: "New password",
+      submit: "Submit", filesTab: "Files", settingsTab: "Settings",
+      adminUsers: "Admin — Users",
+    },
+  },
+];
 
 const CORPUS = [
   {
@@ -146,15 +170,15 @@ async function seed() {
   return { token, project, effectivePassword };
 }
 
-async function capture({ project, effectivePassword }) {
-  await mkdir(OUT_DIR, { recursive: true });
+async function capture({ project, effectivePassword }, { locale, outDir, labels }) {
+  await mkdir(outDir, { recursive: true });
   const browser = await chromium.launch();
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
     deviceScaleFactor: 2,
-    // The product's primary interface is zh-TW; i18n follows the browser
-    // locale, so pin it (plus a local timezone for stable timestamps).
-    locale: "zh-TW",
+    // i18n follows the browser locale, so pin it per run (plus a local
+    // timezone for stable timestamps).
+    locale,
     timezoneId: "Asia/Taipei",
   });
   const page = await context.newPage();
@@ -162,55 +186,55 @@ async function capture({ project, effectivePassword }) {
   // or screenshots catch half-rendered low-opacity tables / mid-slide ink bars.
   const settle = (ms = 700) => page.waitForTimeout(ms);
   const shot = (name, opts = {}) =>
-    page.screenshot({ path: `${OUT_DIR}${name}.png`, ...opts });
+    page.screenshot({ path: `${outDir}${name}.png`, ...opts });
 
   await page.goto(`${BASE_URL}/`, { waitUntil: "networkidle" });
-  await page.getByLabel("電子郵件").waitFor({ timeout: 15000 });
+  await page.getByLabel(labels.email).waitFor({ timeout: 15000 });
   await settle(400);
   await shot("login");
-  console.log("capture: login.png");
+  console.log(`capture: ${locale} login.png`);
 
-  await page.getByLabel("電子郵件").fill(ADMIN_EMAIL);
-  await page.getByLabel("密碼").fill(effectivePassword);
-  await page.getByRole("button", { name: "登入系統" }).click();
+  await page.getByLabel(labels.email).fill(ADMIN_EMAIL);
+  await page.getByLabel(labels.password).fill(effectivePassword);
+  await page.getByRole("button", { name: labels.signIn }).click();
 
-  const modal = page.getByTitle("首次登入請修改密碼");
+  const modal = page.getByTitle(labels.changeTitle);
   if (await modal.isVisible().catch(() => false)) {
-    await modal.getByLabel("目前密碼").fill(effectivePassword);
-    await modal.getByLabel("新密碼").fill(ADMIN_NEW_PASSWORD);
-    await modal.getByRole("button", { name: "送出" }).click();
-    console.log("capture: bootstrap password changed via UI");
+    await modal.getByLabel(labels.currentPassword).fill(effectivePassword);
+    await modal.getByLabel(labels.newPassword).fill(ADMIN_NEW_PASSWORD);
+    await modal.getByRole("button", { name: labels.submit }).click();
+    console.log(`capture: ${locale} bootstrap password changed via UI`);
   }
 
   await page.waitForURL("**/projects", { timeout: 15000 });
   await page.getByRole("button", { name: PROJECT_NAME }).waitFor({ timeout: 15000 });
   await settle();
   await shot("projects");
-  console.log("capture: projects.png");
+  console.log(`capture: ${locale} projects.png`);
 
   await page.getByRole("button", { name: PROJECT_NAME }).click();
-  await page.getByRole("tab", { name: "Files" }).click();
+  await page.getByRole("tab", { name: labels.filesTab }).click();
   await page.getByText("q3-report.txt").waitFor({ timeout: 15000 });
   await settle();
   await shot("project-files");
-  console.log("capture: project-files.png");
+  console.log(`capture: ${locale} project-files.png`);
 
-  await page.getByRole("tab", { name: "Settings" }).click();
+  await page.getByRole("tab", { name: labels.settingsTab }).click();
   await page.getByRole("cell", { name: "GRAPHRAG_API_KEY" }).waitFor({ timeout: 15000 });
   await settle();
   // The env table sits below the YAML editor: full page so it is not cut.
   await shot("project-settings", { fullPage: true });
-  console.log("capture: project-settings.png");
+  console.log(`capture: ${locale} project-settings.png`);
 
-  await page.getByRole("menuitem", { name: "管理者 — 使用者" }).click();
+  await page.getByRole("menuitem", { name: labels.adminUsers }).click();
   await page.getByText(ANALYST.email).waitFor({ timeout: 15000 });
   await settle();
   await shot("admin-users");
-  console.log("capture: admin-users.png");
+  console.log(`capture: ${locale} admin-users.png`);
 
   await browser.close();
 }
 
 const seeded = await seed();
-await capture(seeded);
-console.log(`done → ${OUT_DIR}`);
+for (const cfg of LOCALES) await capture(seeded, cfg);
+console.log(`done → ${OUT_ROOT}{en,zh}/`);
