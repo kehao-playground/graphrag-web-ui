@@ -4,7 +4,7 @@ A team web console for [Microsoft GraphRAG](https://github.com/microsoft/graphra
 projects, upload corpora, run indexing jobs, and query the knowledge graph — local / global /
 drift / basic search modes, all streaming over SSE with inline citations. Browse the parquet
 artifacts (entities, relationships, communities, documents, community reports, text units)
-and explore the graph in an interactive WebGL view (UI label: 圖譜). It replaces GraphRAG CLI
+and explore the graph in an interactive WebGL Graph view. It replaces GraphRAG CLI
 operations for non-technical teammates: everything from `graphrag init` to query runs behind
 login, roles, and per-project quotas.
 
@@ -73,7 +73,7 @@ Short sketch (full detail in the [design spec](docs/superpowers/specs/)):
 9. **Query** — all four modes (`local`, `global`, `drift`, `basic`) stream over SSE with
    inline citations.
 10. **Explore** — artifact tables (entities / relationships / communities / documents /
-    community_reports / text_units) and the WebGL graph view (UI label: 圖譜).
+    community_reports / text_units) and the WebGL Graph view.
 
 Admins additionally get the user-management page (roles, password resets,
 deactivation):

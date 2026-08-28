@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { Layout as AntLayout, Menu, Segmented, Typography } from "antd";
+import { Layout as AntLayout, Menu, Typography } from "antd";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../stores/auth";
 
@@ -36,16 +36,24 @@ export default function Layout() {
           items={items}
           onClick={({ key }) => navigate(key)}
         />
-        <Segmented
-          value={i18n.language}
-          options={[{ label: "中文", value: "zh-TW" }, { label: "English", value: "en-US" }]}
-          onChange={(v) => { void i18n.changeLanguage(v as string); }}
-          // marginTop:auto pushes the switcher (and the logout menu below it)
-          // to the Sider bottom; the logout Menu DROPS its own marginTop:"auto"
-          // — two auto margins would split the free space and park the switcher
-          // mid-column instead of above logout.
-          style={{ marginTop: "auto", marginBottom: 12, marginLeft: 16,
-                   marginRight: 16, width: "fit-content" }}
+        <Menu
+          theme="dark"
+          mode="inline"
+          selectedKeys={[i18n.language]}
+          onClick={({ key }) => { void i18n.changeLanguage(key); }}
+          items={[{
+            key: "language", type: "group", label: t("layout.language"),
+            children: [
+              { key: "zh-TW", label: "中文" },
+              { key: "en-US", label: "English" },
+            ],
+          }]}
+          // marginTop:auto pushes the language menu (and the logout menu
+          // below it) to the Sider bottom; the logout Menu DROPS its own
+          // marginTop:"auto" — two auto margins would split the free space
+          // and park the switcher mid-column instead of above logout.
+          // The language keys double as i18n language codes.
+          style={{ marginTop: "auto" }}
         />
         <Menu
           theme="dark"

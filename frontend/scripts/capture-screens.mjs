@@ -30,7 +30,7 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? process.env.BOOTSTRAP_ADMIN
 const ADMIN_NEW_PASSWORD = process.env.ADMIN_NEW_PASSWORD ?? "docs-password-12345";
 const PROJECT_NAME = "demo-corpus";
 const ANALYST = {
-  email: "analyst@example.com", display_name: "王分析", password: "analyst-docs-pass-1",
+  email: "analyst@example.com", display_name: "Alex Chen", password: "analyst-docs-pass-1",
 };
 const OUT_ROOT = fileURLToPath(new URL("../../docs/assets/screenshots/", import.meta.url));
 // Two captures per run: zh/ (the product's primary interface) feeds
@@ -161,11 +161,27 @@ async function seed() {
   console.log("seed: GRAPHRAG_API_KEY set (masked on read)");
 
   // A second user row makes the AdminUsers screenshot representative.
+  // The display name is seeded data (locale-independent on purpose: a
+  // Chinese name in the English README screenshots reads as UI text).
   const u = await api("/admin/users", {
     method: "POST", token,
     body: { email: ANALYST.email, display_name: ANALYST.display_name, password: ANALYST.password },
   });
-  console.log(u.status === 201 ? "seed: demo analyst created" : "seed: demo analyst already exists");
+  if (u.status === 201) {
+    console.log("seed: demo analyst created");
+  } else {
+    // Idempotent fix-up: an earlier seed run may have left another name.
+    const listed = await api("/admin/users", { token });
+    const row = (listed.json ?? []).find((x) => x.email === ANALYST.email);
+    if (row && row.display_name !== ANALYST.display_name) {
+      const fix = await api(`/admin/users/${row.id}`, {
+        method: "PATCH", token, body: { display_name: ANALYST.display_name },
+      });
+      if (fix.status !== 200) fail(`fix analyst display_name -> ${fix.status}`);
+      console.log(`seed: analyst display_name -> ${ANALYST.display_name}`);
+    }
+    console.log("seed: demo analyst already exists");
+  }
 
   return { token, project, effectivePassword };
 }

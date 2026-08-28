@@ -172,6 +172,7 @@ const enUS = {
   layout: {
     projects: "Projects",
     adminUsers: "Admin — Users",
+    language: "Language",
     logout: "Log out",
     title: "GraphRAG Web UI",
   },
