@@ -40,4 +40,10 @@ test("renders file names and quota percent from GET files", async () => {
   expect(screen.getByText("readme.md")).toBeInTheDocument()
   // 1536 / 10240 = 15%
   expect(screen.getByText("15%")).toBeInTheDocument()
+  // human-readable binary units: sub-KiB sizes stay in bytes, larger
+  // values scale KiB -> MiB -> GiB (5 GB quota renders "4.9 GiB", not
+  // "5120000.0 KiB")
+  expect(screen.getByText("1.0 KiB")).toBeInTheDocument()
+  expect(screen.getByText("512 B")).toBeInTheDocument()
+  expect(screen.getByText("已使用 1.5 KiB / 10.0 KiB")).toBeInTheDocument()
 })

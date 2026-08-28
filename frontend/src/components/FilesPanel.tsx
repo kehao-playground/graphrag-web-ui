@@ -17,7 +17,17 @@ const ACCEPT: Record<"text" | "csv" | "json", string> = {
 };
 
 
-const kib = (bytes: number) => `${(bytes / 1024).toFixed(1)} KiB`;
+// Human-readable binary units: sub-KiB sizes stay in bytes; above that,
+// one decimal below 100 and rounding above (a 5 GB project quota renders
+// "4.9 GiB", not "5120000.0 KiB").
+const humanBytes = (bytes: number): string => {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KiB", "MiB", "GiB", "TiB"];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit += 1; }
+  return `${value < 100 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
+};
 
 export default function FilesPanel({ projectId, inputFileType, canEdit }: {
   projectId: string;
@@ -82,7 +92,7 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
 
   const columns: TableProps<FileEntry>["columns"] = [
     { title: t("common.name"), dataIndex: "name" },
-    { title: t("files.size"), dataIndex: "size", width: 110, render: (_, f) => kib(f.size) },
+    { title: t("files.size"), dataIndex: "size", width: 110, render: (_, f) => humanBytes(f.size) },
     { title: t("files.modifiedAt"), dataIndex: "modified_at", width: 190, render: (_, f) => new Date(f.modified_at).toLocaleString(i18n.language) },
     ...(canEdit
       ? [{
@@ -115,7 +125,7 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
         </Upload.Dragger>
       )}
       <div>
-        <Typography.Text type="secondary">{t("files.usage", { used: kib(usage), quota: kib(quota) })}</Typography.Text>
+        <Typography.Text type="secondary">{t("files.usage", { used: humanBytes(usage), quota: humanBytes(quota) })}</Typography.Text>
         {/* explicit format keeps the percent visible in exception status (antd
             swaps the text for an icon when only status is set) */}
         <Progress percent={percent} status={percent > 90 ? "exception" : "normal"} format={(p) => `${p}%`} />
