@@ -32,7 +32,9 @@ test("proxy mode: renders nothing and redirects to /oauth2/start", () => {
   render(<MemoryRouter><Login /></MemoryRouter>)
 
   expect(screen.queryByRole("button")).toBeNull()
-  expect(assign).toHaveBeenCalledWith("/oauth2/start?rd=%2Flogin")
+  // rd must NOT be /login: /oauth2/start with a live session 302s straight
+  // back to rd, and a /login rd loops forever (found in live smoke test)
+  expect(assign).toHaveBeenCalledWith("/oauth2/start?rd=%2F")
 })
 
 test("local mode: renders the password form", () => {

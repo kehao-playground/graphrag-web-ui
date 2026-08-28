@@ -16,7 +16,9 @@ export default function Login() {
 
   const authMode = useAuth((s) => s.authMode);
   useEffect(() => {
-    if (authMode === "proxy") redirectToProxyLogin();
+    // Never rd back to /login: with a live proxy session /oauth2/start 302s
+    // straight to rd and the loop never ends (found in live smoke test).
+    if (authMode === "proxy") redirectToProxyLogin("/");
   }, [authMode]);
   // The proxy IdP owns sign-in; the local form never shows (spec §6.3).
   if (authMode === "proxy") return null;

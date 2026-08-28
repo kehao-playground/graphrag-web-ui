@@ -104,11 +104,10 @@ export const useAuth = create<AuthState>((set) => ({
 // valid-but-stale proxy cookie makes /oauth2/start bounce straight back
 // and a second redirect would loop start→rd→401→start.
 let proxyRedirected = false;
-export function redirectToProxyLogin(): void {
+export function redirectToProxyLogin(rd: string = location.pathname + location.search): void {
   if (proxyRedirected) return;
   proxyRedirected = true;
-  window.location.assign(
-    "/oauth2/start?rd=" + encodeURIComponent(location.pathname + location.search));
+  window.location.assign("/oauth2/start?rd=" + encodeURIComponent(rd));
 }
 
 // refresh is rotating: when several concurrent 401s each refresh on their
