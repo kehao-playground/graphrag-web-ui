@@ -17,13 +17,18 @@ function mount() {
 
 afterEach(async () => { await i18n.changeLanguage("zh-TW"); });
 
-it("switcher toggles nav copy and documentElement.lang", async () => {
+it("language dropdown toggles nav copy and documentElement.lang", async () => {
   mount();
   expect(screen.getByText("專案")).toBeInTheDocument();
-  await userEvent.setup().click(screen.getByText("English"));
+  // the selector is a Select dropdown at the Sider bottom: open it, then
+  // pick the option — the closed control only shows the current language
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("combobox", { name: "語言" }));
+  await user.click(await screen.findByText("English"));
   expect(screen.getByText("Projects")).toBeInTheDocument();
   expect(document.documentElement.lang).toBe("en-US");
-  await userEvent.setup().click(screen.getByText("中文"));
+  await user.click(screen.getByRole("combobox", { name: "Language" }));
+  await user.click(await screen.findByText("中文"));
   expect(screen.getByText("專案")).toBeInTheDocument();
   expect(document.documentElement.lang).toBe("zh-TW");
 });
