@@ -165,6 +165,7 @@ OAUTH2_PROXY_CLIENT_SECRET=
 OAUTH2_PROXY_COOKIE_SECRET=   # 16/24/32 bytes 的 base64 — openssl rand -base64 32 | tr -d '\n'
 OAUTH2_PROXY_REDIRECT_URL=http://localhost:8080/oauth2/callback
 OAUTH2_PROXY_EMAIL_DOMAINS=example.com
+# 僅純 http 部署使用（瀏覽器在 http 上會拒收 Secure cookie，登入會無聲失敗）：OAUTH2_PROXY_COOKIE_SECURE=false
 ```
 
 ### helm

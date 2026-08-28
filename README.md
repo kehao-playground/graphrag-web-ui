@@ -173,6 +173,8 @@ OAUTH2_PROXY_CLIENT_SECRET=
 OAUTH2_PROXY_COOKIE_SECRET=   # base64 of 16/24/32 bytes — openssl rand -base64 32 | tr -d '\n'
 OAUTH2_PROXY_REDIRECT_URL=http://localhost:8080/oauth2/callback
 OAUTH2_PROXY_EMAIL_DOMAINS=example.com
+# Plain-http deployment only (browsers refuse the Secure cookie over http,
+# login then fails silently): OAUTH2_PROXY_COOKIE_SECURE=false
 ```
 
 ### helm
