@@ -45,10 +45,17 @@ jobs:
 
   docker:
     runs-on: ubuntu-latest
+    # Compose-enforced ${VAR:?} vars: the runner's compose treats an empty
+    # value in the env file as UNSET for `:?` interpolation (tightened vs
+    # older versions), and .env.example ships BOOTSTRAP_ADMIN_* empty on
+    # purpose. Job-level env lets every compose step (config x2, build)
+    # inherit CI-only values; config/build never run containers, so these
+    # credentials are never used anywhere.
+    env:
+      BOOTSTRAP_ADMIN_EMAIL: ci@example.com
+      BOOTSTRAP_ADMIN_PASSWORD: ci-bootstrap-not-a-real-secret
     steps:
       - uses: actions/checkout@v7
-      # Compose-enforced ${VAR:?} vars: .env.example sets them all (empty
-      # values count as set) — image builds need no secrets.
       - run: cp .env.example .env
       - run: docker compose config
       - name: proxy-auth overlay compose config
