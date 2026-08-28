@@ -31,6 +31,50 @@ drift / basic 四種搜尋模式,全部透過 SSE 串流並附行內引用。可
   上傳檔案落入 `input/`,索引輸出在 `output/`,每專案金鑰(例如
   `GRAPHRAG_API_KEY`)存於工作區 `.env`。
 
+### 元件視圖
+
+```mermaid
+graph TB
+    B["瀏覽器 — React 19 SPA<br/>Ant Design · zh-TW 介面"] -->|"/api + SSE"| N
+    subgraph stack["單機部署(compose / helm)"]
+        N["web:nginx<br/>靜態檔案 + /api 代理<br/>SSE 緩衝已關閉"]
+        subgraph API["api:FastAPI(分層)"]
+            L1["api/ — 路由、驗證、HTTP"] --> L2["services/ — 使用案例<br/>交易邊界"]
+            L2 --> L3["domain/ — 純邏輯"]
+            L2 --> L4["adapters/ — 儲存庫、檔案系統、graphrag"]
+        end
+        PG[("postgres 16<br/>使用者 · 專案 · 工作 · 稽核")]
+        subgraph GR["graphrag 3.1.0(釘選)— 兩個接觸點都在 adapters/"]
+            CLI["graphrag CLI 子程序<br/>init · index · update"]
+            LIB["graphrag.api in-process<br/>local · global · drift · basic"]
+        end
+        WS[("每專案工作區<br/>input/ · output/ · .env")]
+    end
+    N --> L1
+    L4 -->|"SQLAlchemy async"| PG
+    L4 -->|"啟動子程序、串流日誌"| CLI
+    L4 -->|"環境隔離 import"| LIB
+    CLI -->|"寫入 parquet"| WS
+    LIB -->|"讀取 parquet"| WS
+    L4 -->|"duckdb 唯讀(探索)"| WS
+```
+
+### 以 GraphRAG 為基礎 —— 工作區生命週期
+
+整合契約就是工作區:每個專案一個 `graphrag init` 根目錄。所有
+graphrag 接觸點 —— 索引、查詢、探索 —— 都只透過它讀寫。
+
+```mermaid
+flowchart LR
+    P["建立專案"] --> I["graphrag init<br/>生成 settings.yaml"]
+    I --> W[("工作區")]
+    U["上傳語料"] -->|"檔案落入 input/"| W
+    W -->|"讀 input/ 與 .env"| X["索引工作(子程序)<br/>graphrag index / update"]
+    X -->|"parquet 產物寫入 output/"| W
+    W -->|"讀 output/ 與 .env"| Q["查詢 — graphrag.api in-process<br/>四種模式,SSE 串流"]
+    W --> E["探索 — duckdb 唯讀 output/ parquet"]
+```
+
 ![專案列表](../../assets/screenshots/zh/projects.png)
 
 ## 快速開始(15 分鐘)

@@ -31,6 +31,51 @@ Short sketch (full detail in the [design spec](docs/superpowers/specs/)):
   uploads land in `input/`, index output in `output/`, per-project keys (e.g.
   `GRAPHRAG_API_KEY`) in the workspace `.env`.
 
+### Component view
+
+```mermaid
+graph TB
+    B["Browser — React 19 SPA<br/>Ant Design · zh-TW UI"] -->|"/api + SSE"| N
+    subgraph stack["single-host deployment (compose / helm)"]
+        N["web: nginx<br/>static files + /api proxy<br/>buffering off for SSE"]
+        subgraph API["api: FastAPI (layered)"]
+            L1["api/ — routes, auth, HTTP"] --> L2["services/ — use cases<br/>transaction boundary"]
+            L2 --> L3["domain/ — pure logic"]
+            L2 --> L4["adapters/ — repos, FS, graphrag"]
+        end
+        PG[("postgres 16<br/>users · projects · jobs · audit")]
+        subgraph GR["graphrag 3.1.0 (pinned) — both touchpoints in adapters/"]
+            CLI["graphrag CLI subprocess<br/>init · index · update"]
+            LIB["graphrag.api in-process<br/>local · global · drift · basic"]
+        end
+        WS[("workspace per project<br/>input/ · output/ · .env")]
+    end
+    N --> L1
+    L4 -->|"SQLAlchemy async"| PG
+    L4 -->|"spawn, stream logs"| CLI
+    L4 -->|"env-shielded import"| LIB
+    CLI -->|"writes parquet"| WS
+    LIB -->|"reads parquet"| WS
+    L4 -->|"duckdb read-only (explore)"| WS
+```
+
+### Building on GraphRAG — the workspace lifecycle
+
+The integration contract is the workspace: one `graphrag init` root per
+project. Every graphrag touchpoint — indexing, querying, exploring —
+reads and writes only through it.
+
+```mermaid
+flowchart LR
+    P["create project"] --> I["graphrag init<br/>scaffold settings.yaml"]
+    I --> W[("workspace")]
+    U["upload corpus"] -->|"files land in input/"| W
+    W -->|"reads input/ + .env"| X["index job (subprocess)<br/>graphrag index / update"]
+    X -->|"parquet artifacts into output/"| W
+    W -->|"reads output/ + .env"| Q["query — graphrag.api in-process<br/>four modes, SSE stream"]
+    W --> E["explore — duckdb over output/ parquet<br/>read-only"]
+```
+
 ## Quickstart (15 minutes)
 
 1. **Prerequisites** — Docker + Docker Compose. Node **24** and Python 3.12 + uv are only
