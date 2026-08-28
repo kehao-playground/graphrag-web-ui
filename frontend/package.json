@@ -9,7 +9,8 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "screenshots": "node scripts/capture-screens.mjs"
   },
   "dependencies": {
     "@react-sigma/core": "^5.0.6",
@@ -41,6 +42,7 @@
     "jsdom": "^30.0.1",
     "openapi-typescript": "7.13.0",
     "oxlint": "^1.75.0",
+    "playwright": "^1.62.1",
     "sigma": "3.0.3",
     "typescript": "~6.0.2",
     "vite": "^8.2.0",

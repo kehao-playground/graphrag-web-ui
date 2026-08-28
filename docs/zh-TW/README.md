@@ -31,6 +31,8 @@ drift / basic 四種搜尋模式,全部透過 SSE 串流並附行內引用。可
   上傳檔案落入 `input/`,索引輸出在 `output/`,每專案金鑰(例如
   `GRAPHRAG_API_KEY`)存於工作區 `.env`。
 
+![專案列表](../../assets/screenshots/projects.png)
+
 ## 快速開始(15 分鐘)
 
 1. **必要條件** — Docker + Docker Compose。Node **24** 與 Python 3.12 + uv
@@ -43,17 +45,28 @@ drift / basic 四種搜尋模式,全部透過 SSE 串流並附行內引用。可
      登入驗證會拒絕特殊用途網域
    - `BOOTSTRAP_ADMIN_PASSWORD`
 
-   全部 15 個變數與其預設值皆記錄於 [`.env.example`](../../.env.example)。
+   全部 15 個基礎變數與其預設值皆記錄於
+   [`.env.example`](../../.env.example);選用的 proxy-auth overlay 另有
+   專屬變數(見[ OAuth2-Proxy 驗證](#oauth2-proxy-驗證選用))。
 3. **啟動** — `docker compose up --build -d`。UI 位於 `http://localhost:8080`。
    Postgres 會先啟動;API 等待 PG 健康檢查通過後,自動執行 Alembic 遷移。
 4. **首次登入** — 以 bootstrap 管理員身分登入;UI 會強制先變更密碼,
    之後才能進行其他操作。
+
+   ![登入頁](../../assets/screenshots/login.png)
+
 5. **建立專案** — 選擇 `input_file_type`(`text` / `csv` / `json`)。此值
    在建立時即固定,並決定上傳接受的副檔名。
 6. **上傳語料** — 檔案會進入專案工作區的 `input/`。單檔上限
    `UPLOAD_MAX_FILE_MB`,每專案配額 `PROJECT_QUOTA_MB`;超過任一上限 → 413。
+
+   ![專案檔案](../../assets/screenshots/project-files.png)
+
 7. **設定 LLM 金鑰** — 專案設定 → 環境:設定 `GRAPHRAG_API_KEY`(每專案
    各自持有,存於工作區 `.env`,回讀時遮罩顯示)。缺少此金鑰,索引工作會失敗。
+
+   ![專案設定](../../assets/screenshots/project-settings.png)
+
 8. **索引** — 工作 → 執行一項索引工作(method 為 `fast` 或 `standard`)。
    來自真實語料測試的提醒:在極小語料上,`fast` 方法可能會失敗
    ("Graph Pruning failed. No entities remain.")—— 小型測試語料的首次
@@ -62,6 +75,10 @@ drift / basic 四種搜尋模式,全部透過 SSE 串流並附行內引用。可
    串流回應,並附行內引用。
 10. **探索** — 產物資料表(entities / relationships / communities / documents /
     community_reports / text_units)與圖譜 WebGL 圖形檢視。
+
+管理者另可使用使用者管理頁面(角色、密碼重設、停用):
+
+![管理者使用者](../../assets/screenshots/admin-users.png)
 
 ## 已知注意事項
 
@@ -112,6 +129,14 @@ npm test
 
 Vite 開發伺服器預設將 `/api` 代理至 `http://localhost:8000`;可用
 `API_PROXY_TARGET` 將它指向其他前門(見 `frontend/vite.config.ts`)。
+
+本 README 的截圖可重製 —— compose 堆疊運作中且 `.env` 已設定時:
+
+```
+cd frontend
+npx playwright install chromium   # 一次即可
+npm run screenshots
+```
 
 ## 部署
 
@@ -251,7 +276,8 @@ JIT 建立會把「IdP 通過了這個人」直接變成「一列 `User` 資料�
 4. 重複標頭的取代語意:經正門送出重複的 `X-Forwarded-Email` 標頭 →
    回應仍是 200,且只有「一個」一致的身分(oauth2-proxy 是取代,
    不是附加)。
-5. SSE:執行一次查詢串流;訊框經 auth → web → api 順暢流動不卡住。
+5. SSE:排入一項索引工作並開啟其即時日誌(或索引完成後執行查詢);
+   訊框經 auth → web → api 順暢流動不卡住。
 6. UI 登出 → 停在 oauth2-proxy 自己的登入頁(不會自動重新登入)。
 
 ## 貢獻與文件

@@ -4,9 +4,11 @@ A team web console for [Microsoft GraphRAG](https://github.com/microsoft/graphra
 projects, upload corpora, run indexing jobs, and query the knowledge graph — local / global /
 drift / basic search modes, all streaming over SSE with inline citations. Browse the parquet
 artifacts (entities, relationships, communities, documents, community reports, text units)
-and explore the graph in an interactive WebGL view (圖譜). It replaces GraphRAG CLI
+and explore the graph in an interactive WebGL view (UI label: 圖譜). It replaces GraphRAG CLI
 operations for non-technical teammates: everything from `graphrag init` to query runs behind
 login, roles, and per-project quotas.
+
+![Projects dashboard](docs/assets/screenshots/projects.png)
 
 ## Architecture
 
@@ -41,18 +43,29 @@ Short sketch (full detail in the [design spec](docs/superpowers/specs/)):
      validation rejects special-use domains
    - `BOOTSTRAP_ADMIN_PASSWORD`
 
-   All 15 variables and their defaults are documented in [`.env.example`](.env.example).
+   All 15 base variables and their defaults are documented in
+   [`.env.example`](.env.example); the opt-in proxy-auth overlay adds its
+   own set (see [OAuth2-Proxy authentication](#oauth2-proxy-authentication-optional)).
 3. **Start** — `docker compose up --build -d`. The UI is at `http://localhost:8080`.
    Postgres starts first; the API waits for PG health and runs the Alembic migrations
    automatically.
 4. **First login** — log in as the bootstrap admin; the UI forces a password change before
    anything else.
+
+   ![Login page](docs/assets/screenshots/login.png)
+
 5. **Create a project** — pick `input_file_type` (`text` / `csv` / `json`). It is fixed at
    creation and decides which file extensions uploads accept.
 6. **Upload the corpus** — files go to the project workspace `input/`. Per-file cap
    `UPLOAD_MAX_FILE_MB`, per-project quota `PROJECT_QUOTA_MB`; exceeding either → 413.
+
+   ![Project files](docs/assets/screenshots/project-files.png)
+
 7. **Set the LLM key** — Project Settings → Env: set `GRAPHRAG_API_KEY` (per-project,
    stored in the workspace `.env`, read back masked). Without it, indexing jobs fail.
+
+   ![Project settings](docs/assets/screenshots/project-settings.png)
+
 8. **Index** — Jobs → run an index job (method `fast` or `standard`). Caveat from
    real-corpus testing: on tiny corpora the `fast` method can fail ("Graph Pruning failed.
    No entities remain.") — use `standard` for the first run on small test corpora. Follow
@@ -60,7 +73,12 @@ Short sketch (full detail in the [design spec](docs/superpowers/specs/)):
 9. **Query** — all four modes (`local`, `global`, `drift`, `basic`) stream over SSE with
    inline citations.
 10. **Explore** — artifact tables (entities / relationships / communities / documents /
-    community_reports / text_units) and the 圖譜 WebGL graph view.
+    community_reports / text_units) and the WebGL graph view (UI label: 圖譜).
+
+Admins additionally get the user-management page (roles, password resets,
+deactivation):
+
+![Admin users](docs/assets/screenshots/admin-users.png)
 
 ## Known caveats
 
@@ -116,6 +134,15 @@ npm test
 
 The Vite dev server proxies `/api` to `http://localhost:8000` by default; point it at
 another front door with `API_PROXY_TARGET` (see `frontend/vite.config.ts`).
+
+The screenshots in this README are regenerable — with the compose stack
+running and a configured `.env`:
+
+```
+cd frontend
+npx playwright install chromium   # once
+npm run screenshots
+```
 
 ## Deployment
 
@@ -265,8 +292,8 @@ Run against the compose overlay once it is up:
 4. Duplicate-header replace semantics: through the front door, send a
    duplicate `X-Forwarded-Email` header → response is still 200 with ONE
    consistent identity (oauth2-proxy replaced, not appended).
-5. SSE: run a query stream; frames flow through auth → web → api without
-   stalling.
+5. SSE: enqueue an index job and open its live log (or run a query once
+   indexed); frames flow through auth → web → api without stalling.
 6. UI logout → lands on oauth2-proxy's own sign-in page (no auto
    re-login).
 
