@@ -87,7 +87,7 @@ test("form mode does not crash on empty base yaml and shows a degraded notice", 
   fixture.content_hash = "empty-base";
   mount();
   await screen.findByRole("button", { name: /儲存/ });
-  await userEvent.setup().click(screen.getByText("Form"));
+  await userEvent.setup().click(screen.getByText("表單"));
   expect(await screen.findByText(/無法以表單編輯/)).toBeInTheDocument();
 });
 
@@ -104,7 +104,7 @@ test("form draft is reset when the server content hash changes", async () => {
   mount();
   await screen.findByRole("button", { name: /儲存/ });
   const user = userEvent.setup();
-  await user.click(screen.getByText("Form"));
+  await user.click(screen.getByText("表單"));
   const size = await screen.findByLabelText("chunk-size");
   await waitFor(() => expect(size).toHaveValue("10"));
   await user.clear(size);

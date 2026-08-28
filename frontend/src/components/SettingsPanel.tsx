@@ -261,8 +261,8 @@ export default function SettingsPanel({ projectId, canEdit }: {
       <div>
         <Space style={{ marginBottom: 8 }}>
           <Radio.Group value={mode} onChange={(e) => setMode(e.target.value)}>
-            <Radio.Button value="yaml">YAML</Radio.Button>
-            <Radio.Button value="form">Form</Radio.Button>
+            <Radio.Button value="yaml">{t("settings.yamlMode")}</Radio.Button>
+            <Radio.Button value="form">{t("settings.formMode")}</Radio.Button>
           </Radio.Group>
           <Button type="primary" disabled={!canEdit} loading={save.isPending} onClick={saveCurrent}>{t("settings.saveSettings")}</Button>
         </Space>
@@ -292,7 +292,7 @@ export default function SettingsPanel({ projectId, canEdit }: {
                 ))}
               </Descriptions>
             ))}
-            <Descriptions title="chunking" size="small" bordered column={2}>
+            <Descriptions title={t("settings.chunkTitle")} size="small" bordered column={2}>
               <Descriptions.Item label="size"><Input aria-label="chunk-size" {...formField("chunking", "size")} /></Descriptions.Item>
               <Descriptions.Item label="overlap"><Input aria-label="chunk-overlap" {...formField("chunking", "overlap")} /></Descriptions.Item>
             </Descriptions>
@@ -372,9 +372,9 @@ export default function SettingsPanel({ projectId, canEdit }: {
         <Table rowKey="key" size="small" columns={envColumns} dataSource={env.data?.keys ?? []}
                pagination={false} loading={env.isPending} />
         <Space.Compact style={{ marginTop: 8, width: "100%" }}>
-          <Input placeholder="key (e.g. GRAPHRAG_API_KEY)" value={envKey}
+          <Input placeholder={t("settings.envKeyPlaceholder")} value={envKey}
                  disabled={!canEdit} onChange={(e) => setEnvKey(e.target.value)} />
-          <Input.Password placeholder="value" value={envValue}
+          <Input.Password placeholder={t("settings.envValuePlaceholder")} value={envValue}
                           disabled={!canEdit} onChange={(e) => setEnvValue(e.target.value)} />
           <Button type="primary" disabled={!canEdit || !envKey || !envValue}
                   loading={patchEnv.isPending} onClick={() => patchEnv.mutate()}>{t("settings.envSetButton")}</Button>
