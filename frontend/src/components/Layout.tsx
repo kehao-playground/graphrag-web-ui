@@ -28,6 +28,10 @@ export default function Layout() {
   return (
     <AntLayout style={{ minHeight: "100vh" }}>
       <AntLayout.Sider>
+        {/* antd's .ant-layout-sider-children is display:block — auto
+            margins push nothing. A flex column wrapper is what actually
+            pins the language dropdown to the bottom-left corner. */}
+        <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
         <div style={{ color: "#fff", padding: 16, fontWeight: 600 }}>{t("common.appName")}</div>
         <Menu
           theme="dark"
@@ -58,6 +62,7 @@ export default function Layout() {
             popupMatchSelectWidth={false}
             style={{ width: "100%" }}
           />
+        </div>
         </div>
       </AntLayout.Sider>
       <AntLayout.Content style={{ padding: 24 }}>
