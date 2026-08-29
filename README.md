@@ -27,7 +27,8 @@ Short sketch (full detail in the [design spec](docs/superpowers/specs/)):
     environment around that import).
 - **Database** — PostgreSQL 16 (SQLAlchemy async + asyncpg); Alembic migrations run
   automatically at API startup.
-- **Workspaces** — one `graphrag init` workspace per project under `WORKSPACES_DIR`:
+- **Project workspaces** — the app's name for each project's GraphRAG root
+  directory (what `graphrag init` scaffolds), created under `WORKSPACES_DIR`:
   uploads land in `input/`, index output in `output/`, per-project keys (e.g.
   `GRAPHRAG_API_KEY`) in the workspace `.env`.
 
@@ -48,7 +49,7 @@ graph TB
             CLI["graphrag CLI subprocess<br/>init · index · update"]
             LIB["graphrag.api in-process<br/>local · global · drift · basic"]
         end
-        WS[("workspace per project<br/>input/ · output/ · .env")]
+        WS[("project workspace<br/>= GraphRAG root dir<br/>input/ · output/ · .env")]
     end
     N --> L1
     L4 -->|"SQLAlchemy async"| PG
@@ -61,14 +62,15 @@ graph TB
 
 ### Building on GraphRAG — the workspace lifecycle
 
-The integration contract is the workspace: one `graphrag init` root per
-project. Every graphrag touchpoint — indexing, querying, exploring —
-reads and writes only through it.
+The integration contract is the workspace — the app's name for each
+project's GraphRAG root directory, scaffolded by `graphrag init` under
+`WORKSPACES_DIR`. Every graphrag touchpoint — indexing, querying,
+exploring — reads and writes only through it.
 
 ```mermaid
 flowchart LR
     P["create project"] --> I["graphrag init<br/>scaffold settings.yaml"]
-    I --> W[("workspace")]
+    I --> W[("project workspace<br/>(GraphRAG root)")]
     U["upload corpus"] -->|"files land in input/"| W
     W -->|"reads input/ + .env"| X["index job (subprocess)<br/>graphrag index / update"]
     X -->|"parquet artifacts into output/"| W

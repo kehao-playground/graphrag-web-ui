@@ -27,7 +27,8 @@ drift / basic 四種搜尋模式,全部透過 SSE 串流並附行內引用。可
     adapter 會在該 import 前後快照並還原環境)。
 - **資料庫** — PostgreSQL 16(SQLAlchemy async + asyncpg);Alembic 遷移會在
   API 啟動時自動執行。
-- **工作區** — 每個專案在 `WORKSPACES_DIR` 下各有一個 `graphrag init` 工作區:
+- **專案工作區(workspace)** — 本應用對「每個專案的 GraphRAG 根目錄」的
+  稱呼(即 `graphrag init` 建立的目錄),位於 `WORKSPACES_DIR` 下:
   上傳檔案落入 `input/`,索引輸出在 `output/`,每專案金鑰(例如
   `GRAPHRAG_API_KEY`)存於工作區 `.env`。
 
@@ -48,7 +49,7 @@ graph TB
             CLI["graphrag CLI 子程序<br/>init · index · update"]
             LIB["graphrag.api in-process<br/>local · global · drift · basic"]
         end
-        WS[("每專案工作區<br/>input/ · output/ · .env")]
+        WS[("專案工作區<br/>= GraphRAG 根目錄<br/>input/ · output/ · .env")]
     end
     N --> L1
     L4 -->|"SQLAlchemy async"| PG
@@ -61,13 +62,14 @@ graph TB
 
 ### 以 GraphRAG 為基礎 —— 工作區生命週期
 
-整合契約就是工作區:每個專案一個 `graphrag init` 根目錄。所有
-graphrag 接觸點 —— 索引、查詢、探索 —— 都只透過它讀寫。
+整合契約就是工作區 —— 本應用對「每個專案的 GraphRAG 根目錄」的稱呼,
+由 `graphrag init` 生成、位於 `WORKSPACES_DIR`。所有 graphrag 接觸點
+—— 索引、查詢、探索 —— 都只透過它讀寫。
 
 ```mermaid
 flowchart LR
     P["建立專案"] --> I["graphrag init<br/>生成 settings.yaml"]
-    I --> W[("工作區")]
+    I --> W[("專案工作區<br/>(GraphRAG 根目錄)")]
     U["上傳語料"] -->|"檔案落入 input/"| W
     W -->|"讀 input/ 與 .env"| X["索引工作(子程序)<br/>graphrag index / update"]
     X -->|"parquet 產物寫入 output/"| W
