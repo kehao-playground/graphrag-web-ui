@@ -14,7 +14,7 @@ drift / basic 四種搜尋模式,全部透過 SSE 串流並附行內引用。可
 
 簡要概覽(完整細節見[設計規格](../../docs/superpowers/specs/)):
 
-- **前端** — React 19 SPA(Ant Design,介面文字為 zh-TW),以 Vite 建置並由
+- **前端** — React 19 SPA(Ant Design,介面為 zh-TW/English 雙語),以 Vite 建置並由
   nginx 提供服務;nginx 同時將 `/api` 反向代理至後端(SSE 友善:緩衝已關閉)。
 - **後端** — FastAPI,分層為 `api` / `services` / `domain` / `adapters`。
   **graphrag 僅有兩個接觸點,且皆侷限於 `adapters/`:**
@@ -35,7 +35,7 @@ drift / basic 四種搜尋模式,全部透過 SSE 串流並附行內引用。可
 
 ```mermaid
 graph TB
-    B["瀏覽器 — React 19 SPA<br/>Ant Design · zh-TW 介面"] -->|"/api + SSE"| N
+    B["瀏覽器 — React 19 SPA<br/>Ant Design"] -->|"/api + SSE"| N
     subgraph stack["單機部署(compose / helm)"]
         N["web:nginx<br/>靜態檔案 + /api 代理<br/>SSE 緩衝已關閉"]
         subgraph API["api:FastAPI(分層)"]

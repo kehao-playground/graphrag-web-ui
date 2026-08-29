@@ -14,7 +14,7 @@ login, roles, and per-project quotas.
 
 Short sketch (full detail in the [design spec](docs/superpowers/specs/)):
 
-- **Frontend** — React 19 SPA (Ant Design, zh-TW interface text), built with Vite and served
+- **Frontend** — React 19 SPA (Ant Design, bilingual zh-TW/English interface), built with Vite and served
   by nginx, which also reverse-proxies `/api` to the backend (SSE-friendly: buffering off).
 - **Backend** — FastAPI, layered `api` / `services` / `domain` / `adapters`.
   **Two graphrag touchpoints, both confined to `adapters/`:**
@@ -35,7 +35,7 @@ Short sketch (full detail in the [design spec](docs/superpowers/specs/)):
 
 ```mermaid
 graph TB
-    B["Browser — React 19 SPA<br/>Ant Design · zh-TW UI"] -->|"/api + SSE"| N
+    B["Browser — React 19 SPA<br/>Ant Design"] -->|"/api + SSE"| N
     subgraph stack["single-host deployment (compose / helm)"]
         N["web: nginx<br/>static files + /api proxy<br/>buffering off for SSE"]
         subgraph API["api: FastAPI (layered)"]
