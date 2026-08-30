@@ -18,9 +18,12 @@ User decisions (2026-08-30, chat):
    roles; seeded built-in roles cover most scenarios.
 5. **Custom roles are supported at both scopes**: global (assigned to
    users) and project (assigned to members).
-6. Two approved **semantic changes**: (a) project rename moves from editor
-   to `project:manage` (owner + ops); (b) env API key management moves from
-   content editing to `project:edit_settings`.
+6. Two approved **semantic changes**: (a) `PATCH /api/projects/{id}` —
+   rename *and* description, one route, one check — moves from editor to
+   `project:manage` (owner + ops); (b) env API key management moves from
+   content editing to `project:edit_settings`. Nothing else changes
+   scope: in particular the jobs preflight probe keeps its current
+   `project:view` gate (§4.3).
 
 ## 1. Problem
 
@@ -91,15 +94,19 @@ Project atoms (held via project member roles):
 
 | Atom | Grants |
 |---|---|
-| `project:view` | View project, file list, job list/logs/SSE, query, explore, settings read + versions, env key names |
+| `project:view` | View project, file list, job list + preflight + logs/SSE, query, explore, settings read + versions, env key names |
 | `project:edit_content` | Upload/delete input documents |
-| `project:run_jobs` | Trigger/cancel indexing jobs, preflight |
+| `project:run_jobs` | Trigger/cancel indexing jobs |
 | `project:edit_settings` | Write `settings.yaml`, dry-run, **set/delete env API keys** |
-| `project:manage` | Rename project, delete project, manage members |
+| `project:manage` | Edit project name/description, delete project, manage members |
 
 Implication rules (resolution-time, in `domain/permissions.py`):
 
-- `projects:act_any` ⇒ every project atom in every project.
+- `projects:act_any` ⇒ every project atom in every project, and ⇒
+  `projects:view_any`. The second half is not redundant: the project-list
+  branch reads `projects:view_any` only, so without it a custom role
+  holding just `act_any` could act on every project while seeing none of
+  them in the listing.
 - `projects:view_any` ⇒ `project:view` in every project.
 
 Baseline for every **active** user: `projects:create`, own profile and
@@ -120,9 +127,11 @@ Current-vs-new effective permissions:
 
 - old `admin` ≡ `user_admin` + `ops` (identical).
 - old `viewer` ≡ new `viewer`.
-- old `editor` = new `editor` **minus** project rename (semantic change a)
-  **minus** env key management (semantic change b).
-- new `maintainer` = old `editor` minus rename minus settings/env keys.
+- old `editor` = new `editor` **minus** project PATCH (rename *and*
+  description — semantic change a) **minus** env key management
+  (semantic change b).
+- new `maintainer` = old `editor` minus project PATCH minus
+  settings/env keys.
 
 Built-in role ids are fixed literal UUIDs (constants in code; migration
 seeds by id, `ON CONFLICT (id) DO NOTHING`):
@@ -142,15 +151,26 @@ owner       00000000-0000-4000-8000-000000000006
 |---|---|---|
 | `/api/admin/users/*` (all) | `require_admin` | `users:manage` |
 | Project list (all vs. mine) | `user.role != "admin"` branch | `projects:view_any` |
-| Project rename / delete / members PUT+DELETE | `update_project` / `delete_project` / `manage_members` | `project:manage` |
-| Project GET, members GET, files GET, jobs GET+logs SSE, query + stream, explore, settings GET + versions, env keys GET | `view_project` | `project:view` |
+| Project PATCH (rename **and** description) / delete / members PUT+DELETE | `update_project` / `delete_project` / `manage_members` | `project:manage` |
+| Project GET, members GET, files GET, jobs GET + preflight + logs SSE, query + stream, explore, settings GET + versions, env keys GET | `view_project` | `project:view` |
 | Files upload/delete | `edit_content` | `project:edit_content` |
-| Jobs trigger/cancel, preflight | `edit_content` | `project:run_jobs` |
+| Jobs trigger/cancel | `edit_content` | `project:run_jobs` |
 | Settings PUT, dry-run, env keys set/delete | `edit_content` | `project:edit_settings` |
 | Project create | `create_project` | baseline (`projects:create`) |
 
-Preflight intentionally follows `project:run_jobs`: it exists to serve
-the trigger dialog.
+Two clarifications on this table:
+
+- **`PATCH /api/projects/{id}` moves as a whole.** One route writes both
+  `name` and `description` behind a single `Action.update_project` check
+  (`api/projects_routes.py` → `patch_one`), so semantic change (a) takes
+  description editing with it: an `editor` loses both. Splitting the
+  check per field is deliberately not done — one route, one atom.
+- **Preflight keeps `project:view`.** That is its check today
+  (`api/jobs_routes.py` → `preflight` uses `Action.view_project`, not
+  `edit_content`), it is a read-only status probe, and `JobsPanel` fires
+  it unconditionally on mount with an error toast on failure — gating it
+  on `project:run_jobs` would greet every viewer with a red toast. No
+  third semantic change.
 
 ## 5. Data model & migration
 
@@ -180,6 +200,13 @@ Scope constraints (`user_roles.role_id` must be global-scope;
 service layer; Postgres CHECK constraints cannot span tables without
 triggers, which we do not add.
 
+`permissions` is a Postgres `TEXT[]`, not the JSONB used elsewhere in
+this schema: the value is a flat set of short atom strings, and array
+containment (`permissions @> ARRAY['users:manage']`) keeps "every role
+granting `users:manage`" a plain, indexable predicate — the
+last-user-manager guard (§6.2) runs exactly that on every user
+mutation. SQLAlchemy maps it as `ARRAY(Text)`.
+
 ### 5.2 Migration (one alembic revision, order matters)
 
 1. Create `roles`; seed the six built-ins by fixed id.
@@ -193,6 +220,14 @@ triggers, which we do not add.
 
 The revision is written to be safe on an empty database (seed inserts
 are `ON CONFLICT DO NOTHING`; backfills are no-ops).
+
+**Downgrade** is lossy and says so rather than guessing. It re-adds
+`users.role` and `project_members.role`, maps holders of `user_admin`
+**or** `ops` back to `'admin'` and everyone else to `'user'`, maps the
+four built-in project roles back to their strings, and floors **custom**
+project roles at `'viewer'` — never silently upgrading a member's power
+on the way down. Custom roles themselves vanish with the tables; the
+revision docstring states the loss.
 
 ### 5.3 Data integrity rules (service layer)
 
@@ -219,11 +254,25 @@ are `ON CONFLICT DO NOTHING`; backfills are no-ops).
   external imports (layer rule). Implication rules of §4.1 live here.
   `Action` enum is replaced by the atom enum (values identical to atom
   strings); route files migrate mechanically (§4.3).
-- The auth dependency (`get_current_user` / `resolve_proxy_user`) loads
-  the user's effective global atoms once per request —
-  `SELECT roles.permissions FROM user_roles JOIN roles …` alongside the
-  user fetch — and exposes them on the request-scoped principal.
-  `require_admin` becomes `require_atom("users:manage")`.
+- **Principal shape.** `get_current_user` / `sse_user_from_request` stop
+  returning the bare `User` ORM row and return a frozen dataclass
+  `Principal(user: User, global_perms: frozenset[str])` defined in
+  `api/deps.py`; the `CurrentUser` / `SseUser` aliases point at it and
+  `p.user` still carries the ORM row for `actor_id`, email and
+  `is_active`. The dataclass stays in the API layer: `domain.can()` keeps
+  taking plain frozensets and never sees an ORM object (layer rule). Both
+  `get_current_user` and `resolve_proxy_user` load the atoms once per
+  request — `SELECT roles.permissions FROM user_roles JOIN roles …`
+  alongside the user fetch. `require_admin` becomes
+  `require_atom("users:manage")`.
+- **Service signatures that read `users.role` today change with it**:
+  `services.projects.create_project` (baseline check on the creator),
+  `services.projects.list_projects` (branches on `projects:view_any`
+  instead of `user.role != "admin"`), and
+  `services.users.patch_user_guarded` (self-guard + last-user-manager)
+  all take the actor's atom set instead of the ORM row's role. Those
+  three plus `services/auth.py` (§6.3) are the complete set of non-API
+  `.role` readers.
 - Project routes: `get_project_role(db, pid, user.id)` becomes
   `get_member_perms(db, pid, user.id)` returning the member role's
   atom set (`None` when not a member); `can()` applies the
@@ -248,16 +297,28 @@ global roles or active status (`400 user_self_change_forbidden`, kept).
 ### 6.3 Auth flows
 
 - **Local bootstrap** (`bootstrap_admin`): creates the bootstrap admin
-  with grants `[user_admin, ops]`. Existing-behavior warning unchanged.
+  with grants `[user_admin, ops]`. The "an admin already exists" probe
+  changes from `select(User).where(User.role == 'admin')` +
+  `scalar_one_or_none()` to an `EXISTS` / `LIMIT 1` query over
+  `user_roles JOIN roles` for any active holder of `users:manage`. The
+  limit is not cosmetic: the current call raises `MultipleResultsFound`
+  — a startup crash — as soon as a second admin exists, and `user_admin`
+  is expected to have several holders. The ignored-password warning keeps
+  its wording and now names the first such holder.
 - **Proxy JIT + reconciliation** (`get_or_provision_user`):
   provisioning grants `[user_admin, ops]` when the email is in
   `PROXY_ADMIN_EMAILS`; the authoritative-upward pass adds **missing**
-  grants (not just role-name equality) with audit
-  `user.roles_promoted`, payload `{"via": "proxy_admin_emails"}`.
+  grants (grant-set difference, not role-name equality) and keeps the
+  existing audit action `user.role_promoted` with its
+  `{"via": "proxy_admin_emails"}` payload — renaming it would split
+  historical audit queries for no gain.
   Case-insensitive matching and the `PROXY_AUTH_SECRET` trust anchor are
   unchanged.
-- **JWT**: the `role` claim is dropped; `roles: [name, …]` is added for
-  display. Authorization is already DB-driven per request
+- **JWT**: the `role` claim is dropped and **nothing replaces it**.
+  Nothing reads it today (the SPA takes its user shape from the
+  `/api/auth/login` and `/api/auth/me` `UserOut`), and a display-only
+  `roles` claim would cost a name lookup at issue time while drifting
+  from the DB. Authorization is already DB-driven per request
   (`resolve_access_user` loads the `User` row from `sub`) and stays so;
   role changes take effect on the next request, no token wait.
 
@@ -266,21 +327,35 @@ global roles or active status (`400 user_self_change_forbidden`, kept).
 New actions: `role.created`, `role.updated`, `role.deleted`,
 `user.roles_changed` (payload: added/removed role ids). Existing
 `member.role_changed` / `member.added` payloads switch from role strings
-to role ids + names. `user.role_promoted` is renamed `user.roles_promoted`.
+to role ids + names. `user.role_promoted` and `user.updated` keep their
+action names — only the latter's payload carries `roles` where it used
+to carry `role`.
 
 ## 7. API contract changes (openapi.json + types regenerated)
 
 - `UserOut`: `role` removed; `roles: [RoleOut]`, `permissions: [str]`
   (effective global atoms) added.
-- `UserCreateIn` / `UserUpdateIn`: `role` → `roles: [UUID]` (global-scope
-  role ids).
+- `UserUpdateIn`: `role: "admin"|"user"` → `roles: [UUID] | None`
+  (global-scope role ids; omitted = no change, `[]` = strip every global
+  role).
+- `UserCreateIn`: **gains** `roles: [UUID] = []`. This is an addition,
+  not a rename — the model has no `role` field today and `create_user()`
+  takes no role, so a newly created user is always a plain user that
+  must be PATCHed afterwards. Accepting grants at creation keeps the
+  admin create modal a single request; `create_user()` gains the
+  parameter and applies the same global-scope validation as the PATCH
+  path.
 - `UserBriefOut`: unchanged (deliberately excludes admin fields).
 - `MemberOut`: `role: str` → `role_id: UUID`, `role_name: str`.
 - `MemberIn`: `role: "editor"|"viewer"` → `role_id: UUID` (project-scope,
   non-owner).
 - `ProjectOut`: adds `my_permissions: [str]` — the caller's effective
   project atoms (including `act_any`/`view_any` implications) for that
-  project; also present in `GET /api/projects` list items.
+  project; also present in `GET /api/projects` list items. The list route
+  resolves them in **one** query (`project_members JOIN roles`, filtered
+  by the caller and the listed project ids, folded into a
+  `{project_id: atoms}` map before serialization) — never one
+  `get_member_perms` per row.
 - New `RoleOut`: `{id, scope, name, description, permissions, is_system}`.
 - New endpoints:
   - `GET /api/roles` — any authenticated active user; optional
@@ -293,7 +368,11 @@ to role ids + names. `user.role_promoted` is renamed `user.roles_promoted`.
 - Error codes added: `last_user_manager_protected`, `role_is_system`,
   `role_in_use`, `role_scope_mismatch`, `role_not_found`,
   `role_permissions_invalid`. `user_last_admin_protected` is removed
-  (superseded).
+  (superseded). `require_atom` **keeps the existing `admin_only` code**
+  on the `/api/admin/*` routers, and project-atom failures keep
+  `forbidden`: both are already in the i18n error catalog and pinned by
+  `tests/test_error_codes.py`, so only the `admin_only` message strings
+  are reworded away from "admin" toward "requires user management".
 
 ## 8. Frontend
 
@@ -302,16 +381,20 @@ to role ids + names. `user.role_promoted` is renamed `user.roles_promoted`.
   `permissions.includes("users:manage")`; a new Admin Roles entry
   (`/admin/roles`) under the same condition.
 - **AdminUsers**: role single-select → **global-role multi-select**
-  (ids, from `GET /api/roles?scope=global`); self-row role editing
+  (ids, from `GET /api/roles?scope=global`), in both the create modal
+  (`UserCreateIn.roles`) and the row editor; self-row role editing
   locked (backend enforces).
 - **New AdminRoles page**: table grouped by scope; create/edit modal
   with atom checkboxes (grouped, scope-filtered); system roles locked
-  (view only); delete handles `409 role_in_use`.
+  (view only); delete handles `409 role_in_use`. The `project:manage`
+  checkbox carries an inline warning that it grants project deletion and
+  member management to any member holding the role (§10).
 - **ProjectDetail / Projects**: every action button switches to
   `my_permissions` atoms — upload/delete files → `project:edit_content`;
-  trigger/cancel jobs + preflight → `project:run_jobs`; settings editor,
+  trigger/cancel jobs → `project:run_jobs` (the preflight query stays
+  ungated: it is a `project:view` read); settings editor,
   dry-run, env key set/delete → `project:edit_settings`; members,
-  rename, delete project → `project:manage`. Member role `Select`
+  project name/description edit, delete project → `project:manage`. Member role `Select`
   options come from `GET /api/roles?scope=project` minus the built-in
   `owner` (owner not grantable; owner row locked, as today).
 - **i18n**: zh-TW + en-US strings for new pages, atoms, and role names
@@ -326,7 +409,10 @@ to role ids + names. `user.role_promoted` is renamed `user.roles_promoted`.
   checks and vice versa).
 - **Route tests** (extend existing suites):
   - `maintainer` full path: files + jobs + preflight allowed; settings
-    PUT, dry-run, env key set/delete, rename, members → 403.
+    PUT, dry-run, env key set/delete, project PATCH (both `name` and
+    `description`), members → 403.
+  - `viewer` regression: preflight still 200 — it did **not** move to
+    `project:run_jobs` — while every write stays 403.
   - `ops`-only user: sees all projects, owner-level actions everywhere,
     `403` on `/api/admin/users`.
   - `user_admin`-only user: user CRUD allowed, no project visibility
@@ -340,7 +426,10 @@ to role ids + names. `user.role_promoted` is renamed `user.roles_promoted`.
 - **Role CRUD tests**: scope validation, atom-subset validation,
   `role_is_system`, `role_in_use`, unique-name-per-scope.
 - **Migration test**: legacy fixtures (`users.role='admin'/'user'`,
-  member strings) → expected grants and `role_id`s; empty-database run.
+  member strings) → expected grants and `role_id`s; a user who is both a
+  global `admin` and a project `editor`, so the two backfills are shown
+  not to interfere; empty-database run; downgrade re-derives the legacy
+  strings and floors custom project roles at `viewer`.
 - **Proxy-mode tests**: JIT grants the composition; reconciliation adds
   missing grants; demote-from-list behavior documented as today.
 - **Frontend tests**: role multi-select in AdminUsers, AdminRoles page
@@ -360,13 +449,48 @@ to role ids + names. `user.role_promoted` is renamed `user.roles_promoted`.
 - **Maintainer can spend indexing budget** (semantic change accepted in
   decision 1): bounded by `MAX_CONCURRENT_JOBS`, per-project quota,
   disk watermark, and query rate limits — all unchanged.
-- **Editor loses rename + env keys** (semantic changes a/b, approved).
-  Migration cannot silently re-grant; teams that relied on the old
-  semantics assign the `editor` role as before and accept the split. To
-  restore key/settings control without member management, grant a custom
-  role containing `project:edit_settings`; rename comes only with
+- **Editor loses project PATCH + env keys** (semantic changes a/b,
+  approved). Because name and description share one route, description
+  editing moves with the rename. Migration cannot silently re-grant;
+  teams that relied on the old semantics assign the `editor` role as
+  before and accept the split. To restore key/settings control without
+  member management, grant a custom role containing
+  `project:edit_settings`; project PATCH comes only with
   `project:manage` (which also carries member management and deletion).
+- **Custom project roles may carry `project:manage`**, so "one owner" no
+  longer implies "one manager": a member holding such a role can rename,
+  delete the project and manage members without being
+  `projects.owner_id`. Accepted — that is the point of composable roles
+  — and the built-in `owner` id stays non-grantable (§5.3). The
+  AdminRoles form warns inline when the atom is selected.
+- **`admin_only` outlives the `admin` role**: the error code survives for
+  contract stability while the concept it names is gone. The reworded
+  i18n strings carry the meaning; renaming the code is not worth the
+  frontend and test churn.
 - **One extra roles query per request**: negligible at 10–50 users;
   fold into the user-fetch JOIN if ever measured.
 - **Role catalog visible to all users** (`GET /api/roles`): names and
   atom sets leak nothing sensitive; keeps the member picker simple.
+
+## 11. Documentation & assets
+
+Shipped in the same PR as the code (AGENTS.md: a README change updates
+the zh-TW mirror in the same PR).
+
+- `README.md` — the admin-capabilities paragraph (~L125), the
+  `PROXY_ADMIN_EMAILS` "held at `role=admin`" line (~L225) and the proxy
+  sequence-diagram note (~L243) restate the model as roles + atoms.
+- `docs/zh-TW/README.md` — mirrored in the same PR.
+- `docs/oauth2-proxy.md` and `docs/zh-TW/oauth2-proxy.md` — the
+  promote-on-every-request paragraph (zh-TW ~L93) becomes "the listed
+  email is re-granted the `user_admin` + `ops` composition on every
+  request; remove it from the variable before revoking the grants in
+  AdminUsers".
+- `deploy/helm/graphrag-ui/values.yaml` (~L86, the
+  `held at role=admin (spec §5.2)` comment) and
+  `deploy/helm/graphrag-ui/templates/NOTES.txt` (~L46, break-glass
+  wording).
+- Screenshots: retake `docs/assets/screenshots/{en,zh}/admin-users.png`
+  with the role multi-select, and add `admin-roles.png` for the new page,
+  referenced from both READMEs.
+- No `AGENTS.md` / `CONTRIBUTING.md` change — no new commands or gates.
