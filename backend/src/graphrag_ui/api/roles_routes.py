@@ -140,6 +140,11 @@ def register_roles_routes(app):
         except RoleNameTakenError as e:
             raise ApiError(status.HTTP_409_CONFLICT, "role_name_taken",
                            "a role with that name already exists") from e
+        except IntegrityError as e:
+            # Concurrent rename slipped past the service's check-then-update;
+            # the unique index is the backstop (same contract as POST).
+            raise ApiError(status.HTTP_409_CONFLICT, "role_name_taken",
+                           "a role with that name already exists") from e
         except (RoleIsSystemError, RoleScopeMismatchError,
                 RolePermissionsInvalidError, LastUserManagerError) as e:
             raise _api_error(e, "role rejected") from None

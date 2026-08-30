@@ -145,3 +145,28 @@ async def test_non_admin_crud_forbidden(client):
         "permissions": []})
     assert r.status_code == 403
     assert r.json()["code"] == "admin_only"
+
+
+async def test_patch_concurrent_rename_maps_integrity_error(client, monkeypatch):
+    # A concurrent rename slipping past the service's check-then-update
+    # surfaces as IntegrityError from the uq_roles_scope_name index. The
+    # real race cannot be forced deterministically, so the exception is:
+    # the route must map it to the same 409 role_name_taken as
+    # RoleNameTakenError instead of a 500.
+    from sqlalchemy.exc import IntegrityError
+
+    admin = await _admin(client)
+    role_id = (await client.post("/api/admin/roles", headers=admin, json={
+        "scope": "global", "name": "auditor", "description": "",
+        "permissions": []})).json()["id"]
+
+    async def _lost_race(session, role, **kwargs):
+        raise IntegrityError("UPDATE roles", {},
+                             Exception("duplicate key uq_roles_scope_name"))
+
+    monkeypatch.setattr("graphrag_ui.api.roles_routes.update_role", _lost_race)
+    r = await client.patch(f"/api/admin/roles/{role_id}", headers=admin,
+                           json={"name": "renamed", "description": "",
+                                 "permissions": []})
+    assert r.status_code == 409
+    assert r.json()["code"] == "role_name_taken"
