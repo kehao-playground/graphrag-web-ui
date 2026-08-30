@@ -17,9 +17,9 @@
 - **Migration is delivered as two alembic revisions, not the spec's one** (spec §5.2 deviation, deliberate): R1 additive (creates `roles`/`user_roles`, adds nullable `project_members.role_id`, backfills, keeps both legacy columns) so Tasks 1–3 land green while legacy code still runs; R2 destructive (straggler backfill, `NOT NULL`, drops legacy columns) rides in Task 4, the backend cutover. End-state schema is identical to spec §5.2's; R1+R2 together execute the spec's five steps in order, and R2 carries the spec's lossy downgrade.
 - **Layering** (AGENTS.md): `domain/` pure — no I/O, no ORM objects, only frozensets/str/uuid; `services/` no FastAPI imports, no `HTTPException` — they raise domain errors that routes translate; `api/` owns `Principal` (defined in `api/deps.py`, spec §6.1) and all pydantic models.
 - **One route, one atom** (spec §4.3): `PATCH /api/projects/{id}` moves to `project:manage` as a whole (name + description); jobs preflight keeps `project:view` (it is a read probe; `JobsPanel` fires it on mount — gating it on `run_jobs` would toast every viewer). Env API key set/delete move to `project:edit_settings`; file upload/delete stay `edit_content`; job trigger/cancel become `run_jobs`.
-- **Error codes** (spec §7): added `last_user_manager_protected`, `role_is_system`, `role_in_use`, `role_scope_mismatch`, `role_not_found`, `role_permissions_invalid`; removed `user_last_admin_protected` (superseded); `admin_only` and `forbidden` codes **kept** — only the `admin_only` i18n message is reworded to "requires user management".
+- **Error codes** (spec §7): added `last_user_manager_protected`, `role_is_system`, `role_in_use`, `role_name_taken`, `role_scope_mismatch`, `role_not_found`, `role_permissions_invalid`; removed `user_last_admin_protected` (superseded); `admin_only` and `forbidden` codes **kept** — only the `admin_only` i18n message is reworded to "requires user management". Every added code needs a zh-TW + en-US entry in the frontend error catalog (Task 5).
 - **JWT**: the `role` claim is dropped and nothing replaces it (spec §6.3). Authorization is DB-driven per request, as today.
-- **Audit actions** (spec §6.4): new `role.created`, `role.updated`, `role.deleted`, `user.roles_changed`; `user.role_promoted` keeps its name (proxy reconciliation); `member.added`/`member.role_changed` payloads switch to `role_id` + `role_name`.
+- **Audit actions** (spec §6.4): new `role.created`, `role.updated`, `role.deleted`. Role grants are NOT a separate action — they ride the existing `user.updated` payload as `roles: [name, …]`, matching that route's changed-dict convention. `user.role_promoted` keeps its name (proxy reconciliation); `member.added`/`member.role_changed` payloads switch to `role_id` + `role_name`.
 - **Every task ends green**: `cd backend && uv run pytest -q -m "not slow"` (Docker required for testcontainers) and `uv run ruff check`; frontend tasks additionally `cd frontend && npm test && npx tsc -b --noEmit`. No task leaves the suite red.
 - **Contract gate**: `openapi.json` + `frontend/src/api/types.generated.ts` regenerate in the SAME commit as any schema/route change (`cd backend && uv run python scripts/gen_openapi.py`, then `cd frontend && npm run gen:types`). Generated files are never hand-edited.
 - Schema drift gate `tests/test_schema_drift.py` must stay green at every task: `adapters/models.py` must match alembic head exactly (Task 1 keeps the legacy columns in the models; Task 4 drops them together with R2).
@@ -97,48 +97,107 @@ Create `backend/tests/test_rbac_migration.py`:
 Runs against its OWN Postgres container: the shared session fixture is
 already migrated to head, and this test walks revisions up/down, which
 would mutate the shared schema under other tests' feet.
+
+Two facts about this repo shape the plumbing below — do not simplify them
+away:
+
+1. `migrations/env.py` overwrites `sqlalchemy.url` with
+   `get_settings().database_url` at import time, so setting that option on
+   the Config object does NOTHING. The container is selected through the
+   DATABASE_URL env var plus `get_settings.cache_clear()`, and restored on
+   teardown so the session-wide container keeps working.
+2. No sync driver is installed (neither psycopg2 nor psycopg), so every
+   statement here goes through asyncpg. The tests stay SYNC functions:
+   env.py runs `asyncio.run()` internally, which raises inside a running
+   loop — an `async def` test would break every alembic call. The helpers
+   therefore wrap their async work in `asyncio.run()`.
 """
-import uuid
-from datetime import UTC, datetime
+import asyncio
+import os
 
 import pytest
+import sqlalchemy as sa
 from alembic import command
 from alembic.config import Config
 from testcontainers.postgres import PostgresContainer
 
-from graphrag_ui.domain.role_catalog import (
-    ROLE_ID_EDITOR, ROLE_ID_OPS, ROLE_ID_OWNER, ROLE_ID_USER_ADMIN,
-    ROLE_ID_VIEWER,
-)
+from graphrag_ui.adapters.db import make_engine
+from graphrag_ui.config import get_settings
+# Only ROLE_ID_OPS is referenced (the R2 grant); ruff F401 fails an
+# import of the other five.
+from graphrag_ui.domain.role_catalog import ROLE_ID_OPS
 
 LEGACY_BASE = "47b77c99bc8f"  # indexing_jobs, the revision right before R1
+# Relative refs, never "head": Task 4 adds R2, which would silently
+# retarget these R1 assertions (they require the legacy columns to exist).
+R1 = f"{LEGACY_BASE}+1"
+R2 = f"{LEGACY_BASE}+2"
 
 
-def _cfg(url: str) -> Config:
-    cfg = Config("alembic.ini")
-    cfg.set_main_option("script_location", "migrations")
-    cfg.set_main_option("sqlalchemy.url", url)
-    return cfg
+@pytest.fixture(scope="module")
+def legacy_container():
+    """One container for the whole module (each test resets it below).
+
+    DATABASE_URL points at it for the module's duration because env.py
+    reads the url through get_settings(); the previous value is restored
+    so the session-scoped shared container survives.
+    """
+    previous = os.environ.get("DATABASE_URL")
+    with PostgresContainer("postgres:16-alpine") as pg:
+        url = pg.get_connection_url().replace("psycopg2", "asyncpg")
+        os.environ["DATABASE_URL"] = url
+        get_settings.cache_clear()
+        cfg = Config("alembic.ini")
+        cfg.set_main_option("script_location", "migrations")
+        yield url, cfg
+    if previous is None:
+        os.environ.pop("DATABASE_URL", None)
+    else:
+        os.environ["DATABASE_URL"] = previous
+    get_settings.cache_clear()
 
 
 @pytest.fixture
-def legacy_db():
-    """Fresh container parked at the legacy base revision."""
-    with PostgresContainer("postgres:16-alpine") as pg:
-        url = pg.get_connection_url().replace("psycopg2", "asyncpg")
-        # the sync driver for alembic command
-        sync_url = pg.get_connection_url()
-        cfg = _cfg(sync_url)
-        command.upgrade(cfg, LEGACY_BASE)
-        yield sync_url, cfg
+def legacy_db(legacy_container):
+    """The module container reset to the pre-R1 revision for each test."""
+    url, cfg = legacy_container
+    command.downgrade(cfg, "base")
+    command.upgrade(cfg, LEGACY_BASE)
+    return url, cfg
+
+
+async def _aexec(url: str, statements: tuple[str, ...]) -> None:
+    engine = make_engine(url)
+    try:
+        async with engine.begin() as conn:
+            for stmt in statements:  # one statement per execute (asyncpg)
+                await conn.execute(sa.text(stmt))
+    finally:
+        await engine.dispose()
+
+
+async def _arows(url: str, sql: str) -> list:
+    engine = make_engine(url)
+    try:
+        async with engine.connect() as conn:
+            return (await conn.execute(sa.text(sql))).fetchall()
+    finally:
+        await engine.dispose()
+
+
+def _exec(url: str, *statements: str) -> None:
+    # Sync wrapper: these tests must not be async (see the module docstring)
+    asyncio.run(_aexec(url, statements))
+
+
+def _rows(url: str, sql: str) -> list:
+    return asyncio.run(_arows(url, sql))
 
 
 def _seed_legacy_rows(url):
-    import sqlalchemy as sa
-
-    engine = sa.create_engine(url)
-    with engine.begin() as c:
-        c.execute(sa.text("""
+    _exec(
+        url,
+        """
             INSERT INTO users (id, email, password_hash, display_name, role,
                                is_active, must_change_password, created_at)
             VALUES
@@ -150,14 +209,14 @@ def _seed_legacy_rows(url):
                'user', false, false, now()),
               ('44444444-4444-4444-4444-444444444444', 'd@x.com', 'h', 'D',
                'admin', true, false, now())
-        """))
-        c.execute(sa.text("""
+        """,
+        """
             INSERT INTO projects (id, name, slug, description, owner_id,
                                   input_file_type, created_at)
             VALUES ('aaaa0000-0000-0000-0000-00000000000a', 'P', 'p', NULL,
                     '11111111-1111-1111-1111-111111111111', 'text', now())
-        """))
-        c.execute(sa.text("""
+        """,
+        """
             INSERT INTO project_members (project_id, user_id, role)
             VALUES
               ('aaaa0000-0000-0000-0000-00000000000a',
@@ -166,24 +225,14 @@ def _seed_legacy_rows(url):
                '22222222-2222-2222-2222-222222222222', 'editor'),
               ('aaaa0000-0000-0000-0000-00000000000a',
                '44444444-4444-4444-4444-444444444444', 'viewer')
-        """))
-    engine.dispose()
-
-
-def _rows(url, sql):
-    import sqlalchemy as sa
-
-    engine = sa.create_engine(url)
-    with engine.begin() as c:
-        rows = c.execute(sa.text(sql)).fetchall()
-    engine.dispose()
-    return rows
+        """,
+    )
 
 
 def test_r1_seeds_builtins_and_backfills(legacy_db):
     url, cfg = legacy_db
     _seed_legacy_rows(url)
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, R1)
 
     roles = {r[0]: (r[1], tuple(r[2])) for r in _rows(url, """
         SELECT name, scope, permissions FROM roles ORDER BY name
@@ -235,7 +284,7 @@ def test_r1_seeds_builtins_and_backfills(legacy_db):
 
 def test_r1_is_safe_on_empty_database(legacy_db):
     url, cfg = legacy_db
-    command.upgrade(cfg, "head")  # no legacy rows at all
+    command.upgrade(cfg, R1)  # no legacy rows at all
     assert len(_rows(url, "SELECT id FROM roles")) == 6
     assert _rows(url, "SELECT * FROM user_roles") == []
 
@@ -243,7 +292,7 @@ def test_r1_is_safe_on_empty_database(legacy_db):
 def test_r1_downgrade_drops_rbac_tables(legacy_db):
     url, cfg = legacy_db
     _seed_legacy_rows(url)
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, R1)
     command.downgrade(cfg, LEGACY_BASE)
     tables = {r[0] for r in _rows(url, """
         SELECT table_name FROM information_schema.tables
@@ -256,7 +305,19 @@ def test_r1_downgrade_drops_rbac_tables(legacy_db):
     assert [m[0] for m in members] == ["editor", "owner", "viewer"]
 ```
 
-Note: `test_r1_downgrade_drops_rbac_tables` seeds rows, upgrades, downgrades — the R1 downgrade drops the `role_id` column, so the legacy `role` values must survive verbatim.
+Notes for the implementer:
+
+- `test_r1_downgrade_drops_rbac_tables` seeds rows, upgrades, downgrades —
+  the R1 downgrade drops the `role_id` column, so the legacy `role` values
+  must survive verbatim.
+- The three plumbing constraints (env.py's url override, no sync driver,
+  sync test functions) are spelled out in the module docstring because
+  each one fails in a differently confusing way: the first silently
+  migrates the SHARED container, the second raises
+  `ModuleNotFoundError: psycopg2`, the third raises "asyncio.run() cannot
+  be called from a running event loop".
+- One container per module, reset per test, keeps the fast suite fast;
+  a per-test container would add a fresh Postgres start to every case.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -546,8 +607,9 @@ git commit -m "feat(rbac): roles/user_roles tables, builtin seed, R1 additive mi
   - `roles_for_user(session, user_id) -> list[Role]`
   - `load_roles(session, role_ids: list[uuid.UUID]) -> list[Role]` (raises `RoleNotFound`)
   - `validate_global_roles(roles: list[Role]) -> None` (raises `RoleScopeMismatchError`)
-  - Errors: `RoleNotFound(LookupError)`, `RoleIsSystemError(ValueError)`, `RoleInUseError(ValueError)`, `RoleScopeMismatchError(ValueError)`, `RolePermissionsInvalidError(ValueError)`
-  - The last-user-manager guard hook `would_lose_last_user_manager(session, role, future_permissions) -> bool` — Task 4's users service reuses the same counting query.
+  - Errors: `RoleNotFound(LookupError)`, `RoleIsSystemError(ValueError)`, `RoleInUseError(ValueError)`, `RoleScopeMismatchError(ValueError)`, `RoleNameTakenError(ValueError)`, `RolePermissionsInvalidError(ValueError)`, `LastUserManagerError(ValueError)`
+  - The last-user-manager guard hook `would_lose_last_user_manager(session, role, future_permissions) -> bool` and `other_active_manager_count(session, user_id) -> int` — Task 4's users service reuses both.
+  - `validate_global_roles` is a PLAIN function (no I/O, nothing to await) — call sites must not `await` it.
 
 - [ ] **Step 1: Write the failing service tests**
 
@@ -558,12 +620,10 @@ Create `backend/tests/test_roles_service.py`:
 import uuid
 
 import pytest
-from sqlalchemy import select
 
 from graphrag_ui.adapters.models import Project, ProjectMember, User, UserRole
 from graphrag_ui.domain.role_catalog import (
-    ROLE_ID_EDITOR, ROLE_ID_OPS, ROLE_ID_OWNER, ROLE_ID_USER_ADMIN,
-    ROLE_ID_VIEWER,
+    ROLE_ID_OPS, ROLE_ID_OWNER, ROLE_ID_USER_ADMIN, ROLE_ID_VIEWER,
 )
 from graphrag_ui.services import roles as svc
 
@@ -581,7 +641,9 @@ async def _project(db, owner):
                 input_file_type="text")
     db.add(p)
     await db.flush()
-    db.add(ProjectMember(project_id=p.id, user_id=owner.id,
+    # `role` is the legacy column: still NOT NULL until R2 (Task 4) drops
+    # it. Every ProjectMember built before Task 4 must set BOTH columns.
+    db.add(ProjectMember(project_id=p.id, user_id=owner.id, role="owner",
                          role_id=ROLE_ID_OWNER))
     await db.flush()
     return p
@@ -624,7 +686,7 @@ async def test_create_role_name_unique_per_scope(db_session):
                           description="", permissions=["projects:view_any"],
                           actor_id=u.id)
     # same name, same scope -> rejected; same name, other scope -> allowed
-    with pytest.raises(svc.RoleScopeMismatchError, match="auditor"):
+    with pytest.raises(svc.RoleNameTakenError, match="auditor"):
         await svc.create_role(db_session, scope="global", name="auditor",
                               description="", permissions=[],
                               actor_id=u.id)
@@ -647,11 +709,14 @@ async def test_system_roles_are_immutable(db_session):
 async def test_delete_role_in_use_rejected(db_session):
     u = await _user(db_session)
     p = await _project(db_session, u)
+    # a SECOND user: _project already inserted the owner's member row and
+    # (project_id, user_id) is the PK — reusing `u` is a duplicate key
+    member = await _user(db_session, "member@x.com")
     custom = await svc.create_role(
         db_session, scope="project", name="auditor", description="",
         permissions=["project:view"], actor_id=u.id)
-    db_session.add(ProjectMember(project_id=p.id, user_id=u.id,
-                                 role_id=custom.id))
+    db_session.add(ProjectMember(project_id=p.id, user_id=member.id,
+                                 role="viewer", role_id=custom.id))
     await db_session.commit()
     with pytest.raises(svc.RoleInUseError):
         await svc.delete_role(db_session, custom, actor_id=u.id)
@@ -694,17 +759,19 @@ async def test_update_role_dropping_users_manage_guarded(db_session):
 async def test_usage_counts_and_roles_for_user(db_session):
     u = await _user(db_session)
     p = await _project(db_session, u)
+    member = await _user(db_session, "member@x.com")  # see the note above
     custom = await svc.create_role(db_session, scope="project", name="aud",
                                    description="",
                                    permissions=["project:view"],
                                    actor_id=u.id)
-    db_session.add(ProjectMember(project_id=p.id, user_id=u.id,
-                                 role_id=custom.id))
+    db_session.add(ProjectMember(project_id=p.id, user_id=member.id,
+                                 role="viewer", role_id=custom.id))
     db_session.add(UserRole(user_id=u.id, role_id=ROLE_ID_OPS))
     await db_session.commit()
     counts = await svc.usage_counts(db_session)
     assert counts[custom.id] == {"users": 0, "members": 1}
     assert counts[ROLE_ID_OPS] == {"users": 1, "members": 0}
+    assert counts[ROLE_ID_OWNER] == {"users": 0, "members": 1}
     names = {r.name for r in await svc.roles_for_user(db_session, u.id)}
     assert names == {"ops"}
 
@@ -714,14 +781,15 @@ async def test_load_roles_and_global_scope_validation(db_session):
     with pytest.raises(svc.RoleNotFound):
         await svc.load_roles(db_session, [uuid.uuid4()])
     with pytest.raises(svc.RoleScopeMismatchError):
-        await svc.validate_global_roles(
+        svc.validate_global_roles(  # plain function — never awaited
             [await svc.get_role(db_session, ROLE_ID_VIEWER)])
-    await svc.validate_global_roles(
-        [await svc.get_role(db_session, ROLE_ID_OPS)])
+    svc.validate_global_roles([await svc.get_role(db_session, ROLE_ID_OPS)])
 ```
 
-(`create_role` rejects a taken name with `RoleScopeMismatchError`; the
-`match="auditor"` pins that this is the name collision, not a scope bug.)
+(`create_role` rejects a taken name with its own `RoleNameTakenError` —
+overloading `RoleScopeMismatchError` would surface a duplicate name to the
+UI as "role scope mismatch". The route maps it to 409 `role_name_taken`
+(Task 3), which the spec's §7 error list now carries.)
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -773,6 +841,10 @@ class RoleScopeMismatchError(ValueError):
     """The role's scope does not fit the requested operation."""
 
 
+class RoleNameTakenError(ValueError):
+    """Another role in the same scope already uses this name."""
+
+
 class RolePermissionsInvalidError(ValueError):
     """The permission set is not a subset of the scope's atom catalog."""
 
@@ -819,7 +891,7 @@ async def create_role(session: AsyncSession, *, scope: str, name: str,
                       actor_id: uuid.UUID | None) -> Role:
     _validate(scope, permissions)
     if await _name_taken(session, scope, name):
-        raise RoleScopeMismatchError(
+        raise RoleNameTakenError(
             f"role name {name!r} already exists in scope {scope!r}")
     role = Role(scope=scope, name=name, description=description,
                 permissions=permissions, is_system=False)
@@ -840,13 +912,12 @@ async def update_role(session: AsyncSession, role: Role, *, name: str,
     _validate(role.scope, permissions)  # scope is immutable (spec §5.3)
     if name != role.name and await _name_taken(session, role.scope, name,
                                                exclude_id=role.id):
-        raise RoleScopeMismatchError(
+        raise RoleNameTakenError(
             f"role name {name!r} already exists in scope {role.scope!r}")
-    if "users:manage" in set(role.permissions) and \
-            "users:manage" not in set(permissions):
-        if await would_lose_last_user_manager(session, role, frozenset(permissions)):
-            raise LastUserManagerError(
-                "cannot remove the last active source of users:manage")
+    if await would_lose_last_user_manager(session, role,
+                                          frozenset(permissions)):
+        raise LastUserManagerError(
+            "cannot remove the last active source of users:manage")
     role.name = name
     role.description = description
     role.permissions = permissions
@@ -876,6 +947,7 @@ async def usage_counts(session: AsyncSession) -> dict[uuid.UUID, dict[str, int]]
         .group_by(UserRole.role_id))).all())
     members = dict((await session.execute(
         select(ProjectMember.role_id, func.count())
+        .where(ProjectMember.role_id.is_not(None))  # nullable until R2
         .group_by(ProjectMember.role_id))).all())
     ids = set(users) | set(members)
     return {rid: {"users": users.get(rid, 0), "members": members.get(rid, 0)}
@@ -904,48 +976,52 @@ def validate_global_roles(roles: list[Role]) -> None:
                 "to a user")
 
 
+async def _active_manager_count(
+        session: AsyncSession, *,
+        exclude_user_id: uuid.UUID | None = None,
+        exclude_role_id: uuid.UUID | None = None) -> int:
+    """Active users holding users:manage, optionally ignoring one user
+    and/or one role as a SOURCE of the atom (spec §6.2). Matching is by
+    atom, never by role name — a user can hold it via a custom role."""
+    stmt = (select(func.count(func.distinct(User.id)))
+            .join(UserRole, UserRole.user_id == User.id)
+            .join(Role, Role.id == UserRole.role_id)
+            .where(User.is_active.is_(True),
+                   Role.permissions.contains(["users:manage"])))
+    if exclude_user_id is not None:
+        stmt = stmt.where(User.id != exclude_user_id)
+    if exclude_role_id is not None:
+        stmt = stmt.where(Role.id != exclude_role_id)
+    return (await session.execute(stmt)).scalar_one()
+
+
 async def other_active_manager_count(session: AsyncSession,
                                      user_id: uuid.UUID) -> int:
-    """Active users OTHER than user_id holding users:manage via any role
-    (spec §6.2: custom roles count; matching is by atom, never by name)."""
-    return (await session.execute(
-        select(func.count(func.distinct(User.id)))
-        .join(UserRole, UserRole.user_id == User.id)
-        .join(Role, Role.id == UserRole.role_id)
-        .where(User.is_active.is_(True), User.id != user_id,
-               Role.permissions.contains(["users:manage"]))
-    )).scalar_one()
+    """Active users OTHER than user_id holding users:manage. Task 4's
+    users service uses this for the patch-user guard."""
+    return await _active_manager_count(session, exclude_user_id=user_id)
 
 
 async def would_lose_last_user_manager(session: AsyncSession, role: Role,
                                        future_permissions: frozenset[str]) -> bool:
     """True when editing `role` to `future_permissions` would leave zero
     active users:manage holders. Only the edit path calls this — deletion
-    is blocked outright by role_in_use."""
-    holders = (await session.execute(
-        select(UserRole.user_id).where(UserRole.role_id == role.id))).scalars().all()
-    for uid in holders:
-        user = await session.get(User, uid)
-        if user is None or not user.is_active:
-            continue
-        if await other_active_manager_count(session, uid) == 0:
-            return True  # this holder has no fallback source
-    return False
+    is blocked outright by role_in_use.
+
+    ONE query, deliberately no per-holder loop. The question is only
+    whether some active user still holds the atom from a role OTHER than
+    this one. A loop that asks per holder "does another user hold it?"
+    counts users whose sole source is the role being edited, so two
+    holders of the only users:manage role each look like the other's
+    fallback and the guard waves through an edit that ends at zero
+    managers.
+    """
+    if "users:manage" not in set(role.permissions or ()):
+        return False   # this role was never a source of the atom
+    if "users:manage" in future_permissions:
+        return False   # it stays a source
+    return await _active_manager_count(session, exclude_role_id=role.id) == 0
 ```
-
-Design note: `would_lose_last_user_manager` iterates the edited role's holders; a holder survives if they hold `users:manage` through *another* role — captured by `other_active_manager_count(uid) == 0` (which counts *other users*... no — it excludes `uid` itself, so it misses the holder's own second role). Fix it now: the per-holder survival check must ask "does this holder keep users:manage from any role other than the edited one", i.e.
-
-```python
-async def _holder_keeps_manage_elsewhere(session, uid, edited_role_id) -> bool:
-    return (await session.execute(
-        select(func.count()).select_from(UserRole)
-        .join(Role, Role.id == UserRole.role_id)
-        .where(UserRole.user_id == uid, UserRole.role_id != edited_role_id,
-               Role.permissions.contains(["users:manage"]))
-    )).scalar_one() > 0
-```
-
-and in `would_lose_last_user_manager`, for each active holder without a fallback, also verify no *other* active user holds users:manage (`other_active_manager_count(uid) == 0`) before returning True. Implement exactly that composition (holder has no fallback AND no other active manager exists).
 
 - [ ] **Step 4: Run the service tests**
 
@@ -977,7 +1053,7 @@ git commit -m "feat(rbac): role CRUD service with validation and usage guards"
 - Consumes: `services/roles.py` (Task 2), `require_admin`/`AdminUser`/`CurrentUser`/`DbSession` from `api/deps.py` (Task 4 swaps the gate to `require_atom(Atom.users_manage)` — one-line sweep).
 - Produces:
   - `GET /api/roles?scope=global|project` → `list[RoleOut]`, any authenticated active user.
-  - `/api/admin/roles`: `GET` (each `RoleOut` carries `user_count`/`member_count`), `POST` (201), `PATCH /{role_id}`, `DELETE /{role_id}` (204).
+  - `/api/admin/roles`: `GET` (each `RoleOut` carries `user_count`/`member_count`), `POST` (201), `PATCH /{role_id}`, `DELETE /{role_id}` (204). Conflicts are 409: `role_in_use` on delete, `role_name_taken` on create/rename.
   - `RoleOut` in `api/schemas.py` — Task 4's `UserOut.roles` and `user_out()` reuse it.
 
 - [ ] **Step 1: Write the failing route tests**
@@ -1055,14 +1131,23 @@ async def test_admin_crud_and_audit(client, db_session):
     assert r.status_code == 204
 
 
-async def test_admin_list_carries_usage_counts(client):
+async def test_admin_list_carries_usage_counts(client, db_session):
+    from graphrag_ui.adapters.models import UserRole
+    from graphrag_ui.domain.role_catalog import ROLE_ID_OPS
     admin = await _admin(client)
+    # The bootstrap admin is still a legacy `role='admin'` row with NO
+    # grants — auth.py only starts granting the composition in Task 4, so
+    # this test creates the grant it wants to count.
+    admin_id = (await db_session.execute(
+        select(User.id).where(User.email == "admin@test.local"))).scalar_one()
+    db_session.add(UserRole(user_id=admin_id, role_id=ROLE_ID_OPS))
+    await db_session.commit()
+
     r = await client.get("/api/admin/roles", headers=admin)
     counts = {role["name"]: (role["user_count"], role["member_count"])
               for role in r.json()}
-    # the bootstrap admin holds both global built-ins; no members exist
-    assert counts["user_admin"] == (1, 0)
     assert counts["ops"] == (1, 0)
+    assert counts["user_admin"] == (0, 0)
     assert counts["viewer"] == (0, 0)
 
 
@@ -1103,6 +1188,7 @@ async def test_delete_in_use_conflicts(client, db_session):
     await db_session.flush()
     db_session.add(ProjectMember(project_id=project.id,
                                  user_id=admin_row.id,
+                                 role="viewer",  # legacy NOT NULL until R2
                                  role_id=uuid.UUID(role_id)))
     await db_session.commit()
     r = await client.delete(f"/api/admin/roles/{role_id}", headers=admin)
@@ -1171,13 +1257,20 @@ import uuid
 from fastapi import APIRouter, Depends, Query, Response, status
 from pydantic import BaseModel, Field
 
-from graphrag_ui.api.deps import AdminUser, CurrentUser, DbSession, require_admin
+from graphrag_ui.api.deps import (
+    AdminUser,
+    CurrentUser,
+    DbSession,
+    get_current_user,
+    require_admin,
+)
 from graphrag_ui.api.errors import ApiError
 from graphrag_ui.api.schemas import RoleOut
 from graphrag_ui.services.roles import (
     LastUserManagerError,
     RoleIsSystemError,
     RoleInUseError,
+    RoleNameTakenError,
     RoleNotFound,
     RolePermissionsInvalidError,
     RoleScopeMismatchError,
@@ -1199,7 +1292,11 @@ class RoleCreateIn(BaseModel):
 
 class RoleUpdateIn(BaseModel):
     # scope is immutable on purpose (spec §5.3): moving a role between
-    # scopes would silently re-scope every existing grant
+    # scopes would silently re-scope every existing grant. All three
+    # fields are required: the verb is PATCH but the body is a full
+    # replacement, so a partial payload cannot silently blank
+    # `description` or `permissions`. The AdminRoles form always sends
+    # every field.
     name: str = Field(min_length=1, max_length=50)
     description: str = Field(default="", max_length=200)
     permissions: list[str]
@@ -1224,7 +1321,8 @@ def _api_error(exc: Exception, fallback_detail: str) -> ApiError:
 def register_roles_routes(app):
     # Same conventions as users_routes: routers built inside the function
     # (create_app is called repeatedly in tests), auth on the router itself.
-    open_router = APIRouter(prefix="/api/roles")
+    open_router = APIRouter(prefix="/api/roles",
+                            dependencies=[Depends(get_current_user)])
 
     @open_router.get("", response_model=list[RoleOut])
     async def get_roles(db: DbSession, user: CurrentUser,
@@ -1259,6 +1357,9 @@ def register_roles_routes(app):
                 db, scope=body.scope, name=body.name,
                 description=body.description,
                 permissions=body.permissions, actor_id=admin.id)
+        except RoleNameTakenError as e:
+            raise ApiError(status.HTTP_409_CONFLICT, "role_name_taken",
+                           "a role with that name already exists") from e
         except (RoleIsSystemError, RoleScopeMismatchError,
                 RolePermissionsInvalidError, LastUserManagerError) as e:
             raise _api_error(e, "role rejected") from None
@@ -1275,6 +1376,9 @@ def register_roles_routes(app):
         except RoleNotFound as e:
             raise ApiError(status.HTTP_404_NOT_FOUND, "role_not_found",
                            "role not found") from e
+        except RoleNameTakenError as e:
+            raise ApiError(status.HTTP_409_CONFLICT, "role_name_taken",
+                           "a role with that name already exists") from e
         except (RoleIsSystemError, RoleScopeMismatchError,
                 RolePermissionsInvalidError, LastUserManagerError) as e:
             raise _api_error(e, "role rejected") from None
@@ -1441,7 +1545,10 @@ def test_act_any_implies_every_project_atom():
 
 def test_view_any_implies_view_only():
     assert can(AUDITOR, True, Atom.project_view, None) is True
-    assert can(AUDITOR, True, Atom.project_edit_content, MAINTAINER) is False
+    # member_perms=None on purpose: view_any alone grants nothing beyond
+    # project:view. (Passing MAINTAINER here would assert False against a
+    # member who legitimately holds edit_content.)
+    assert can(AUDITOR, True, Atom.project_edit_content, None) is False
 
 
 def test_effective_project_perms_for_my_permissions():
@@ -1542,11 +1649,11 @@ async def test_maintainer_full_path(client, app, db_session):
     assert r.status_code == 200
     r = await client.post(f"/api/projects/{pid}/jobs", headers=bob,
                           json={"type": "index", "method": "standard"})
-    assert r.status_code == 202
+    assert r.status_code == 201
     job_id = r.json()["id"]
-    r = await client.post(f"/api/projects/{pid}/jobs/{job_id}/cancel",
-                          headers=bob)
-    assert r.status_code == 200
+    # cancel lives at /api/jobs/{id}/cancel — NOT under /api/projects
+    r = await client.post(f"/api/jobs/{job_id}/cancel", headers=bob)
+    assert r.status_code == 202
     # reads: settings visible
     r = await client.get(f"/api/projects/{pid}/settings", headers=bob)
     assert r.status_code == 200
@@ -1677,13 +1784,13 @@ async def test_member_contract_and_my_permissions(client, app, db_session):
         "project:edit_settings", "project:manage"}
 ```
 
-Notes for the implementer: the preflight/cancel response models follow
-`jobs_routes` as it exists and the upload follows `files_routes`; check
-the exact success codes with
+Notes for the implementer: the codes above are the ones the routes
+return today — upload **201**, job trigger **201**, cancel **202** at
+`/api/jobs/{job_id}/cancel` (not nested under the project), settings PUT
+body `{"content", "expected_hash"}`, env PATCH body `{"key", "value"}`.
+None of these contracts change in this task; re-check with
 `grep -n "status_code\|@router" backend/src/graphrag_ui/api/jobs_routes.py backend/src/graphrag_ui/api/files_routes.py`
-and adjust the three asserts (upload 201, trigger 202, cancel 200) if
-they differ — the response contracts themselves are NOT part of this
-task's changes.
+only if the tree has drifted.
 
 - [ ] **Step 3: Run the new tests to verify they fail**
 
@@ -1802,7 +1909,13 @@ class Principal:
     """Request-scoped identity (spec §6.1): the ORM row plus the union of
     the user's global-role atoms, loaded once per request. The delegating
     properties keep route bodies reading `user.id` / `user.email` /
-    `user.is_active` unchanged; guards read `global_perms`."""
+    `user.is_active` / `user.must_change_password` unchanged; guards read
+    `global_perms`.
+
+    Read-only on purpose (frozen, properties without setters): any route
+    that WRITES to the user row must go through `principal.user`
+    (`auth_routes.change_password` is the one such site — see Step 10).
+    """
     user: User
     global_perms: frozenset[str]
 
@@ -1821,6 +1934,10 @@ class Principal:
     @property
     def is_active(self) -> bool:
         return self.user.is_active
+
+    @property
+    def must_change_password(self) -> bool:
+        return self.user.must_change_password
 
 
 async def load_global_perms(db: AsyncSession,
@@ -2307,14 +2424,14 @@ Per file (line numbers are from the pre-Task-4 tree; re-locate with
 | File | Changes |
 |---|---|
 | `users_routes.py` | Import `ManageUsers`, `require_atom`, `Atom` instead of `AdminUser`/`require_admin`. Router dependency → `Depends(require_atom(Atom.users_manage))`. `UserCreateIn` gains `roles: list[uuid.UUID] = []`; `UserUpdateIn.role` → `roles: list[uuid.UUID] \| None = None`. `post_user` passes `role_ids=body.roles`, catches `RoleNotFound`→404 `role_not_found` and `RoleScopeMismatchError`→400 `role_scope_mismatch`. `patch_user` passes `role_ids=body.roles` + `actor_perms=user.global_perms` to `patch_user_guarded`; catch block: `LastUserManagerError`→400 `last_user_manager_protected` (replaces the `user_last_admin_protected` branch), plus the two role errors above; `SelfRoleChangeError` message key unchanged (`user_self_change_forbidden`). `list_users` builds `[user_out(u, roles) for u, roles in await list_users_with_roles(db)]`. The `open_router` `/api/users` handler is untouched. |
-| `auth_routes.py` | Login + `/api/auth/me` build the user shape via `user_out(user, await roles_for_user(db, user.id))` (import `user_out` from `schemas`, `roles_for_user` from `services.roles`). Refresh/rotate/change-password bodies unchanged. |
+| `auth_routes.py` | Login builds `user_out(user, await roles_for_user(db, user.id))` from the authenticated ORM row; `/api/auth/me` does the same from `user.user` (import `user_out` from `schemas`, `roles_for_user` from `services.roles`). **`change_password` is NOT unchanged**: it writes `user.password_hash` / `user.must_change_password` on the dependency result, which is now a frozen `Principal` — retarget both assignments (and the `verify_password(..., user.password_hash)` read) at `user.user`. Every test's activation helper goes through this route, so getting it wrong turns the whole suite red. Refresh/rotate bodies unchanged. |
 | `projects_routes.py` | `_require(db, project, user: Principal, action: Atom)` calls `get_member_perms`. Guards: PATCH/DELETE project + members PUT/DELETE → `Atom.project_manage`; project GET / members GET → `Atom.project_view`. `MemberIn.role` → `role_id: uuid.UUID`; `MemberOut` → `user_id/email/display_name/role_id: str/role_name: str`. `put_member` calls `set_member(db, project, user_id, body.role_id, actor_id=user.id)` and returns `MemberOut(...)` from the joined role (see below); catch `RoleNotFound`→404 `role_not_found`, `RoleScopeMismatchError`→400 `role_scope_mismatch` (the `member_owner_protected` branch stays). `members` list SELECT joins `Role` for id+name. POST project passes `creator=user.user, creator_perms=user.global_perms`. GET one + GET list attach `my_permissions` (code below). |
-| `jobs_routes.py` | `_job_role` → `_job_perms(db, user, job)` returning `await get_member_perms(db, job.project_id, user.id)`. Trigger + cancel → `Atom.project_run_jobs`; list/get/preflight/logs-SSE → `Atom.project_view`. |
+| `jobs_routes.py` | `_job_role` → `_job_perms(db, user, job)` returning `await get_member_perms(db, job.project_id, user.id)`. Trigger + cancel → `Atom.project_run_jobs`; list/get/preflight/logs-SSE → `Atom.project_view`. `jobs_service.enqueue(..., actor: User)` only touches `actor.id`, but its annotation is a `User` — pass `user.user` so the type stays honest. |
 | `files_routes.py` | Upload/delete → `Atom.project_edit_content`; list → `Atom.project_view`. |
 | `settings_routes.py` | PUT settings → `Atom.project_edit_settings`; GET settings + versions → `Atom.project_view`. |
 | `env_routes.py` | GET keys → `Atom.project_view`; PATCH/DELETE key → `Atom.project_edit_settings`. |
 | `dry_run_routes.py` | `Action.edit_content` → `Atom.project_edit_settings` (dry-run validates settings drafts — spec §4.3). |
-| `query_routes.py` | Query + stream → `Atom.project_view`. |
+| `query_routes.py` | Query + stream → `Atom.project_view`. `run_query`/`stream_query` take the user only for `user.id` (rate-limit key) — pass `user.user`, same reason as jobs. |
 | `explore_routes.py` | All → `Atom.project_view`. |
 | `roles_routes.py` | `Depends(require_admin)` → `Depends(require_atom(Atom.users_manage))`; `AdminUser` → `ManageUsers`; import `Atom`. Error surface unchanged. |
 
@@ -2445,44 +2562,42 @@ Extend `tests/test_rbac_migration.py` with the R2 roundtrip:
 def test_r2_drops_columns_and_lossy_downgrade(legacy_db):
     url, cfg = legacy_db
     _seed_legacy_rows(url)
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, R2)
     cols = {r[0] for r in _rows(url, """
         SELECT column_name FROM information_schema.columns
         WHERE table_schema = 'public' AND table_name = 'users'
     """)}
     assert "role" not in cols
 
-    # new-model state: ops-only holder + maintainer member + custom member
-    import sqlalchemy as sa
-    engine = sa.create_engine(url)
-    with engine.begin() as c:
-        c.execute(sa.text("""
+    # new-model state: ops-only holder + maintainer member + editor member
+    _exec(
+        url,
+        """
             INSERT INTO users (id, email, password_hash, display_name,
                                is_active, must_change_password, created_at)
             VALUES ('55555555-5555-5555-5555-555555555555', 'e@x.com', 'h',
                     'E', true, false, now())
-        """))
-        c.execute(sa.text(f"""
+        """,
+        f"""
             INSERT INTO user_roles (user_id, role_id) VALUES
-              ('55555555-5555-5555-5555-555555555555',
-               '{ROLE_ID_OPS}')
-        """))
+              ('55555555-5555-5555-5555-555555555555', '{ROLE_ID_OPS}')
+        """,
         # b@x.com (seeded editor) flips to maintainer (the floor path);
         # d@x.com (seeded viewer) flips to editor (the map path). UPDATE,
         # not INSERT — (project_id, user_id) is the PK.
-        c.execute(sa.text("""
+        """
             UPDATE project_members SET role_id =
               '00000000-0000-4000-8000-000000000004'
             WHERE user_id = '22222222-2222-2222-2222-222222222222'
-        """))
-        c.execute(sa.text("""
+        """,
+        """
             UPDATE project_members SET role_id =
               '00000000-0000-4000-8000-000000000005'
             WHERE user_id = '44444444-4444-4444-4444-444444444444'
-        """))
-    engine.dispose()
+        """,
+    )
 
-    command.downgrade(cfg, "-1")  # back to R1: legacy columns restored
+    command.downgrade(cfg, R1)  # back to R1: legacy columns restored
     users = dict(_rows(url, "SELECT email, role FROM users"))
     assert users["e@x.com"] == "admin"  # ops-only upgraded on purpose
     assert users["b@x.com"] == "user"
@@ -2494,8 +2609,11 @@ def test_r2_drops_columns_and_lossy_downgrade(legacy_db):
     assert members["a@x.com"] == "owner"
     assert members["d@x.com"] == "editor"
 
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, R2)
 ```
+
+The R1 tests keep their `R1` target: with R2 on disk, `"head"` would drop
+the very columns `test_r1_seeds_builtins_and_backfills` asserts on.
 
 - [ ] **Step 12: Run the new tests, then update every stale legacy test**
 
@@ -2513,6 +2631,7 @@ and fix with this mapping:
 | `members[0]["role"] == "owner"` | `members[0]["role_name"] == "owner"` |
 | `m["role"] == "editor"` etc. | `m["role_name"] == ...` |
 | `User(email=..., role="admin", ...)` fixtures | drop the `role` kwarg; add `UserRole(user_id=u.id, role_id=ROLE_ID_USER_ADMIN)` + `ROLE_ID_OPS` rows (only when the test needs an admin) after flush, before commit |
+| `ProjectMember(..., role="viewer", role_id=...)` in `test_roles_service.py` / `test_roles_api.py` | drop the legacy `role` kwarg — R2 has removed the column, and leaving it raises `TypeError: invalid keyword argument`. Tasks 2–3 set it only because the column was still NOT NULL then. |
 | `assert user.role == "admin"` (proxy tests) | assert grants: `set((await db_session.execute(select(Role.name).join(UserRole, UserRole.user_id == User.id).join(Role, Role.id == UserRole.role_id).where(User.email == email))).scalars()) == {"user_admin", "ops"}` — write it once as a local `_grants(db_session, email)` helper per file |
 | `u["role"] == "admin"` (API responses) | `{r["name"] for r in u["roles"]} == {"user_admin", "ops"}` |
 | `payload["role"]` audit asserts | `payload["role_name"]` |
@@ -2536,6 +2655,10 @@ Specific known sites (verify the grep caught everything):
 - `test_error_codes.py`: `project_with_members` fixture PUTs
   `{"role_id": str(ROLE_ID_EDITOR)}`; `test_demote_owner_carries_code`
   PUTs the owner row with any role_id → 400 `member_owner_protected`.
+- `test_roles_api.py`: `test_admin_list_carries_usage_counts` can drop its
+  manual `UserRole` insert — from this task on the bootstrap admin really
+  does hold `user_admin` + `ops`, so the assertion becomes
+  `counts["user_admin"] == counts["ops"] == (1, 0)`.
 - `test_auth.py` / others: JWT payload asserts drop the `role` key.
 
 - [ ] **Step 13: Full gates, contract regen, single commit**
@@ -2708,11 +2831,20 @@ Delete `ROLE_OPTIONS` and every `User["role"]` reference.
 
 - [ ] **Step 5: `ProjectDetail.tsx` — atoms + role catalog**
 
-Replace the `ROLES`/`ROLE_OPTIONS` constants and the `myRole`/`canManage`/
-`canEditContent` block, and add `Role` to the type import line
+Delete the module-level `ROLES` / `type Role = (typeof ROLES)[number]` /
+`ROLE_OPTIONS` block (currently `ProjectDetail.tsx` L18–22) — the local
+`Role` alias must go before the import lands, or TS reports a duplicate
+declaration — and add `Role` to the type import line
 (`import type { Member, Project, Role, UserBrief } from "../api/types";`).
-Compute AFTER the pending early-returns (needs `project.data`); keep the `users` query above them with
-`enabled: !!project.data?.my_permissions?.includes("project:manage")`:
+
+**Ordering matters.** Every hook in this file sits above the
+`if (!id) return …` / `if (project.isPending …) return …` early returns,
+and `canManage` feeds the `users` query's `enabled` option. So compute
+the atom flags right after the `project`/`members` queries and BEFORE the
+`users` query — from optional-chained data, which is simply empty while
+the queries are pending. Do NOT move the computation below the early
+returns (`enabled: canManage` would then reference a TDZ binding), and
+keep `rolesQ` up there with the other hooks:
 
 ```tsx
 const myPerms = new Set(project.data?.my_permissions ?? []);
@@ -2722,7 +2854,7 @@ const canRunJobs = myPerms.has("project:run_jobs");
 const canEditSettings = myPerms.has("project:edit_settings");
 ```
 
-Member role catalog:
+Member role catalog (also a hook — same block, above the early returns):
 
 ```tsx
 const rolesQ = useQuery({
@@ -2829,6 +2961,7 @@ errors: {
   last_user_manager_protected: "cannot remove the last active user manager",
   role_is_system: "built-in roles are immutable",
   role_in_use: "role is still granted; unassign it first",
+  role_name_taken: "a role with that name already exists",
   role_scope_mismatch: "role scope mismatch",
   role_not_found: "role not found",
   role_permissions_invalid: "invalid permission set",
@@ -2844,6 +2977,7 @@ errors: {
 `last_user_manager_protected: "不能移除最後一位使用者管理者"`,
 `role_is_system: "內建角色不可修改"`,
 `role_in_use: "角色仍被使用，請先解除指派"`,
+`role_name_taken: "已有同名角色"`,
 `role_scope_mismatch: "角色範圍不符"`, `role_not_found: "角色不存在"`,
 `role_permissions_invalid: "權限集合無效"`。
 
@@ -3028,37 +3162,36 @@ export default function AdminRoles() {
     onError: (e) => message.error(e.message),  // 409 role_in_use lands here
   });
 
-  const hasManage = (v?: Omit<RoleForm, "scope">) =>
-    (v?.permissions ?? []).includes("project:manage");
+  // One editor, two forms. `Form.useWatch` reads the live values without
+  // a render-prop wrapper fighting the enclosing Form.Item for control of
+  // `permissions`. The scope comes from the create form's own field, but
+  // from `editTarget` in the edit modal — that form has NO scope field
+  // (scope is immutable), and defaulting to "global" there would offer
+  // global atoms while editing a project-scoped role.
+  const createScope = Form.useWatch("scope", createForm) ?? "global";
+  const createPerms = Form.useWatch("permissions", createForm) ?? [];
+  const editPerms = Form.useWatch("permissions", editForm) ?? [];
 
-  const permCheckbox = () => (
-    <Form.Item noStyle shouldUpdate={(a, b) =>
-      a.permissions !== b.permissions || a.scope !== b.scope}>
-      {({ getFieldValue }) => {
-        const scope: string = getFieldValue("scope") ?? "global";
-        const perms: string[] = getFieldValue("permissions") ?? [];
-        return (
-          <>
-            <Checkbox.Group
-              disabled={disabled}
-              value={perms}
-              onChange={(v) => {
-                const form = disabled ? null : editOpen ? editForm : createForm;
-                form?.setFieldValue("permissions", v);
-              }}
-              options={ATOMS_BY_SCOPE[scope].map((a) => ({
-                label: t(`perms.${a.replace(":", "_")}`), value: a,
-              }))}
-            />
-            {perms.includes("project:manage") && (
-              <Alert style={{ marginTop: 8 }} type="warning" showIcon
-                     message={t("adminRoles.manageWarning")} />
-            )}
-          </>
-        );
-      }}
-    </Form.Item>
-  );
+  const permEditor = (mode: "create" | "edit") => {
+    const form = mode === "create" ? createForm : editForm;
+    const scope = mode === "create" ? createScope : (editTarget?.scope ?? "global");
+    const perms: string[] = mode === "create" ? createPerms : editPerms;
+    return (
+      <>
+        <Checkbox.Group
+          value={perms}
+          onChange={(v) => form.setFieldValue("permissions", v)}
+          options={ATOMS_BY_SCOPE[scope].map((a) => ({
+            label: t(`perms.${a.replace(":", "_")}`), value: a,
+          }))}
+        />
+        {perms.includes("project:manage") && (
+          <Alert style={{ marginTop: 8 }} type="warning" showIcon
+                 message={t("adminRoles.manageWarning")} />
+        )}
+      </>
+    );
+  };
 
   const columns: TableProps<Role>["columns"] = [
     { title: t("common.name"), dataIndex: "name" },
@@ -3127,7 +3260,9 @@ export default function AdminRoles() {
               onFinish={(v) => create.mutate(v)}>
           <Form.Item name="scope" label={t("adminRoles.scope")}
                      rules={[{ required: true }]}>
-            <Select options={[
+            {/* switching scope clears the atoms so none linger cross-scope */}
+            <Select onChange={() => createForm.setFieldValue("permissions", [])}
+                    options={[
               { value: "global", label: t("adminRoles.scopeGlobal") },
               { value: "project", label: t("adminRoles.scopeProject") },
             ]} />
@@ -3140,7 +3275,7 @@ export default function AdminRoles() {
             <Input maxLength={200} />
           </Form.Item>
           <Form.Item name="permissions" label={t("adminRoles.permissions")}>
-            {permCheckbox()}
+            {permEditor("create")}
           </Form.Item>
         </Form>
       </Modal>
@@ -3159,7 +3294,7 @@ export default function AdminRoles() {
             <Input maxLength={200} />
           </Form.Item>
           <Form.Item name="permissions" label={t("adminRoles.permissions")}>
-            {permCheckbox()}
+            {permEditor("edit")}
           </Form.Item>
         </Form>
       </Modal>
@@ -3168,11 +3303,12 @@ export default function AdminRoles() {
 }
 ```
 
-(If antd's `Checkbox.Group` inside the render-prop pattern fights the
-  form, drop the `shouldUpdate` wrapper and control the checked values via
-  `Form.useWatch("permissions", form)` — same UI, less indirection. The
-  `scope` switch should also reset `permissions` to [] on change so no
-  cross-scope atom lingers: `onChange={() => createForm.setFieldValue("permissions", [])}`.)
+(`ATOMS_BY_SCOPE` is a LABEL list only — it decides which checkboxes are
+offered, never who may do what; the backend re-validates the atom set
+against the scope catalog on every write (Task 2 `_validate`). The
+create/edit split above exists because scope is immutable after creation:
+the edit form has no `scope` field, so its atom list must come from
+`editTarget.scope`.)
 
 - [ ] **Step 3: Route, nav, i18n**
 
@@ -3294,8 +3430,9 @@ The English twin in `docs/oauth2-proxy.md` gets the equivalent sentence
 
 - [ ] **Step 4: Verify deploy rendering and commit**
 
-Run: `helm lint deploy/helm/graphrag-ui && helm template deploy/helm/graphrag-ui > /dev/null && docker compose config -q`
-Expected: PASS (comment/text changes only).
+Run: `helm lint deploy/helm/graphrag-ui && helm template deploy/helm/graphrag-ui > /dev/null && { [ -f .env ] || cp .env.example .env; } && docker compose config -q`
+Expected: PASS (comment/text changes only; compose needs a `.env` for its
+`${VAR:?}` interpolations — AGENTS.md).
 
 ```bash
 git add README.md docs/zh-TW/README.md docs/oauth2-proxy.md \
@@ -3379,6 +3516,7 @@ cd backend && uv run pytest -q -m "not slow" && uv run ruff check
 cd backend && uv run python scripts/gen_openapi.py && git diff --exit-code ../openapi.json
 cd ../frontend && npm test && npx tsc -b --noEmit && npm run build
 cd ../frontend && npm run gen:types && git diff --exit-code src/api/types.generated.ts
+[ -f .env ] || cp .env.example .env   # compose interpolates ${VAR:?}
 docker compose config -q
 helm lint deploy/helm/graphrag-ui && helm template deploy/helm/graphrag-ui > /dev/null
 ```
@@ -3421,6 +3559,18 @@ line numbers.
   Tasks 3–4 (+ regen steps); §8 frontend → Tasks 5–6; §9 testing → the
   test files of Tasks 1–6 + Task 9 matrix; §11 docs/assets → Tasks 7–8.
   No spec section is left without a task.
+- **Review pass (2026-08-30):** eleven blockers found by checking the plan
+  against the tree were fixed in place — the migration-test plumbing
+  (env.py overrides `sqlalchemy.url`; no sync driver installed; alembic's
+  `asyncio.run` forbids async tests), R1 tests pinned to a relative
+  revision instead of `"head"`, the legacy NOT NULL `project_members.role`
+  in Tasks 2–3 fixtures, two `(project_id, user_id)` PK collisions, the
+  awaited-but-sync `validate_global_roles`, the premature usage-count
+  assertion, `change_password` writing through the frozen `Principal`, a
+  domain assertion that passed member perms where it meant `None`, three
+  wrong job status codes/paths, the last-user-manager guard's mutual
+  fallback hole, and the AdminRoles permission editor (undefined
+  `disabled`, wrong scope source in the edit modal).
 - **Known intentional deviations:** (1) two alembic revisions instead of
   the spec's one — declared and justified in Global Constraints; (2)
   Task 4's commit intentionally leaves frontend `tsc` red until Task 5

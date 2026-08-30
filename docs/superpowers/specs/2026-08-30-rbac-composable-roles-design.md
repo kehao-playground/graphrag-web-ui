@@ -328,12 +328,12 @@ global roles or active status (`400 user_self_change_forbidden`, kept).
 
 ### 6.4 Audit
 
-New actions: `role.created`, `role.updated`, `role.deleted`,
-`user.roles_changed` (payload: added/removed role ids). Existing
-`member.role_changed` / `member.added` payloads switch from role strings
-to role ids + names. `user.role_promoted` and `user.updated` keep their
-action names — only the latter's payload carries `roles` where it used
-to carry `role`.
+New actions: `role.created`, `role.updated`, `role.deleted`. Role grants
+get **no** action of their own: they ride the existing `user.updated`
+payload as `roles: [name, …]`, which is that route's established
+changed-dict convention. Existing `member.role_changed` / `member.added`
+payloads switch from role strings to role ids + names. `user.updated` and
+`user.role_promoted` keep their action names.
 
 ## 7. API contract changes (openapi.json + types regenerated)
 
@@ -370,7 +370,9 @@ to carry `role`.
     `POST`, `PATCH /{id}` (custom only), `DELETE /{id}` (custom only,
     `409 role_in_use`).
 - Error codes added: `last_user_manager_protected`, `role_is_system`,
-  `role_in_use`, `role_scope_mismatch`, `role_not_found`,
+  `role_in_use` (409), `role_name_taken` (409 — a duplicate name in the
+  same scope; it gets its own code so the UI never reports a name
+  collision as a scope mismatch), `role_scope_mismatch`, `role_not_found`,
   `role_permissions_invalid`. `user_last_admin_protected` is removed
   (superseded). `require_atom` **keeps the existing `admin_only` code**
   on the `/api/admin/*` routers, and project-atom failures keep
