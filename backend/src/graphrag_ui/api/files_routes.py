@@ -1,7 +1,7 @@
 """File endpoints: upload/list/delete project input files (spec §6.3).
 
-Permissions: upload/delete are editor+ (Action.edit_content), listing is
-viewer+ (Action.view_project). Audit actions: file.uploaded / file.deleted
+Permissions: upload/delete are project:edit_content, listing is
+project:view. Audit actions: file.uploaded / file.deleted
 with payload {name, size}.
 """
 
@@ -16,7 +16,7 @@ from graphrag_ui.api.deps import CurrentUser, DbSession, get_current_user
 from graphrag_ui.api.errors import ApiError
 from graphrag_ui.api.projects_routes import _forbidden, _project_or_404
 from graphrag_ui.config import get_settings
-from graphrag_ui.domain.permissions import Action, can
+from graphrag_ui.domain.permissions import Atom, can
 from graphrag_ui.services import files as files_service
 from graphrag_ui.services.files import (
     FileServiceError,
@@ -24,7 +24,7 @@ from graphrag_ui.services.files import (
     QuotaExceededError,
     max_file_bytes,
 )
-from graphrag_ui.services.projects import get_project_role
+from graphrag_ui.services.projects import get_member_perms
 
 
 class FileOut(BaseModel):
@@ -92,8 +92,8 @@ def register_files_routes(app):
     async def upload_file(pid: uuid.UUID, request: Request, file: UploadFile,
                           db: DbSession, user: CurrentUser):
         project = await _project_or_404(db, pid)
-        if not can(user.role, user.is_active, Action.edit_content,
-                   await get_project_role(db, pid, user.id)):
+        if not can(user.global_perms, user.is_active, Atom.project_edit_content,
+                   await get_member_perms(db, pid, user.id)):
             raise _forbidden()
         try:
             # the UploadFile streams through save_file in fixed chunks;
@@ -110,8 +110,8 @@ def register_files_routes(app):
     @router.get("/{pid}/files", response_model=FileListOut)
     async def list_files(pid: uuid.UUID, db: DbSession, user: CurrentUser):
         project = await _project_or_404(db, pid)
-        if not can(user.role, user.is_active, Action.view_project,
-                   await get_project_role(db, pid, user.id)):
+        if not can(user.global_perms, user.is_active, Atom.project_view,
+                   await get_member_perms(db, pid, user.id)):
             raise _forbidden()
         return FileListOut(
             files=[FileEntryOut(**f) for f in await files_service.list_files(project)],
@@ -124,8 +124,8 @@ def register_files_routes(app):
     async def delete_file(pid: uuid.UUID, filename: str,
                           db: DbSession, user: CurrentUser):
         project = await _project_or_404(db, pid)
-        if not can(user.role, user.is_active, Action.edit_content,
-                   await get_project_role(db, pid, user.id)):
+        if not can(user.global_perms, user.is_active, Atom.project_edit_content,
+                   await get_member_perms(db, pid, user.id)):
             raise _forbidden()
         try:
             await files_service.delete_file(db, project, filename,

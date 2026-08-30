@@ -3,6 +3,7 @@ import yaml
 
 from graphrag_ui.adapters.workspace import FakeInitializer
 from graphrag_ui.api.projects_routes import get_initializer
+from graphrag_ui.domain.role_catalog import ROLE_ID_OWNER, ROLE_ID_VIEWER
 
 
 async def _login(client, email, password):
@@ -43,7 +44,8 @@ async def test_create_project_runs_init_and_adds_owner(client, tmp_path):
     #   settings.yaml already contains strings like text-embedding-3-large, so
     #   that weaker form would pass even without the patch
     members = (await client.get(f"/api/projects/{pid}/members", headers=alice)).json()
-    assert members[0]["email"] == "alice@test.local" and members[0]["role"] == "owner"
+    assert members[0]["email"] == "alice@test.local"
+    assert members[0]["role_name"] == "owner"
 
 
 async def test_permission_matrix_enforced(client, app):
@@ -58,7 +60,7 @@ async def test_permission_matrix_enforced(client, app):
     users = (await client.get("/api/admin/users", headers=admin)).json()
     bob_id = next(u["id"] for u in users if u["email"] == "bob@test.local")
     await client.put(f"/api/projects/{pid}/members/{bob_id}", headers=alice,
-                     json={"role": "viewer"})
+                     json={"role_id": str(ROLE_ID_VIEWER)})
     assert (await client.get(f"/api/projects/{pid}", headers=bob)).status_code == 200
     assert (await client.patch(f"/api/projects/{pid}", headers=bob,
                                json={"name": "X"})).status_code == 403
@@ -94,7 +96,7 @@ async def test_delete_project_cascades_members(client, app, db_session):
     users = (await client.get("/api/admin/users", headers=admin)).json()
     bob_id = next(u["id"] for u in users if u["email"] == "bob@test.local")
     await client.put(f"/api/projects/{pid}/members/{bob_id}", headers=alice,
-                     json={"role": "viewer"})
+                     json={"role_id": str(ROLE_ID_VIEWER)})
     assert (await db_session.execute(
         select(ProjectMember).where(ProjectMember.project_id == pid))).scalars().all(), \
         "precondition: members exist"
@@ -136,5 +138,6 @@ async def test_owner_role_not_grantable(client, app):
     users = (await client.get("/api/admin/users", headers=admin)).json()
     bob_id = next(u["id"] for u in users if u["email"] == "bob@test.local")
     r = await client.put(f"/api/projects/{pid}/members/{bob_id}", headers=alice,
-                         json={"role": "owner"})
-    assert r.status_code == 422  # owner is fixed to the creator (single-owner policy)
+                         json={"role_id": str(ROLE_ID_OWNER)})
+    assert r.status_code == 400  # owner is fixed to the creator (single-owner policy)
+    assert r.json()["code"] == "member_owner_protected"

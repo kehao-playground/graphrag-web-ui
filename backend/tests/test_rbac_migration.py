@@ -29,10 +29,7 @@ from testcontainers.postgres import PostgresContainer
 
 from graphrag_ui.adapters.db import make_engine
 from graphrag_ui.config import get_settings
-
-# Only ROLE_ID_OPS is referenced (the R2 grant); ruff F401 fails an
-# import of the other five. Unused until Task 4's R2 test lands here.
-from graphrag_ui.domain.role_catalog import ROLE_ID_OPS  # noqa: F401
+from graphrag_ui.domain.role_catalog import ROLE_ID_OPS
 
 LEGACY_BASE = "47b77c99bc8f"  # indexing_jobs, the revision right before R1
 # Relative refs, never "head": Task 4 adds R2, which would silently
@@ -210,3 +207,56 @@ def test_r1_downgrade_drops_rbac_tables(legacy_db):
     assert len(_rows(url, "SELECT id FROM users")) == 4
     members = _rows(url, "SELECT role FROM project_members ORDER BY role")
     assert [m[0] for m in members] == ["editor", "owner", "viewer"]
+
+
+def test_r2_drops_columns_and_lossy_downgrade(legacy_db):
+    url, cfg = legacy_db
+    _seed_legacy_rows(url)
+    command.upgrade(cfg, R2)
+    cols = {r[0] for r in _rows(url, """
+        SELECT column_name FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'users'
+    """)}
+    assert "role" not in cols
+
+    # new-model state: ops-only holder + maintainer member + editor member
+    _exec(
+        url,
+        """
+            INSERT INTO users (id, email, password_hash, display_name,
+                               is_active, must_change_password, created_at)
+            VALUES ('55555555-5555-5555-5555-555555555555', 'e@x.com', 'h',
+                    'E', true, false, now())
+        """,
+        f"""
+            INSERT INTO user_roles (user_id, role_id) VALUES
+              ('55555555-5555-5555-5555-555555555555', '{ROLE_ID_OPS}')
+        """,
+        # b@x.com (seeded editor) flips to maintainer (the floor path);
+        # d@x.com (seeded viewer) flips to editor (the map path). UPDATE,
+        # not INSERT — (project_id, user_id) is the PK.
+        """
+            UPDATE project_members SET role_id =
+              '00000000-0000-4000-8000-000000000004'
+            WHERE user_id = '22222222-2222-2222-2222-222222222222'
+        """,
+        """
+            UPDATE project_members SET role_id =
+              '00000000-0000-4000-8000-000000000005'
+            WHERE user_id = '44444444-4444-4444-4444-444444444444'
+        """,
+    )
+
+    command.downgrade(cfg, R1)  # back to R1: legacy columns restored
+    users = dict(_rows(url, "SELECT email, role FROM users"))
+    assert users["e@x.com"] == "admin"  # ops-only upgraded on purpose
+    assert users["b@x.com"] == "user"
+    members = dict(_rows(url, """
+        SELECT u.email, pm.role FROM project_members pm
+        JOIN users u ON u.id = pm.user_id
+    """))
+    assert members["b@x.com"] == "viewer"  # maintainer floors at viewer
+    assert members["a@x.com"] == "owner"
+    assert members["d@x.com"] == "editor"
+
+    command.upgrade(cfg, R2)

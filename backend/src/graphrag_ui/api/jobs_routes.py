@@ -1,6 +1,6 @@
 """Jobs REST endpoints (spec §6.1). SSE logs live here too (Task 4 adds the
-streaming route). Permission split: start/cancel = editor+ (edit_content),
-read/list/logs = viewer+."""
+streaming route). Permission split: start/cancel = project:run_jobs,
+read/list/logs = project:view."""
 
 import json
 import uuid
@@ -21,10 +21,10 @@ from graphrag_ui.api.schemas import (
     PreflightOut,
 )
 from graphrag_ui.domain.jobs import TERMINAL_STATUSES, display_status
-from graphrag_ui.domain.permissions import Action, can
+from graphrag_ui.domain.permissions import Atom, can
 from graphrag_ui.services import jobs as jobs_service
 from graphrag_ui.services.jobs import DiskWatermarkError, JobConflictError
-from graphrag_ui.services.projects import get_project_role, ws_path
+from graphrag_ui.services.projects import get_member_perms, ws_path
 
 
 def job_out(j: Job) -> dict:
@@ -56,8 +56,9 @@ async def _job_or_404(db: DbSession, job_id: uuid.UUID) -> Job:
     return job
 
 
-async def _job_role(db: DbSession, user: CurrentUser, job: Job) -> str | None:
-    return await get_project_role(db, job.project_id, user.id)
+async def _job_perms(db: DbSession, user: CurrentUser,
+                     job: Job) -> frozenset[str] | None:
+    return await get_member_perms(db, job.project_id, user.id)
 
 
 def register_jobs_routes(app):
@@ -72,11 +73,12 @@ def register_jobs_routes(app):
     async def start_job(pid: uuid.UUID, body: JobCreateIn, db: DbSession, user: CurrentUser):
         project = await _project_or_404(db, pid)
         if not can(
-            user.role, user.is_active, Action.edit_content, await get_project_role(db, pid, user.id)
+            user.global_perms, user.is_active, Atom.project_run_jobs,
+            await get_member_perms(db, pid, user.id)
         ):
             raise _forbidden()
         try:
-            job = await jobs_service.enqueue(db, project, body.type, body.method, user)
+            job = await jobs_service.enqueue(db, project, body.type, body.method, user.user)
         except JobConflictError:
             raise ApiError(status.HTTP_409_CONFLICT, "job_conflict", "此專案已有進行中的索引任務") from None
         except DiskWatermarkError:
@@ -87,7 +89,8 @@ def register_jobs_routes(app):
     async def list_jobs(pid: uuid.UUID, db: DbSession, user: CurrentUser):
         await _project_or_404(db, pid)
         if not can(
-            user.role, user.is_active, Action.view_project, await get_project_role(db, pid, user.id)
+            user.global_perms, user.is_active, Atom.project_view,
+            await get_member_perms(db, pid, user.id)
         ):
             raise _forbidden()
         return [job_out(j) for j in await jobs_service.list_for_project(db, pid)]
@@ -96,7 +99,8 @@ def register_jobs_routes(app):
     async def preflight(pid: uuid.UUID, db: DbSession, user: CurrentUser):
         project = await _project_or_404(db, pid)
         if not can(
-            user.role, user.is_active, Action.view_project, await get_project_role(db, pid, user.id)
+            user.global_perms, user.is_active, Atom.project_view,
+            await get_member_perms(db, pid, user.id)
         ):
             raise _forbidden()
         body = await jobs_service.preflight(db, project)
@@ -106,18 +110,21 @@ def register_jobs_routes(app):
     @router.get("/jobs/{job_id}", response_model=JobOut)
     async def get_job(job_id: uuid.UUID, db: DbSession, user: CurrentUser):
         job = await _job_or_404(db, job_id)
-        if not can(user.role, user.is_active, Action.view_project, await _job_role(db, user, job)):
+        if not can(user.global_perms, user.is_active, Atom.project_view,
+                   await _job_perms(db, user, job)):
             raise _forbidden()
         return job_out(job)
 
     @router.post("/jobs/{job_id}/cancel", status_code=202)
     async def cancel_job(job_id: uuid.UUID, db: DbSession, user: CurrentUser):
         job = await _job_or_404(db, job_id)
-        if not can(user.role, user.is_active, Action.edit_content, await _job_role(db, user, job)):
+        if not can(user.global_perms, user.is_active, Atom.project_run_jobs,
+                   await _job_perms(db, user, job)):
             raise _forbidden()
         if not await jobs_service.cancel(db, job):
             raise ApiError(status.HTTP_409_CONFLICT, "job_already_finished", "任務已結束")
         return {"detail": "已請求取消"}
+
 
     @sse_router.get("/jobs/{job_id}/logs")
     async def job_logs(
@@ -128,7 +135,8 @@ def register_jobs_routes(app):
         offset: int = -1,
     ):
         job = await _job_or_404(db, job_id)
-        if not can(user.role, user.is_active, Action.view_project, await _job_role(db, user, job)):
+        if not can(user.global_perms, user.is_active, Atom.project_view,
+                   await _job_perms(db, user, job)):
             raise _forbidden()
         # ?offset= (tests) wins over the Last-Event-ID header; -1 = not given.
         try:

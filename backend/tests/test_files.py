@@ -12,6 +12,7 @@ from sqlalchemy import select
 
 from graphrag_ui.adapters.models import AuditLog, Project
 from graphrag_ui.config import get_settings
+from graphrag_ui.domain.role_catalog import ROLE_ID_VIEWER
 from graphrag_ui.services import files as files_service
 from graphrag_ui.services.projects import ws_path
 from tests.test_projects import _activate, _setup_two_users
@@ -191,7 +192,7 @@ async def test_viewer_is_read_only(client):
     users = (await client.get("/api/admin/users", headers=admin)).json()
     bob_id = next(u["id"] for u in users if u["email"] == "bob@test.local")
     await client.put(f"/api/projects/{pid}/members/{bob_id}", headers=alice,
-                     json={"role": "viewer"})
+                     json={"role_id": str(ROLE_ID_VIEWER)})
     bob = await _activate(client, "bob@test.local", "bob-pass-1234", "bob-pass-5678")
 
     assert (await client.get(f"/api/projects/{pid}/files", headers=bob)).status_code == 200

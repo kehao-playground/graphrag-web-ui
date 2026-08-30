@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Literal
 from uuid import UUID
@@ -46,7 +47,8 @@ class UserOut(BaseModel):
     id: str
     email: EmailStr
     display_name: str
-    role: str
+    roles: list[RoleOut] = []
+    permissions: list[str] = []   # union of roles' atoms (spec §7)
     is_active: bool
     must_change_password: bool
 
@@ -57,9 +59,24 @@ class UserOut(BaseModel):
         return str(v) if isinstance(v, UUID) else v
 
 
+def user_out(user: object, roles: Sequence) -> UserOut:
+    """Build UserOut from a User row plus its loaded global roles.
+    Duck-typed on purpose: schemas stay free of ORM imports."""
+    role_outs = [RoleOut.model_validate(r) for r in roles]
+    perms: set[str] = set()
+    for r in roles:
+        perms.update(r.permissions or [])
+    return UserOut(
+        id=str(user.id), email=user.email, display_name=user.display_name,
+        roles=role_outs, permissions=sorted(perms),
+        is_active=user.is_active,
+        must_change_password=user.must_change_password)
+
+
 class UserBriefOut(BaseModel):
     """Narrow list shown to every logged-in user (for picking users in member
-    management). Deliberately omits admin fields like role / must_change_password."""
+    management). Deliberately omits admin fields like roles / permissions /
+    must_change_password."""
 
     model_config = ConfigDict(from_attributes=True)
 

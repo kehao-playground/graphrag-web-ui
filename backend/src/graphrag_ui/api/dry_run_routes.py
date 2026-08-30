@@ -13,8 +13,8 @@ from graphrag_ui.adapters.workspace import WorkspaceInitError, dry_run
 from graphrag_ui.api.deps import CurrentUser, DbSession, get_current_user
 from graphrag_ui.api.errors import ApiError
 from graphrag_ui.api.projects_routes import _forbidden, _project_or_404
-from graphrag_ui.domain.permissions import Action, can
-from graphrag_ui.services.projects import get_project_role, ws_path
+from graphrag_ui.domain.permissions import Atom, can
+from graphrag_ui.services.projects import get_member_perms, ws_path
 
 
 class DryRunOut(BaseModel):
@@ -30,8 +30,9 @@ def register_dry_run_routes(app):
     @router.post("/{pid}/dry-run", response_model=DryRunOut)
     async def run_dry_run(pid: uuid.UUID, db: DbSession, user: CurrentUser):
         project = await _project_or_404(db, pid)
-        if not can(user.role, user.is_active, Action.edit_content,
-                   await get_project_role(db, pid, user.id)):
+        # dry-run validates settings drafts (spec §4.3) — settings-grade
+        if not can(user.global_perms, user.is_active, Atom.project_edit_settings,
+                   await get_member_perms(db, pid, user.id)):
             raise _forbidden()
         try:
             # module-level import above: tests monkeypatch dry_run_routes.dry_run

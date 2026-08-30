@@ -16,6 +16,7 @@ from graphrag_ui.adapters.db import get_session_factory
 from graphrag_ui.adapters.jobs_repo import insert_job
 from graphrag_ui.adapters.workspace import FakeInitializer
 from graphrag_ui.api.projects_routes import get_initializer
+from graphrag_ui.domain.role_catalog import ROLE_ID_VIEWER
 from graphrag_ui.services.projects import ws_path
 
 
@@ -98,7 +99,8 @@ async def _add_viewer(client, alice, pid, email):
     users = (await client.get("/api/users", headers=alice)).json()
     vid = next(u["id"] for u in users if u["email"] == email)
     r = await client.put(
-        f"/api/projects/{pid}/members/{vid}", headers=alice, json={"role": "viewer"}
+        f"/api/projects/{pid}/members/{vid}", headers=alice,
+        json={"role_id": str(ROLE_ID_VIEWER)}
     )
     assert r.status_code in (200, 201), r.text
 

@@ -68,23 +68,14 @@ async def test_admin_crud_and_audit(client, db_session):
     assert r.status_code == 204
 
 
-async def test_admin_list_carries_usage_counts(client, db_session):
-    from graphrag_ui.adapters.models import UserRole
-    from graphrag_ui.domain.role_catalog import ROLE_ID_OPS
+async def test_admin_list_carries_usage_counts(client):
     admin = await _admin(client)
-    # The bootstrap admin is still a legacy `role='admin'` row with NO
-    # grants — auth.py only starts granting the composition in Task 4, so
-    # this test creates the grant it wants to count.
-    admin_id = (await db_session.execute(
-        select(User.id).where(User.email == "admin@test.local"))).scalar_one()
-    db_session.add(UserRole(user_id=admin_id, role_id=ROLE_ID_OPS))
-    await db_session.commit()
-
+    # Since the RBAC cutover the bootstrap admin really holds the
+    # composition [user_admin, ops] — no manual grant needed here.
     r = await client.get("/api/admin/roles", headers=admin)
     counts = {role["name"]: (role["user_count"], role["member_count"])
               for role in r.json()}
-    assert counts["ops"] == (1, 0)
-    assert counts["user_admin"] == (0, 0)
+    assert counts["user_admin"] == counts["ops"] == (1, 0)
     assert counts["viewer"] == (0, 0)
 
 
@@ -115,8 +106,7 @@ async def test_delete_in_use_conflicts(client, db_session):
     role_id = (await client.post("/api/admin/roles", headers=admin, json={
         "scope": "project", "name": "aud", "description": "",
         "permissions": ["project:view"]})).json()["id"]
-    # make it in-use with a direct member row (the member API accepts
-    # role_id payloads only after Task 4)
+    # make it in-use with a direct member row
     admin_row = (await db_session.execute(
         select(User).where(User.email == "admin@test.local"))).scalar_one()
     project = Project(name="P", slug=f"p-{uuid.uuid4().hex[:8]}",
@@ -125,7 +115,6 @@ async def test_delete_in_use_conflicts(client, db_session):
     await db_session.flush()
     db_session.add(ProjectMember(project_id=project.id,
                                  user_id=admin_row.id,
-                                 role="viewer",  # legacy NOT NULL until R2
                                  role_id=uuid.UUID(role_id)))
     await db_session.commit()
     r = await client.delete(f"/api/admin/roles/{role_id}", headers=admin)

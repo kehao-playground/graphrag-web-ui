@@ -3,8 +3,8 @@
 GET /api/roles is open to every authenticated active user — the member
 picker and the admin pages need the catalog, and role names leak nothing
 sensitive. /api/admin/roles is the users:manage-gated CRUD surface
-(require_admin until Task 4 swaps in require_atom; the admin_only error
-code is kept either way, spec §7).
+(require_atom(Atom.users_manage); the historical admin_only error code is
+kept, spec §7).
 """
 import uuid
 
@@ -13,14 +13,15 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 
 from graphrag_ui.api.deps import (
-    AdminUser,
     CurrentUser,
     DbSession,
+    ManageUsers,
     get_current_user,
-    require_admin,
+    require_atom,
 )
 from graphrag_ui.api.errors import ApiError
 from graphrag_ui.api.schemas import RoleOut
+from graphrag_ui.domain.permissions import Atom
 from graphrag_ui.services.roles import (
     LastUserManagerError,
     RoleInUseError,
@@ -90,7 +91,7 @@ def register_roles_routes(app):
 
     admin_router = APIRouter(
         prefix="/api/admin/roles",
-        dependencies=[Depends(require_admin)])
+        dependencies=[Depends(require_atom(Atom.users_manage))])
 
     @admin_router.get("", response_model=list[RoleOut])
     async def admin_get_roles(db: DbSession):
@@ -106,7 +107,7 @@ def register_roles_routes(app):
 
     @admin_router.post("", response_model=RoleOut,
                        status_code=status.HTTP_201_CREATED)
-    async def post_role(body: RoleCreateIn, admin: AdminUser, db: DbSession):
+    async def post_role(body: RoleCreateIn, admin: ManageUsers, db: DbSession):
         try:
             role = await create_role(
                 db, scope=body.scope, name=body.name,
@@ -128,7 +129,7 @@ def register_roles_routes(app):
 
     @admin_router.patch("/{role_id}", response_model=RoleOut)
     async def patch_one(role_id: uuid.UUID, body: RoleUpdateIn,
-                        admin: AdminUser, db: DbSession):
+                        admin: ManageUsers, db: DbSession):
         try:
             role = await get_role(db, role_id)
             role = await update_role(
@@ -152,7 +153,7 @@ def register_roles_routes(app):
 
     @admin_router.delete("/{role_id}",
                          status_code=status.HTTP_204_NO_CONTENT)
-    async def delete_one(role_id: uuid.UUID, admin: AdminUser,
+    async def delete_one(role_id: uuid.UUID, admin: ManageUsers,
                          db: DbSession):
         try:
             role = await get_role(db, role_id)

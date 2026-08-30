@@ -568,8 +568,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Members */
-        get: operations["list_members_api_projects__project_id__members_get"];
+        /** Members */
+        get: operations["members_api_projects__project_id__members_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -814,10 +814,10 @@ export interface components {
         /** MemberIn */
         MemberIn: {
             /**
-             * Role
-             * @enum {string}
+             * Role Id
+             * Format: uuid
              */
-            role: "editor" | "viewer";
+            role_id: string;
         };
         /** MemberOut */
         MemberOut: {
@@ -828,8 +828,10 @@ export interface components {
              * Format: email
              */
             email: string;
-            /** Role */
-            role: string;
+            /** Role Id */
+            role_id: string;
+            /** Role Name */
+            role_name: string;
             /** User Id */
             user_id: string;
         };
@@ -871,6 +873,11 @@ export interface components {
             id: string;
             /** Input File Type */
             input_file_type: string;
+            /**
+             * My Permissions
+             * @default []
+             */
+            my_permissions: string[];
             /** Name */
             name: string;
             /** Owner Id */
@@ -985,7 +992,8 @@ export interface components {
         /**
          * UserBriefOut
          * @description Narrow list shown to every logged-in user (for picking users in member
-         *     management). Deliberately omits admin fields like role / must_change_password.
+         *     management). Deliberately omits admin fields like roles / permissions /
+         *     must_change_password.
          */
         UserBriefOut: {
             /** Display Name */
@@ -1011,6 +1019,11 @@ export interface components {
             email: string;
             /** Password */
             password: string;
+            /**
+             * Roles
+             * @default []
+             */
+            roles: string[];
         };
         /** UserOut */
         UserOut: {
@@ -1027,8 +1040,16 @@ export interface components {
             is_active: boolean;
             /** Must Change Password */
             must_change_password: boolean;
-            /** Role */
-            role: string;
+            /**
+             * Permissions
+             * @default []
+             */
+            permissions: string[];
+            /**
+             * Roles
+             * @default []
+             */
+            roles: components["schemas"]["RoleOut"][];
         };
         /** UserUpdateIn */
         UserUpdateIn: {
@@ -1036,8 +1057,8 @@ export interface components {
             display_name?: string | null;
             /** Is Active */
             is_active?: boolean | null;
-            /** Role */
-            role?: ("admin" | "user") | null;
+            /** Roles */
+            roles?: string[] | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -2375,7 +2396,7 @@ export interface operations {
             };
         };
     };
-    list_members_api_projects__project_id__members_get: {
+    members_api_projects__project_id__members_get: {
         parameters: {
             query?: never;
             header?: never;

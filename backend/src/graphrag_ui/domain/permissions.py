@@ -1,34 +1,57 @@
+"""Permission atoms (spec §4.1). Pure: no I/O, no ORM, frozensets only."""
 from enum import StrEnum
 
 
-class Action(StrEnum):
-    manage_users = "manage_users"
-    create_project = "create_project"
-    view_project = "view_project"
-    update_project = "update_project"
-    delete_project = "delete_project"
-    manage_members = "manage_members"
-    edit_content = "edit_content"
+class Atom(StrEnum):
+    users_manage = "users:manage"
+    projects_view_any = "projects:view_any"
+    projects_act_any = "projects:act_any"
+    projects_create = "projects:create"
+    project_view = "project:view"
+    project_edit_content = "project:edit_content"
+    project_run_jobs = "project:run_jobs"
+    project_edit_settings = "project:edit_settings"
+    project_manage = "project:manage"
 
 
-_PROJECT_ACTIONS: dict[Action, set[str]] = {
-    Action.view_project: {"owner", "editor", "viewer"},
-    Action.update_project: {"owner", "editor"},
-    Action.delete_project: {"owner"},
-    Action.manage_members: {"owner"},
-    Action.edit_content: {"owner", "editor"},
-}
+GLOBAL_ATOMS: frozenset[Atom] = frozenset({
+    Atom.users_manage, Atom.projects_view_any, Atom.projects_act_any,
+    Atom.projects_create,
+})
+PROJECT_ATOMS: frozenset[Atom] = frozenset(
+    {a for a in Atom if a not in GLOBAL_ATOMS})
 
 
-def can(user_role: str, is_active: bool, action: Action,
-        project_role: str | None = None) -> bool:
+def can(global_perms: frozenset[str], is_active: bool, action: Atom,
+        member_perms: frozenset[str] | None = None) -> bool:
+    """Effective-permission check. `global_perms` is the union of the
+    actor's global-role atoms; `member_perms` the member-role atoms for
+    the project in question (None = not a member)."""
     if not is_active:
         return False
-    if user_role == "admin":
+    if action is Atom.projects_create:
+        return True  # baseline for every active user (spec §4.1)
+    if action in GLOBAL_ATOMS:
+        return action in global_perms
+    # act_any implies every project atom AND view_any (spec §4.1); a
+    # custom role holding only act_any must still see the project list
+    if Atom.projects_act_any in global_perms:
         return True
-    if action is Action.manage_users:
-        return False
-    if action is Action.create_project:
+    if action is Atom.project_view and Atom.projects_view_any in global_perms:
         return True
-    allowed = _PROJECT_ACTIONS.get(action)
-    return allowed is not None and project_role in allowed
+    return member_perms is not None and action in member_perms
+
+
+def effective_project_perms(
+    global_perms: frozenset[str],
+    member_perms: frozenset[str] | None,
+) -> frozenset[str]:
+    """The caller's atom set for ONE project (ProjectOut.my_permissions,
+    spec §7): act_any expands to every project atom; view_any at least to
+    project:view; otherwise the member-role atoms."""
+    if Atom.projects_act_any in global_perms:
+        return frozenset(a.value for a in PROJECT_ATOMS)
+    perms = frozenset(member_perms or ())
+    if Atom.projects_view_any in global_perms:
+        perms |= {Atom.project_view.value}
+    return perms

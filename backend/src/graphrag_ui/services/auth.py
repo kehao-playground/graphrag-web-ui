@@ -11,8 +11,9 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from graphrag_ui.adapters.models import RefreshToken, User
+from graphrag_ui.adapters.models import RefreshToken, Role, User, UserRole
 from graphrag_ui.config import get_settings
+from graphrag_ui.domain.role_catalog import ROLE_ID_OPS, ROLE_ID_USER_ADMIN
 from graphrag_ui.services.audit import audit
 
 logger = logging.getLogger(__name__)
@@ -64,13 +65,16 @@ async def get_or_provision_user(
             email=addr,
             display_name=display_name,
             password_hash=UNUSABLE_PASSWORD_HASH,
-            role="admin" if addr in settings.proxy_admin_set else "user",
             is_active=True,
             must_change_password=False,
         )
         session.add(user)
         try:
             await session.flush()
+            if addr in settings.proxy_admin_set:
+                session.add_all([
+                    UserRole(user_id=user.id, role_id=ROLE_ID_USER_ADMIN),
+                    UserRole(user_id=user.id, role_id=ROLE_ID_OPS)])
             await audit(session, user.id, "user.created", "user", str(user.id),
                         payload={"email": addr, "origin": "proxy-jit"})
             await session.commit()
@@ -81,23 +85,29 @@ async def get_or_provision_user(
             user = await _lookup()
             assert user is not None
 
-    # Authoritative-upward admin reconciliation (spec decision 7): a listed
-    # email is promoted whenever it is seen. Only-up means "grant an admin"
-    # stays a config change even when the list was set late; the flip side
-    # (a listed email cannot be demoted from the UI) is documented intent.
-    if user.role != "admin" and addr in settings.proxy_admin_set:
-        user.role = "admin"
-        await audit(session, user.id, "user.role_promoted", "user", str(user.id),
-                    payload={"via": "proxy_admin_emails"})
-        await session.commit()
+    # Authoritative-upward reconciliation (spec §5.2 / decision 7): a
+    # listed email is granted whatever part of the composition it lacks,
+    # on every resolve. Grant-set difference, not role-name equality —
+    # a user holding only user_admin gets ops added, and so on.
+    if addr in settings.proxy_admin_set:
+        have = set((await session.execute(
+            select(UserRole.role_id).where(UserRole.user_id == user.id)
+        )).scalars().all())
+        missing = [rid for rid in (ROLE_ID_USER_ADMIN, ROLE_ID_OPS)
+                   if rid not in have]
+        if missing:
+            session.add_all([UserRole(user_id=user.id, role_id=rid)
+                             for rid in missing])
+            await audit(session, user.id, "user.role_promoted", "user",
+                        str(user.id), payload={"via": "proxy_admin_emails"})
+            await session.commit()
     return user
-
 
 def create_access_token(user: User) -> str:
     s = get_settings()
     now = datetime.now(UTC)
     return jwt.encode(
-        {"sub": str(user.id), "role": user.role, "type": "access",
+        {"sub": str(user.id), "type": "access",
          "iat": now, "exp": now + timedelta(minutes=s.access_token_minutes)},
         s.jwt_secret, algorithm="HS256")
 
@@ -167,18 +177,35 @@ async def bootstrap_admin(session: AsyncSession) -> None:
     s = get_settings()
     if not s.bootstrap_admin_email or not s.bootstrap_admin_password:
         return
-    admin = (await session.execute(select(User).where(User.role == "admin"))).scalar_one_or_none()
-    if admin is not None:
+    # Probe by EFFECTIVE permission, not role name, and never with a
+    # scalar_one_or_none(): multiple admins raise MultipleResultsFound —
+    # a startup crash. user_admin is expected to have several holders.
+    holder = (await session.execute(
+        select(User.email)
+        .join(UserRole, UserRole.user_id == User.id)
+        .join(Role, Role.id == UserRole.role_id)
+        .where(User.is_active.is_(True),
+               Role.permissions.contains(["users:manage"]))
+        .limit(1))).scalar_one_or_none()
+    if holder is not None:
         # Silently returning here is the most confusing trial failure: the
         # .env password was changed between runs, the persisted admin keeps
         # the old one, and login just says "invalid email or password".
         logger.warning(
-            "Bootstrap admin %s already exists; BOOTSTRAP_ADMIN_PASSWORD is "
-            "ignored (the admin is created only on first startup of an "
-            "empty database). To recreate it: docker compose down -v "
-            "(destroys all data).", admin.email)
+            "Bootstrap admin %s skipped: %s already holds users:manage "
+            "(BOOTSTRAP_ADMIN_PASSWORD is ignored; to recreate the admin: "
+            "docker compose down -v — destroys all data).",
+            s.bootstrap_admin_email, holder)
         return
-    session.add(User(email=s.bootstrap_admin_email, password_hash=hash_password(
-        s.bootstrap_admin_password), display_name="Administrator",
-        role="admin", must_change_password=True))
+    admin = User(email=s.bootstrap_admin_email,
+                 password_hash=hash_password(s.bootstrap_admin_password),
+                 display_name="Administrator",
+                 is_active=True, must_change_password=True)
+    session.add(admin)
+    await session.flush()
+    session.add_all([UserRole(user_id=admin.id, role_id=ROLE_ID_USER_ADMIN),
+                     UserRole(user_id=admin.id, role_id=ROLE_ID_OPS)])
+    await audit(session, None, "user.created", "user", str(admin.id),
+                payload={"email": s.bootstrap_admin_email,
+                         "origin": "bootstrap"})
     await session.commit()

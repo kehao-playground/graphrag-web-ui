@@ -1,17 +1,20 @@
 import hmac
 import uuid
+from dataclasses import dataclass
 from typing import Annotated
 
 import jwt
 from fastapi import Depends, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import EmailStr, TypeAdapter, ValidationError
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.adapters.db import get_session_factory
-from graphrag_ui.adapters.models import User
+from graphrag_ui.adapters.models import Role, User, UserRole
 from graphrag_ui.api.errors import ApiError
 from graphrag_ui.config import get_settings
+from graphrag_ui.domain.permissions import Atom
 from graphrag_ui.services.auth import get_or_provision_user
 
 _bearer = HTTPBearer(auto_error=False)
@@ -24,6 +27,55 @@ MUST_CHANGE_ALLOWED_PATHS = frozenset({
     "/api/auth/change-password", "/api/auth/me", "/api/auth/config",
     "/api/health", "/api/ready",
 })
+
+
+@dataclass(frozen=True)
+class Principal:
+    """Request-scoped identity (spec §6.1): the ORM row plus the union of
+    the user's global-role atoms, loaded once per request. The delegating
+    properties keep route bodies reading `user.id` / `user.email` /
+    `user.is_active` / `user.must_change_password` unchanged; guards read
+    `global_perms`.
+
+    Read-only on purpose (frozen, properties without setters): any route
+    that WRITES to the user row must go through `principal.user`
+    (`auth_routes.change_password` is the one such site — see Step 10).
+    """
+    user: User
+    global_perms: frozenset[str]
+
+    @property
+    def id(self) -> uuid.UUID:
+        return self.user.id
+
+    @property
+    def email(self) -> str:
+        return self.user.email
+
+    @property
+    def display_name(self) -> str:
+        return self.user.display_name
+
+    @property
+    def is_active(self) -> bool:
+        return self.user.is_active
+
+    @property
+    def must_change_password(self) -> bool:
+        return self.user.must_change_password
+
+
+async def load_global_perms(db: AsyncSession,
+                            user_id: uuid.UUID) -> frozenset[str]:
+    rows = (await db.execute(
+        select(Role.permissions)
+        .join(UserRole, UserRole.role_id == Role.id)
+        .where(UserRole.user_id == user_id))).scalars().all()
+    return frozenset().union(*rows) if rows else frozenset()
+
+
+async def _principal(db: AsyncSession, user: User) -> Principal:
+    return Principal(user=user, global_perms=await load_global_perms(db, user.id))
 
 
 async def get_db():
@@ -60,7 +112,7 @@ async def resolve_access_user(token: str, db: AsyncSession) -> User | None:
 _email_adapter = TypeAdapter(EmailStr)
 
 
-async def resolve_proxy_user(request: Request, db: AsyncSession) -> User:
+async def resolve_proxy_user(request: Request, db: AsyncSession) -> Principal:
     """Trusted-header identity for AUTH_MODE=proxy; every failure a 401
     except a disabled account (403, so the SPA shows 'account disabled'
     instead of looping into /oauth2/start)."""
@@ -85,15 +137,15 @@ async def resolve_proxy_user(request: Request, db: AsyncSession) -> User:
     user = await get_or_provision_user(db, email, display or email.split("@")[0])
     if not user.is_active:
         raise ApiError(status.HTTP_403_FORBIDDEN, "auth_user_disabled", "account disabled")
-    return user
+    return await _principal(db, user)
 
 
 async def get_current_user(
     request: Request,
     creds: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
     db: Annotated[AsyncSession, Depends(get_db)],
-) -> User:
-    """Bearer auth dependency shared by later tasks; every failure is a 401."""
+) -> Principal:
+    """Bearer auth dependency shared by every route; every failure is a 401."""
     if get_settings().auth_mode == "proxy":
         return await resolve_proxy_user(request, db)
     if creds is None:
@@ -104,22 +156,28 @@ async def get_current_user(
     # The backend must also enforce the forced password change, not just the frontend modal
     if user.must_change_password and request.url.path not in MUST_CHANGE_ALLOWED_PATHS:
         raise ApiError(status.HTTP_403_FORBIDDEN, "auth_must_change_password", "password change required")
-    return user
+    return await _principal(db, user)
 
 
 # Shared dependency types for endpoint parameters (FastAPI-conventional
 # Annotated aliases, so endpoints don't repeat a long Annotated[...] each)
 DbSession = Annotated[AsyncSession, Depends(get_db)]
-CurrentUser = Annotated[User, Depends(get_current_user)]
+CurrentUser = Annotated[Principal, Depends(get_current_user)]
 
 
-async def require_admin(user: CurrentUser) -> User:
-    if user.role != "admin":
-        raise ApiError(status.HTTP_403_FORBIDDEN, "admin_only", "admin only")
-    return user
+def require_atom(atom: Atom):
+    """Router-level dependency: the caller must hold `atom` globally.
+    Keeps the historical `admin_only` error code (spec §7) — only the
+    message is reworded toward the permission, away from 'admin'."""
+    async def _dep(user: CurrentUser) -> Principal:
+        if atom.value not in user.global_perms:
+            raise ApiError(status.HTTP_403_FORBIDDEN, "admin_only",
+                           "requires user management permission")
+        return user
+    return _dep
 
 
-AdminUser = Annotated[User, Depends(require_admin)]
+ManageUsers = Annotated[Principal, Depends(require_atom(Atom.users_manage))]
 
 # Auth for SSE routes (job logs, query stream): EventSource cannot send an
 # Authorization header, so these routes accept the access token as a ?token=
@@ -135,7 +193,7 @@ async def sse_user_from_request(
     creds: Annotated[HTTPAuthorizationCredentials | None, Depends(_sse_bearer)],
     db: DbSession,
     token: Annotated[str | None, Query()] = None,
-) -> User:
+) -> Principal:
     """?token= access-token fallback with get_current_user semantics
     (401 invalid/expired, 403 must-change gate) for SSE-only routes."""
     # No tokens exist in proxy mode; the EventSource request carries the
@@ -150,9 +208,9 @@ async def sse_user_from_request(
         # not a bypass of that check.
         if user.must_change_password and request.url.path not in MUST_CHANGE_ALLOWED_PATHS:
             raise ApiError(status.HTTP_403_FORBIDDEN, "auth_must_change_password", "password change required")
-        return user
+        return await _principal(db, user)
     # No query token: standard Bearer header semantics.
     return await get_current_user(request, creds, db)
 
 
-SseUser = Annotated[User, Depends(sse_user_from_request)]
+SseUser = Annotated[Principal, Depends(sse_user_from_request)]

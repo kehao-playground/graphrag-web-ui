@@ -1,8 +1,8 @@
 """Settings endpoints: read/write settings.yaml with hash optimistic lock and
 version history (task brief 3).
 
-Permissions: write is editor+ (Action.edit_content), reads are viewer+
-(Action.view_project). The 409 body carries the exact keys
+Permissions: write is project:edit_settings, reads are project:view.
+The 409 body carries the exact keys
 {"detail", "code", "current_content", "current_hash"} — the frontend diff
 flow (task 7) depends on them.
 """
@@ -15,8 +15,8 @@ from pydantic import BaseModel
 from graphrag_ui.api.deps import CurrentUser, DbSession, get_current_user
 from graphrag_ui.api.errors import ApiError
 from graphrag_ui.api.projects_routes import _forbidden, _project_or_404
-from graphrag_ui.domain.permissions import Action, can
-from graphrag_ui.services.projects import get_project_role
+from graphrag_ui.domain.permissions import Atom, can
+from graphrag_ui.services.projects import get_member_perms
 from graphrag_ui.services.settings import (
     SettingsConflictError,
     SettingsValidationError,
@@ -60,8 +60,8 @@ def register_settings_routes(app):
     @router.get("/{pid}/settings", response_model=SettingsOut)
     async def get_settings(pid: uuid.UUID, db: DbSession, user: CurrentUser):
         project = await _project_or_404(db, pid)
-        if not can(user.role, user.is_active, Action.view_project,
-                   await get_project_role(db, pid, user.id)):
+        if not can(user.global_perms, user.is_active, Atom.project_view,
+                   await get_member_perms(db, pid, user.id)):
             raise _forbidden()
         content, content_hash = read_settings(project)
         return SettingsOut(content=content, content_hash=content_hash)
@@ -70,8 +70,8 @@ def register_settings_routes(app):
     async def put_settings(pid: uuid.UUID, body: SettingsWriteIn,
                            db: DbSession, user: CurrentUser):
         project = await _project_or_404(db, pid)
-        if not can(user.role, user.is_active, Action.edit_content,
-                   await get_project_role(db, pid, user.id)):
+        if not can(user.global_perms, user.is_active, Atom.project_edit_settings,
+                   await get_member_perms(db, pid, user.id)):
             raise _forbidden()
         try:
             new_hash = await write_settings(db, project, body.content,
@@ -94,8 +94,8 @@ def register_settings_routes(app):
     async def list_settings_versions(pid: uuid.UUID, db: DbSession,
                                      user: CurrentUser):
         project = await _project_or_404(db, pid)
-        if not can(user.role, user.is_active, Action.view_project,
-                   await get_project_role(db, pid, user.id)):
+        if not can(user.global_perms, user.is_active, Atom.project_view,
+                   await get_member_perms(db, pid, user.id)):
             raise _forbidden()
         return [VersionOut(id=v.id, content_hash=v.content_hash,
                            saved_by=str(v.saved_by),
@@ -106,8 +106,8 @@ def register_settings_routes(app):
     async def get_settings_version(pid: uuid.UUID, vid: int,
                                    db: DbSession, user: CurrentUser):
         project = await _project_or_404(db, pid)
-        if not can(user.role, user.is_active, Action.view_project,
-                   await get_project_role(db, pid, user.id)):
+        if not can(user.global_perms, user.is_active, Atom.project_view,
+                   await get_member_perms(db, pid, user.id)):
             raise _forbidden()
         v = await get_version(db, project, vid)
         if v is None:

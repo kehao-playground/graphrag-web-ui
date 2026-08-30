@@ -14,6 +14,7 @@ from graphrag_ui.api.schemas import (
     RefreshIn,
     RefreshOut,
     UserOut,
+    user_out,
 )
 from graphrag_ui.config import get_settings
 from graphrag_ui.services.auth import (
@@ -26,6 +27,7 @@ from graphrag_ui.services.auth import (
     rotate_refresh,
     verify_password,
 )
+from graphrag_ui.services.roles import roles_for_user
 
 # Login rate limiting: in-memory sliding window keyed by (ip, lowercased
 # email), counting only **failed** attempts — successful logins never fill a
@@ -73,8 +75,8 @@ def register_auth_routes(app):
         return AuthConfigOut(auth_mode=get_settings().auth_mode)
 
     @router.get("/me", response_model=UserOut)
-    async def me(user: CurrentUser):
-        return UserOut.model_validate(user)
+    async def me(user: CurrentUser, db: DbSession):
+        return user_out(user.user, await roles_for_user(db, user.user.id))
 
     if get_settings().auth_mode == "proxy":
         # Proxy mode replaces the local login surface entirely (spec §5.3):
@@ -93,7 +95,7 @@ def register_auth_routes(app):
         return LoginOut(
             access_token=create_access_token(user),
             refresh_token=await issue_refresh_token(db, user.id),
-            user=UserOut.model_validate(user),
+            user=user_out(user, await roles_for_user(db, user.id)),
         )
 
     @router.post("/refresh", response_model=RefreshOut)
@@ -118,10 +120,10 @@ def register_auth_routes(app):
         user: CurrentUser,
         db: DbSession,
     ):
-        if not verify_password(body.current_password, user.password_hash):
+        if not verify_password(body.current_password, user.user.password_hash):
             raise ApiError(status.HTTP_400_BAD_REQUEST, "auth_wrong_current_password", "incorrect current password")
-        user.password_hash = hash_password(body.new_password)
-        user.must_change_password = False
+        user.user.password_hash = hash_password(body.new_password)
+        user.user.must_change_password = False
         # Changing the password revokes every refresh token (including this
         # login's); the commit also flushes the user mutation above
         await revoke_all_for_user(db, user.id)

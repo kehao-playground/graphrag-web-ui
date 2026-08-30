@@ -12,6 +12,7 @@ from test_jobs_api import _project, _setup_users
 from test_query_api import FakeAdapter, FakeCache, _post, _viewer_setup
 
 from graphrag_ui.config import get_settings
+from graphrag_ui.domain.role_catalog import ROLE_ID_EDITOR
 from graphrag_ui.services import query as query_service
 from graphrag_ui.services.rate_limit import reset_rate_limiter
 
@@ -218,7 +219,8 @@ async def project_with_members(client, app):
     pid = await _project(client, alice)
     members = (await client.get(f"/api/projects/{pid}/members",
                                 headers=alice)).json()
-    owner_id = next(m["user_id"] for m in members if m["role"] == "owner")
+    owner_id = next(m["user_id"] for m in members
+                    if m["role_name"] == "owner")
     return SimpleNamespace(id=pid, owner_id=owner_id, admin_headers=admin)
 
 
@@ -227,10 +229,11 @@ async def test_demote_owner_carries_code(client, app, project_with_members):
     # fixtures in test_projects.py.
     r = await client.put(
         f"/api/projects/{project_with_members.id}/members/{project_with_members.owner_id}",
-        json={"role": "editor"}, headers=project_with_members.admin_headers)
+        json={"role_id": str(ROLE_ID_EDITOR)},
+        headers=project_with_members.admin_headers)
     assert r.status_code == 400
     body = r.json()
-    assert body["detail"] == "cannot demote or remove the project owner"
+    assert body["detail"] == "cannot change or remove the project owner"
     assert body["code"] == "member_owner_protected"
 
 

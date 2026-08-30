@@ -11,6 +11,7 @@ from sqlalchemy import select
 from graphrag_ui.adapters.models import SettingsVersion
 from graphrag_ui.adapters.workspace import FakeInitializer
 from graphrag_ui.api.projects_routes import get_initializer
+from graphrag_ui.domain.role_catalog import ROLE_ID_VIEWER
 from graphrag_ui.services.projects import ws_path
 from tests.test_projects import _activate, _setup_two_users
 
@@ -186,7 +187,8 @@ async def test_viewer_can_read_but_not_write(client, app):
     users = (await client.get("/api/admin/users", headers=admin)).json()
     bob_id = next(u["id"] for u in users if u["email"] == "bob@test.local")
     assert (await client.put(f"/api/projects/{pid}/members/{bob_id}",
-                             headers=alice, json={"role": "viewer"})).status_code == 200
+                             headers=alice,
+                             json={"role_id": str(ROLE_ID_VIEWER)})).status_code == 200
 
     got = (await client.get(f"/api/projects/{pid}/settings", headers=bob)).json()
     assert "input" in got["content"]

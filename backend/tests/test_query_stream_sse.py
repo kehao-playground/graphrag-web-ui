@@ -15,6 +15,7 @@ import pytest
 from graphrag_ui.adapters.workspace import FakeInitializer
 from graphrag_ui.api.projects_routes import get_initializer
 from graphrag_ui.config import get_settings
+from graphrag_ui.domain.role_catalog import ROLE_ID_VIEWER
 from graphrag_ui.services import query as query_service
 from graphrag_ui.services.rate_limit import reset_rate_limiter
 
@@ -172,7 +173,8 @@ async def _add_viewer(client, alice, pid, email):
     users = (await client.get("/api/users", headers=alice)).json()
     vid = next(u["id"] for u in users if u["email"] == email)
     r = await client.put(
-        f"/api/projects/{pid}/members/{vid}", headers=alice, json={"role": "viewer"}
+        f"/api/projects/{pid}/members/{vid}", headers=alice,
+        json={"role_id": str(ROLE_ID_VIEWER)}
     )
     assert r.status_code in (200, 201), r.text
 
@@ -274,7 +276,8 @@ async def test_token_must_change_member_403(client, app, fake_adapter, fake_cach
     assert r.status_code == 201, r.text
     viewer_id = r.json()["id"]
     r = await client.put(
-        f"/api/projects/{pid}/members/{viewer_id}", headers=alice, json={"role": "viewer"}
+        f"/api/projects/{pid}/members/{viewer_id}", headers=alice,
+        json={"role_id": str(ROLE_ID_VIEWER)}
     )
     assert r.status_code in (200, 201), r.text
     r = await client.post(

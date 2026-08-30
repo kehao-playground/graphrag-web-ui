@@ -7,25 +7,27 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from graphrag_ui.adapters.models import Project, ProjectMember, User
+from graphrag_ui.adapters.models import Project, ProjectMember, Role, User
 from graphrag_ui.adapters.workspace import (
     GraphragInitInitializer,
     WorkspaceInitError,
     WorkspaceInitializer,
 )
-from graphrag_ui.api.deps import CurrentUser, DbSession, get_current_user
+from graphrag_ui.api.deps import CurrentUser, DbSession, Principal, get_current_user
 from graphrag_ui.api.errors import ApiError
-from graphrag_ui.domain.permissions import Action, can
+from graphrag_ui.domain.permissions import Atom, can, effective_project_perms
 from graphrag_ui.services.projects import (
     MemberOwnerProtectedError,
     create_project,
     delete_project,
-    get_project_role,
+    get_member_perms,
     list_projects,
+    member_perms_for_projects,
     remove_member,
     set_member,
     update_project,
 )
+from graphrag_ui.services.roles import RoleNotFound, RoleScopeMismatchError
 
 
 class ProjectIn(BaseModel):
@@ -49,6 +51,7 @@ class ProjectOut(BaseModel):
     input_file_type: str
     owner_id: str
     created_at: datetime
+    my_permissions: list[str] = []
 
     @field_validator("id", "owner_id", mode="before")
     @classmethod
@@ -59,14 +62,15 @@ class ProjectOut(BaseModel):
 
 class MemberIn(BaseModel):
     # Single-owner policy: owner is fixed to the creator and not grantable via API.
-    role: Literal["editor", "viewer"]
+    role_id: uuid.UUID
 
 
 class MemberOut(BaseModel):
     user_id: str
     email: EmailStr
     display_name: str
-    role: str
+    role_id: str
+    role_name: str
 
 
 def get_initializer() -> WorkspaceInitializer:
@@ -91,16 +95,25 @@ def register_projects_routes(app):
     # Router built inside the function (like users_routes): create_app() is called repeatedly in tests
     router = APIRouter(prefix="/api/projects", dependencies=[Depends(get_current_user)])
 
-    async def _require(db: AsyncSession, project: Project, user: User,
-                       action: Action) -> None:
-        role = await get_project_role(db, project.id, user.id)
-        if not can(user.role, user.is_active, action, role):
+    async def _require(db: AsyncSession, project: Project, user: Principal,
+                       action: Atom) -> None:
+        perms = await get_member_perms(db, project.id, user.id)
+        if not can(user.global_perms, user.is_active, action, perms):
             raise _forbidden()
 
     @router.get("", response_model=list[ProjectOut])
     async def list_all(db: DbSession,
                        user: CurrentUser):
-        return [ProjectOut.model_validate(p) for p in await list_projects(db, user)]
+        projects = await list_projects(db, user.user, user.global_perms)
+        perms = await member_perms_for_projects(
+            db, user.id, [p.id for p in projects])
+        out = []
+        for p in projects:
+            po = ProjectOut.model_validate(p)
+            po.my_permissions = sorted(effective_project_perms(
+                user.global_perms, perms.get(p.id)))
+            out.append(po)
+        return out
 
     @router.post("", response_model=ProjectOut, status_code=status.HTTP_201_CREATED)
     async def post_project(body: ProjectIn,
@@ -110,7 +123,8 @@ def register_projects_routes(app):
                                                   Depends(get_initializer)]):
         try:
             project = await create_project(db, body.name, body.description,
-                                           body.input_file_type, user, initializer)
+                                           body.input_file_type, user.user,
+                                           user.global_perms, initializer)
         except PermissionError:
             raise _forbidden() from None
         except WorkspaceInitError:
@@ -124,15 +138,19 @@ def register_projects_routes(app):
                       db: DbSession,
                       user: CurrentUser):
         project = await _project_or_404(db, project_id)
-        await _require(db, project, user, Action.view_project)
-        return ProjectOut.model_validate(project)
+        await _require(db, project, user, Atom.project_view)
+        member_perms = await get_member_perms(db, project.id, user.id)
+        po = ProjectOut.model_validate(project)
+        po.my_permissions = sorted(effective_project_perms(
+            user.global_perms, member_perms))
+        return po
 
     @router.patch("/{project_id}", response_model=ProjectOut)
     async def patch_one(project_id: uuid.UUID, body: ProjectUpdateIn,
                         db: DbSession,
                         user: CurrentUser):
         project = await _project_or_404(db, project_id)
-        await _require(db, project, user, Action.update_project)
+        await _require(db, project, user, Atom.project_manage)
         project = await update_project(db, project, name=body.name,
                                        description=body.description, actor_id=user.id)
         return ProjectOut.model_validate(project)
@@ -142,48 +160,58 @@ def register_projects_routes(app):
                          db: DbSession,
                          user: CurrentUser):
         project = await _project_or_404(db, project_id)
-        await _require(db, project, user, Action.delete_project)
+        await _require(db, project, user, Atom.project_manage)
         await delete_project(db, project, actor_id=user.id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @router.get("/{project_id}/members", response_model=list[MemberOut])
-    async def list_members(project_id: uuid.UUID,
-                           db: DbSession,
-                           user: CurrentUser):
+    async def members(project_id: uuid.UUID, db: DbSession,
+                      user: CurrentUser):
         project = await _project_or_404(db, project_id)
-        await _require(db, project, user, Action.view_project)
-        # join users to pull email/display_name; order explicitly, never rely on implicit DB order
+        await _require(db, project, user, Atom.project_view)
         rows = (await db.execute(
-            select(ProjectMember.user_id, ProjectMember.role, User.email, User.display_name)
+            select(ProjectMember.user_id, User.email, User.display_name,
+                   Role.id, Role.name)
             .join(User, User.id == ProjectMember.user_id)
+            .join(Role, Role.id == ProjectMember.role_id)
             .where(ProjectMember.project_id == project.id)
             .order_by(User.email))).all()
-        return [MemberOut(user_id=str(r.user_id), email=r.email,
-                          display_name=r.display_name, role=r.role) for r in rows]
+        return [MemberOut(user_id=str(r[0]), email=r[1],
+                          display_name=r[2], role_id=str(r[3]),
+                          role_name=r[4]) for r in rows]
 
     @router.put("/{project_id}/members/{user_id}", response_model=MemberOut)
     async def put_member(project_id: uuid.UUID, user_id: uuid.UUID, body: MemberIn,
                          db: DbSession,
                          user: CurrentUser):
         project = await _project_or_404(db, project_id)
-        await _require(db, project, user, Action.manage_members)
+        await _require(db, project, user, Atom.project_manage)
         target = await db.get(User, user_id)
         if target is None:
             raise ApiError(status.HTTP_404_NOT_FOUND, "user_not_found", "user not found")
         try:
-            await set_member(db, project, user_id, body.role, actor_id=user.id)
+            member = await set_member(db, project, user_id, body.role_id,
+                                      actor_id=user.id)
         except MemberOwnerProtectedError as e:
             raise ApiError(status.HTTP_400_BAD_REQUEST, "member_owner_protected",
                            str(e)) from None
+        except RoleNotFound:
+            raise ApiError(status.HTTP_404_NOT_FOUND, "role_not_found",
+                           "role not found") from None
+        except RoleScopeMismatchError as e:
+            raise ApiError(status.HTTP_400_BAD_REQUEST, "role_scope_mismatch",
+                           str(e)) from None
+        role = await db.get(Role, member.role_id)
         return MemberOut(user_id=str(user_id), email=target.email,
-                         display_name=target.display_name, role=body.role)
+                         display_name=target.display_name,
+                         role_id=str(role.id), role_name=role.name)
 
     @router.delete("/{project_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
     async def delete_member(project_id: uuid.UUID, user_id: uuid.UUID,
                             db: DbSession,
                             user: CurrentUser):
         project = await _project_or_404(db, project_id)
-        await _require(db, project, user, Action.manage_members)
+        await _require(db, project, user, Atom.project_manage)
         try:
             await remove_member(db, project, user_id, actor_id=user.id)
         except MemberOwnerProtectedError as e:

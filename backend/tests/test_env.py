@@ -14,6 +14,7 @@ from graphrag_ui.adapters.models import AuditLog, Project
 from graphrag_ui.adapters.workspace import FakeInitializer
 from graphrag_ui.api.projects_routes import get_initializer
 from graphrag_ui.config import get_settings
+from graphrag_ui.domain.role_catalog import ROLE_ID_VIEWER
 from graphrag_ui.services.projects import ws_path
 from tests.test_projects import _activate, _setup_two_users
 
@@ -172,7 +173,7 @@ async def test_viewer_reads_but_cannot_write(client, app):
     users = (await client.get("/api/admin/users", headers=admin)).json()
     bob_id = next(u["id"] for u in users if u["email"] == "bob@test.local")
     assert (await client.put(f"/api/projects/{pid}/members/{bob_id}", headers=alice,
-                             json={"role": "viewer"})).status_code == 200
+                             json={"role_id": str(ROLE_ID_VIEWER)})).status_code == 200
     bob = await _activate(client, "bob@test.local", "bob-pass-1234", "bob-pass-5678")
 
     r = await client.get(f"/api/projects/{pid}/env", headers=bob)

@@ -11,6 +11,7 @@ from sqlalchemy import select
 from graphrag_ui.adapters.models import AuditLog
 from graphrag_ui.adapters.workspace import FakeInitializer
 from graphrag_ui.api.projects_routes import get_initializer
+from graphrag_ui.domain.role_catalog import ROLE_ID_VIEWER
 from graphrag_ui.services.projects import ws_path
 from tests.test_projects import _activate, _setup_two_users
 
@@ -30,7 +31,7 @@ async def _viewer_headers(client, admin, alice, pid):
     users = (await client.get("/api/admin/users", headers=admin)).json()
     bob_id = next(u["id"] for u in users if u["email"] == "bob@test.local")
     await client.put(f"/api/projects/{pid}/members/{bob_id}", headers=alice,
-                     json={"role": "viewer"})
+                     json={"role_id": str(ROLE_ID_VIEWER)})
     return await _activate(client, "bob@test.local", "bob-pass-1234", "bob-pass-5678")
 
 

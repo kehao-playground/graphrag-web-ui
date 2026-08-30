@@ -13,6 +13,7 @@ from graphrag_ui.adapters.index_runner import log_path_for
 from graphrag_ui.adapters.jobs_repo import finish
 from graphrag_ui.adapters.workspace import FakeInitializer
 from graphrag_ui.api.projects_routes import get_initializer
+from graphrag_ui.domain.role_catalog import ROLE_ID_VIEWER
 from graphrag_ui.services.projects import ws_path
 
 
@@ -189,7 +190,8 @@ async def test_sse_token_must_change_password_403(client, app):
     assert r.status_code == 201, r.text
     viewer_id = r.json()["id"]
     r = await client.put(f"/api/projects/{pid}/members/{viewer_id}",
-                         headers=hdr, json={"role": "viewer"})
+                         headers=hdr,
+                         json={"role_id": str(ROLE_ID_VIEWER)})
     assert r.status_code in (200, 201), r.text
     r = await client.post("/api/auth/login",
                           json={"email": "mcp-user@example.com", "password": "mcp-pass-123"})

@@ -1,7 +1,6 @@
 """Explore REST endpoints (spec §6.1/§7): GET /api/projects/{pid}/artifacts/*
 for server-paginated parquet browsing, full-row detail and the knowledge
-graph. Permission: viewer+ (view_project) — the same block as the query
-routes. Route order is contractual: /artifacts/graph registers BEFORE
+graph. Permission: project:view — the same block as the query routes. Route order is contractual: /artifacts/graph registers BEFORE
 /artifacts/{table}, otherwise "graph" binds to the path parameter. All
 failures map to fixed zh-TW details; adapter tails stay in server logs."""
 
@@ -13,7 +12,7 @@ from graphrag_ui.adapters.artifacts import ArtifactsNotIndexedError
 from graphrag_ui.api.deps import CurrentUser, DbSession, get_current_user
 from graphrag_ui.api.errors import ApiError
 from graphrag_ui.api.projects_routes import _forbidden, _project_or_404
-from graphrag_ui.domain.permissions import Action, can
+from graphrag_ui.domain.permissions import Atom, can
 from graphrag_ui.services.explore import (
     ExploreReadError,
     UnknownTableError,
@@ -22,7 +21,7 @@ from graphrag_ui.services.explore import (
     knowledge_graph,
     list_artifacts,
 )
-from graphrag_ui.services.projects import get_project_role
+from graphrag_ui.services.projects import get_member_perms
 
 _ExploreErrors = (
     UnknownTableError, ArtifactsNotIndexedError, ExploreReadError, UnsupportedFilterError,
@@ -49,8 +48,8 @@ def register_explore_routes(app):
     async def _allowed(db: DbSession, user: CurrentUser, pid: uuid.UUID):
         project = await _project_or_404(db, pid)
         if not can(
-            user.role, user.is_active, Action.view_project,
-            await get_project_role(db, pid, user.id),
+            user.global_perms, user.is_active, Atom.project_view,
+            await get_member_perms(db, pid, user.id),
         ):
             raise _forbidden()
         return project

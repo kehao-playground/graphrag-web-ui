@@ -9,9 +9,10 @@ from sqlalchemy import func, select, text
 from starlette.requests import Request
 
 from graphrag_ui.adapters.db import make_engine, make_session_factory, reset_engine
-from graphrag_ui.adapters.models import User
+from graphrag_ui.adapters.models import Role, User, UserRole
 from graphrag_ui.api.deps import resolve_proxy_user
 from graphrag_ui.config import Settings, get_settings
+from graphrag_ui.domain.role_catalog import ROLE_ID_OPS, ROLE_ID_USER_ADMIN
 from graphrag_ui.main import create_app
 from graphrag_ui.services.auth import (
     UNUSABLE_PASSWORD_HASH,
@@ -49,6 +50,19 @@ def test_proxy_admin_set_empty_default():
     assert Settings().proxy_admin_set == frozenset()
 
 
+async def _grants(db_session, email) -> set[str]:
+    """Role names granted to the user — the atom-era replacement for
+    asserting user.role (RBAC v2 mapping table)."""
+    # lower(email): stored rows may keep the local part's original case
+    # (get_or_provision_user's own lookup is case-insensitive too)
+    return set((await db_session.execute(
+        select(Role.name)
+        .select_from(User)
+        .join(UserRole, UserRole.user_id == User.id)
+        .join(Role, Role.id == UserRole.role_id)
+        .where(func.lower(User.email) == email.lower()))).scalars())
+
+
 # ---- get_or_provision_user (spec §5.2) ----
 
 async def test_provision_new_user_defaults(db_session, monkeypatch):
@@ -56,7 +70,7 @@ async def test_provision_new_user_defaults(db_session, monkeypatch):
     get_settings.cache_clear()
     user = await get_or_provision_user(db_session, "new@ex.com", "New")
     assert user.email == "new@ex.com"
-    assert user.role == "user"
+    assert await _grants(db_session, "new@ex.com") == set()
     assert user.is_active and not user.must_change_password
     assert user.display_name == "New"
     # Unusable hash: no password ever verifies against a JIT row (spec §5.2)
@@ -68,17 +82,21 @@ async def test_provision_listed_email_is_admin(db_session, monkeypatch):
     monkeypatch.setenv("PROXY_ADMIN_EMAILS", "root@ex.com")
     get_settings.cache_clear()
     user = await get_or_provision_user(db_session, "Root@EX.com", "Root")
-    assert user.role == "admin"
+    assert await _grants(db_session, "root@ex.com") == {"user_admin", "ops"}
     assert user.email == "root@ex.com"  # stored lowercased
 
 
-async def test_existing_row_matched_case_insensitively_keeps_role(db_session):
+async def test_existing_row_matched_case_insensitively_keeps_grants(db_session):
     # create_user stores EmailStr's normalization: local part keeps its case
-    db_session.add(User(email="Alice@Example.com", password_hash="x",
-                        display_name="Alice", role="admin"))
+    u = User(email="Alice@Example.com", password_hash="x", display_name="Alice")
+    db_session.add(u)
+    await db_session.flush()
+    db_session.add(UserRole(user_id=u.id, role_id=ROLE_ID_USER_ADMIN))
     await db_session.commit()
-    user = await get_or_provision_user(db_session, "alice@example.com", "Alice")
-    assert user.role == "admin"  # kept, not duplicated
+    await get_or_provision_user(db_session, "alice@example.com", "Alice")
+    assert await _grants(db_session, "alice@example.com") == {"user_admin"}
+    assert (await db_session.execute(
+        select(func.count()).select_from(User))).scalar_one() == 1
     assert (await db_session.execute(
         select(func.count()).select_from(User))).scalar_one() == 1
 
@@ -86,20 +104,31 @@ async def test_existing_row_matched_case_insensitively_keeps_role(db_session):
 async def test_admin_reconcile_promotes_existing_user(db_session, monkeypatch):
     monkeypatch.setenv("PROXY_ADMIN_EMAILS", "boss@ex.com")
     get_settings.cache_clear()
+    # the user already holds ONLY user_admin: reconciliation must add the
+    # missing ops half of the composition (grant-set difference)
     db_session.add(User(email="boss@ex.com", password_hash="x", display_name="Boss"))
+    await db_session.flush()
+    boss_id = (await db_session.execute(
+        select(User.id).where(User.email == "boss@ex.com"))).scalar_one()
+    db_session.add(UserRole(user_id=boss_id, role_id=ROLE_ID_USER_ADMIN))
     await db_session.commit()
-    user = await get_or_provision_user(db_session, "boss@ex.com", "Boss")
-    assert user.role == "admin"
+    await get_or_provision_user(db_session, "boss@ex.com", "Boss")
+    assert await _grants(db_session, "boss@ex.com") == {"user_admin", "ops"}
 
 
 async def test_admin_reconcile_never_demotes(db_session, monkeypatch):
     monkeypatch.setenv("PROXY_ADMIN_EMAILS", "")
     get_settings.cache_clear()
     db_session.add(User(email="other@ex.com", password_hash="x",
-                        display_name="O", role="admin"))
+                        display_name="O"))
+    await db_session.flush()
+    other_id = (await db_session.execute(
+        select(User.id).where(User.email == "other@ex.com"))).scalar_one()
+    db_session.add_all([UserRole(user_id=other_id, role_id=ROLE_ID_USER_ADMIN),
+                         UserRole(user_id=other_id, role_id=ROLE_ID_OPS)])
     await db_session.commit()
-    user = await get_or_provision_user(db_session, "other@ex.com", "O")
-    assert user.role == "admin"
+    await get_or_provision_user(db_session, "other@ex.com", "O")
+    assert await _grants(db_session, "other@ex.com") == {"user_admin", "ops"}
 
 
 async def test_concurrent_first_provision_single_row(migrated_db, monkeypatch):
@@ -219,7 +248,10 @@ async def test_resolver_provisions_and_returns_user(db_session, proxy_env):
         "X-Forwarded-Email": "admin@test.local",
         "X-Forwarded-Preferred-Username": "The Admin",
     }), db_session)
-    assert user.role == "admin"          # listed in PROXY_ADMIN_EMAILS
+    # listed in PROXY_ADMIN_EMAILS: the Principal carries the full
+    # composition's atom union
+    assert user.global_perms == frozenset(
+        {"users:manage", "projects:view_any", "projects:act_any"})
     assert user.display_name == "The Admin"
 
 

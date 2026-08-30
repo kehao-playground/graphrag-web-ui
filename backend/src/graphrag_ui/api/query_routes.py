@@ -1,6 +1,6 @@
 """Query REST endpoints (spec §6.1): POST /api/projects/{pid}/query for the
 four search modes, GET .../query/stream for SSE streaming. Permission:
-viewer+ (view_project). All failures map to fixed zh-TW details — internals
+project:view. All failures map to fixed zh-TW details — internals
 stay in server logs (no-leak posture)."""
 
 import json
@@ -15,8 +15,8 @@ from graphrag_ui.adapters.frame_cache import WorkspaceNotIndexedError
 from graphrag_ui.api.deps import CurrentUser, DbSession, SseUser, get_current_user
 from graphrag_ui.api.errors import ApiError
 from graphrag_ui.api.projects_routes import _forbidden, _project_or_404
-from graphrag_ui.domain.permissions import Action, can
-from graphrag_ui.services.projects import get_project_role
+from graphrag_ui.domain.permissions import Atom, can
+from graphrag_ui.services.projects import get_member_perms
 from graphrag_ui.services.query import QueryError, run_query, stream_query
 from graphrag_ui.services.rate_limit import QueryRateLimitedError
 
@@ -63,8 +63,8 @@ def register_query_routes(app):
         """Shared pre-check for both query paths: project-or-404 + viewer+."""
         project = await _project_or_404(db, pid)
         if not can(
-            user.role, user.is_active, Action.view_project,
-            await get_project_role(db, pid, user.id),
+            user.global_perms, user.is_active, Atom.project_view,
+            await get_member_perms(db, pid, user.id),
         ):
             raise _forbidden()
         return project
@@ -73,7 +73,7 @@ def register_query_routes(app):
     async def post_query(pid: uuid.UUID, body: QueryIn, db: DbSession, user: CurrentUser):
         project = await _prepare_query(db, user, pid)
         try:
-            return await run_query(project, user, body.method, body.query, body.response_type)
+            return await run_query(project, user.user, body.method, body.query, body.response_type)
         except (QueryRateLimitedError, WorkspaceNotIndexedError, QueryError) as exc:
             raise _query_error_http(exc) from None
 
@@ -94,7 +94,7 @@ def register_query_routes(app):
         # Prime the generator so pre-stream failures (rate limit, config,
         # frames, adapter) raise HERE as plain JSON HTTP errors — the 200 +
         # text/event-stream response must not have started yet.
-        agen = stream_query(project, user, method, query, response_type)
+        agen = stream_query(project, user.user, method, query, response_type)
         try:
             first = await anext(agen, None)
         except (QueryRateLimitedError, WorkspaceNotIndexedError, QueryError) as exc:

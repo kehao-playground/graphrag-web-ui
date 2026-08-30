@@ -26,9 +26,7 @@ async def _project(db, owner):
                 input_file_type="text")
     db.add(p)
     await db.flush()
-    # `role` is the legacy column: still NOT NULL until R2 (Task 4) drops
-    # it. Every ProjectMember built before Task 4 must set BOTH columns.
-    db.add(ProjectMember(project_id=p.id, user_id=owner.id, role="owner",
+    db.add(ProjectMember(project_id=p.id, user_id=owner.id,
                          role_id=ROLE_ID_OWNER))
     await db.flush()
     return p
@@ -101,7 +99,7 @@ async def test_delete_role_in_use_rejected(db_session):
         db_session, scope="project", name="auditor", description="",
         permissions=["project:view"], actor_id=u.id)
     db_session.add(ProjectMember(project_id=p.id, user_id=member.id,
-                                 role="viewer", role_id=custom.id))
+                                 role_id=custom.id))
     await db_session.commit()
     with pytest.raises(svc.RoleInUseError):
         await svc.delete_role(db_session, custom, actor_id=u.id)
@@ -150,7 +148,7 @@ async def test_usage_counts_and_roles_for_user(db_session):
                                    permissions=["project:view"],
                                    actor_id=u.id)
     db_session.add(ProjectMember(project_id=p.id, user_id=member.id,
-                                 role="viewer", role_id=custom.id))
+                                 role_id=custom.id))
     db_session.add(UserRole(user_id=u.id, role_id=ROLE_ID_OPS))
     await db_session.commit()
     counts = await svc.usage_counts(db_session)

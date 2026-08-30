@@ -11,16 +11,15 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.adapters.models import ProjectMember, Role, User, UserRole
+from graphrag_ui.domain.permissions import GLOBAL_ATOMS, PROJECT_ATOMS, Atom
 from graphrag_ui.services.audit import audit
 
-# Temporary atom catalog: Task 4 replaces this with domain.permissions
-# (identical strings — the swap is a pure import change).
+# The grantable atom catalog per scope (domain.permissions, spec §4.1).
+# projects:create is a baseline, never grantable — excluded here.
 _ATOMS_BY_SCOPE: dict[str, frozenset[str]] = {
-    "global": frozenset({
-        "users:manage", "projects:view_any", "projects:act_any"}),
-    "project": frozenset({
-        "project:view", "project:edit_content", "project:run_jobs",
-        "project:edit_settings", "project:manage"}),
+    "global": frozenset(a.value for a in GLOBAL_ATOMS
+                        if a is not Atom.projects_create),
+    "project": frozenset(a.value for a in PROJECT_ATOMS),
 }
 
 

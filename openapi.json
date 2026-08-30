@@ -454,17 +454,14 @@
       },
       "MemberIn": {
         "properties": {
-          "role": {
-            "enum": [
-              "editor",
-              "viewer"
-            ],
-            "title": "Role",
+          "role_id": {
+            "format": "uuid",
+            "title": "Role Id",
             "type": "string"
           }
         },
         "required": [
-          "role"
+          "role_id"
         ],
         "title": "MemberIn",
         "type": "object"
@@ -480,8 +477,12 @@
             "title": "Email",
             "type": "string"
           },
-          "role": {
-            "title": "Role",
+          "role_id": {
+            "title": "Role Id",
+            "type": "string"
+          },
+          "role_name": {
+            "title": "Role Name",
             "type": "string"
           },
           "user_id": {
@@ -493,7 +494,8 @@
           "user_id",
           "email",
           "display_name",
-          "role"
+          "role_id",
+          "role_name"
         ],
         "title": "MemberOut",
         "type": "object"
@@ -609,6 +611,14 @@
           "input_file_type": {
             "title": "Input File Type",
             "type": "string"
+          },
+          "my_permissions": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "My Permissions",
+            "type": "array"
           },
           "name": {
             "title": "Name",
@@ -924,7 +934,7 @@
         "type": "object"
       },
       "UserBriefOut": {
-        "description": "Narrow list shown to every logged-in user (for picking users in member\nmanagement). Deliberately omits admin fields like role / must_change_password.",
+        "description": "Narrow list shown to every logged-in user (for picking users in member\nmanagement). Deliberately omits admin fields like roles / permissions /\nmust_change_password.",
         "properties": {
           "display_name": {
             "title": "Display Name",
@@ -968,6 +978,15 @@
             "minLength": 8,
             "title": "Password",
             "type": "string"
+          },
+          "roles": {
+            "default": [],
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "array"
           }
         },
         "required": [
@@ -1001,16 +1020,27 @@
             "title": "Must Change Password",
             "type": "boolean"
           },
-          "role": {
-            "title": "Role",
-            "type": "string"
+          "permissions": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Permissions",
+            "type": "array"
+          },
+          "roles": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/RoleOut"
+            },
+            "title": "Roles",
+            "type": "array"
           }
         },
         "required": [
           "id",
           "email",
           "display_name",
-          "role",
           "is_active",
           "must_change_password"
         ],
@@ -1041,20 +1071,20 @@
             ],
             "title": "Is Active"
           },
-          "role": {
+          "roles": {
             "anyOf": [
               {
-                "enum": [
-                  "admin",
-                  "user"
-                ],
-                "type": "string"
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "type": "array"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Role"
+            "title": "Roles"
           }
         },
         "title": "UserUpdateIn",
@@ -3145,7 +3175,7 @@
     },
     "/api/projects/{project_id}/members": {
       "get": {
-        "operationId": "list_members_api_projects__project_id__members_get",
+        "operationId": "members_api_projects__project_id__members_get",
         "parameters": [
           {
             "in": "path",
@@ -3166,7 +3196,7 @@
                   "items": {
                     "$ref": "#/components/schemas/MemberOut"
                   },
-                  "title": "Response List Members Api Projects  Project Id  Members Get",
+                  "title": "Response Members Api Projects  Project Id  Members Get",
                   "type": "array"
                 }
               }
@@ -3189,7 +3219,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "List Members"
+        "summary": "Members"
       }
     },
     "/api/projects/{project_id}/members/{user_id}": {

@@ -3,7 +3,7 @@ async def test_bootstrap_admin_login_and_forced_change(client):
         "email": "admin@test.local", "password": "admin-pass-123"})
     assert r.status_code == 200
     body = r.json()
-    assert body["user"]["role"] == "admin"
+    assert {r["name"] for r in body["user"]["roles"]} == {"user_admin", "ops"}
     assert body["user"]["must_change_password"] is True
     # Forced password-change flow
     hdr = {"Authorization": f"Bearer {body['access_token']}"}

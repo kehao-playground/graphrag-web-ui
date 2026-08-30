@@ -1,7 +1,7 @@
 """Project .env endpoints: per-key management with masked reads (task brief 4).
 
-Permissions: writes are editor+ (Action.edit_content), listing is viewer+
-(Action.view_project). Audit actions: env.key_set / env.key_deleted with
+Permissions: writes are project:edit_settings (API keys are settings-
+grade), listing is project:view. Audit actions: env.key_set / env.key_deleted with
 payload {key} only. Values are secrets — no response body, error payloads
 included, may ever contain a plaintext value. That is why PATCH parses the
 body manually instead of via a pydantic model: FastAPI's 422 echoes the
@@ -16,14 +16,14 @@ from pydantic import BaseModel
 from graphrag_ui.api.deps import CurrentUser, DbSession, get_current_user
 from graphrag_ui.api.errors import ApiError
 from graphrag_ui.api.projects_routes import _forbidden, _project_or_404
-from graphrag_ui.domain.permissions import Action, can
+from graphrag_ui.domain.permissions import Atom, can
 from graphrag_ui.services.env_file import (
     EnvValidationError,
     delete_env_key,
     list_env,
     set_env_key,
 )
-from graphrag_ui.services.projects import get_project_role
+from graphrag_ui.services.projects import get_member_perms
 
 
 class EnvKeyOut(BaseModel):
@@ -67,8 +67,8 @@ def register_env_routes(app):
     @router.get("/{pid}/env", response_model=EnvOut)
     async def get_env(pid: uuid.UUID, db: DbSession, user: CurrentUser):
         project = await _project_or_404(db, pid)
-        if not can(user.role, user.is_active, Action.view_project,
-                   await get_project_role(db, pid, user.id)):
+        if not can(user.global_perms, user.is_active, Atom.project_view,
+                   await get_member_perms(db, pid, user.id)):
             raise _forbidden()
         return EnvOut(keys=[EnvKeyOut(**e) for e in list_env(project)])
 
@@ -76,8 +76,8 @@ def register_env_routes(app):
     async def patch_env(pid: uuid.UUID, request: Request,
                         db: DbSession, user: CurrentUser):
         project = await _project_or_404(db, pid)
-        if not can(user.role, user.is_active, Action.edit_content,
-                   await get_project_role(db, pid, user.id)):
+        if not can(user.global_perms, user.is_active, Atom.project_edit_settings,
+                   await get_member_perms(db, pid, user.id)):
             raise _forbidden()
         body = await _secret_body(request)
         try:
@@ -94,8 +94,8 @@ def register_env_routes(app):
     async def delete_env(pid: uuid.UUID, key: str,
                          db: DbSession, user: CurrentUser):
         project = await _project_or_404(db, pid)
-        if not can(user.role, user.is_active, Action.edit_content,
-                   await get_project_role(db, pid, user.id)):
+        if not can(user.global_perms, user.is_active, Atom.project_edit_settings,
+                   await get_member_perms(db, pid, user.id)):
             raise _forbidden()
         try:
             await delete_env_key(db, project, key, actor_id=user.id)

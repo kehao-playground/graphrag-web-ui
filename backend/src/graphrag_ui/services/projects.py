@@ -7,12 +7,14 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from graphrag_ui.adapters.models import Project, ProjectMember, User
+from graphrag_ui.adapters.models import Project, ProjectMember, Role, User
 from graphrag_ui.adapters.workspace import WorkspaceInitError, WorkspaceInitializer
 from graphrag_ui.config import get_settings
-from graphrag_ui.domain.permissions import Action, can
+from graphrag_ui.domain.permissions import Atom, can
+from graphrag_ui.domain.role_catalog import ROLE_ID_OWNER
 from graphrag_ui.domain.workspaces import workspace_path
 from graphrag_ui.services.audit import audit
+from graphrag_ui.services.roles import RoleNotFound, RoleScopeMismatchError
 
 
 def _slugify(name: str) -> str:
@@ -39,10 +41,11 @@ def ws_path(project_id: uuid.UUID) -> Path:
     return path
 
 
-async def create_project(session: AsyncSession, name: str, description: str | None,
-                         input_file_type: str, creator: User,
+async def create_project(session: AsyncSession, name: str,
+                         description: str | None, input_file_type: str,
+                         creator: User, creator_perms: frozenset[str],
                          initializer: WorkspaceInitializer) -> Project:
-    if not can(creator.role, creator.is_active, Action.create_project):
+    if not can(creator_perms, creator.is_active, Atom.projects_create):
         raise PermissionError("forbidden")
     project = Project(
         name=name,
@@ -53,7 +56,8 @@ async def create_project(session: AsyncSession, name: str, description: str | No
     )
     session.add(project)
     await session.flush()  # obtain project.id; commit only after init succeeds
-    session.add(ProjectMember(project_id=project.id, user_id=creator.id, role="owner"))
+    session.add(ProjectMember(project_id=project.id, user_id=creator.id,
+                              role_id=ROLE_ID_OWNER))
     await audit(session, creator.id, "project.created", "project", str(project.id),
                 payload={"name": name, "slug": project.slug,
                          "input_file_type": input_file_type})
@@ -66,18 +70,44 @@ async def create_project(session: AsyncSession, name: str, description: str | No
     return project
 
 
-async def get_project_role(session: AsyncSession, project_id: uuid.UUID,
-                           user_id: uuid.UUID) -> str | None:
-    return (await session.execute(
-        select(ProjectMember.role).where(
-            ProjectMember.project_id == project_id,
-            ProjectMember.user_id == user_id))).scalar_one_or_none()
+async def get_member_perms(session: AsyncSession, project_id: uuid.UUID,
+                           user_id: uuid.UUID) -> frozenset[str] | None:
+    """Member-role atoms for one project; None = not a member (an empty
+    frozenset is a member whose role grants nothing). Replaces
+    get_project_role (spec §6.1)."""
+    row = (await session.execute(
+        select(Role.permissions)
+        .join(ProjectMember, ProjectMember.role_id == Role.id)
+        .where(ProjectMember.project_id == project_id,
+               ProjectMember.user_id == user_id))).first()
+    if row is None:
+        return None
+    return frozenset(row[0] or ())
 
 
-async def list_projects(session: AsyncSession, user: User) -> list[Project]:
+async def member_perms_for_projects(
+        session: AsyncSession, user_id: uuid.UUID,
+        project_ids: list[uuid.UUID]) -> dict[uuid.UUID, frozenset[str]]:
+    """One query for the whole project list (spec §7): {project: atoms}."""
+    if not project_ids:
+        return {}
+    rows = (await session.execute(
+        select(ProjectMember.project_id, Role.permissions)
+        .join(Role, Role.id == ProjectMember.role_id)
+        .where(ProjectMember.user_id == user_id,
+               ProjectMember.project_id.in_(project_ids)))).all()
+    out: dict[uuid.UUID, set[str]] = {}
+    for pid, perms in rows:
+        out.setdefault(pid, set()).update(perms or [])
+    return {pid: frozenset(v) for pid, v in out.items()}
+
+
+async def list_projects(session: AsyncSession, user: User,
+                        global_perms: frozenset[str]) -> list[Project]:
     stmt = select(Project).order_by(Project.created_at, Project.id)
-    if user.role != "admin":  # admin sees all; regular users see only their memberships
-        stmt = stmt.join(ProjectMember).where(ProjectMember.user_id == user.id)
+    if Atom.projects_view_any not in global_perms:
+        stmt = stmt.join(ProjectMember).where(
+            ProjectMember.user_id == user.id)
     return list((await session.execute(stmt)).scalars().all())
 
 
@@ -117,20 +147,35 @@ class MemberOwnerProtectedError(ValueError):
     historical contract of these services."""
 
 
-async def set_member(session: AsyncSession, project: Project, user_id: uuid.UUID,
-                     role: str, actor_id: uuid.UUID | None) -> ProjectMember:
-    if user_id == project.owner_id and role != "owner":
-        raise MemberOwnerProtectedError("cannot demote or remove the project owner")
-    member = await session.get(ProjectMember, {"project_id": project.id, "user_id": user_id})
+async def set_member(session: AsyncSession, project: Project,
+                     user_id: uuid.UUID, role_id: uuid.UUID,
+                     actor_id: uuid.UUID | None) -> ProjectMember:
+    if user_id == project.owner_id:
+        raise MemberOwnerProtectedError(
+            "cannot change or remove the project owner")
+    if role_id == ROLE_ID_OWNER:
+        raise MemberOwnerProtectedError(
+            "the owner role is fixed to the creator (single-owner policy)")
+    role = await session.get(Role, role_id)
+    if role is None:
+        raise RoleNotFound(str(role_id))
+    if role.scope != "project":
+        raise RoleScopeMismatchError(
+            f"role {role.name!r} is not project-scoped")
+    payload = {"user_id": str(user_id), "role_id": str(role_id),
+               "role_name": role.name}
+    member = await session.get(
+        ProjectMember, {"project_id": project.id, "user_id": user_id})
     if member is None:
-        member = ProjectMember(project_id=project.id, user_id=user_id, role=role)
+        member = ProjectMember(project_id=project.id, user_id=user_id,
+                               role_id=role_id)
         session.add(member)
-        await audit(session, actor_id, "member.added", "project", str(project.id),
-                    payload={"user_id": str(user_id), "role": role})
-    elif member.role != role:
-        member.role = role
-        await audit(session, actor_id, "member.role_changed", "project", str(project.id),
-                    payload={"user_id": str(user_id), "role": role})
+        await audit(session, actor_id, "member.added", "project",
+                    str(project.id), payload=payload)
+    elif member.role_id != role_id:
+        member.role_id = role_id
+        await audit(session, actor_id, "member.role_changed", "project",
+                    str(project.id), payload=payload)
     else:
         return member  # same role = no change; no audit
     await session.commit()

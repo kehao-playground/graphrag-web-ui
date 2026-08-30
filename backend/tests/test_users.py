@@ -1,3 +1,9 @@
+from graphrag_ui.domain.role_catalog import (
+    ROLE_ID_OPS,
+    ROLE_ID_USER_ADMIN,
+)
+from graphrag_ui.services.roles import LastUserManagerError
+
 ADMIN_PW = "admin-new-pass-1"
 
 
@@ -16,8 +22,10 @@ async def _admin_token(client):
 async def test_admin_crud_and_audit(client, db_session):
     hdr = await _admin_token(client)
     r = await client.post("/api/admin/users", headers=hdr, json={
-        "email": "u1@test.local", "display_name": "User One", "password": "pass-12345"})
+        "email": "u1@test.local", "display_name": "User One",
+        "password": "pass-12345", "roles": [str(ROLE_ID_OPS)]})
     assert r.status_code == 201
+    assert [ro["name"] for ro in r.json()["roles"]] == ["ops"]
     uid = r.json()["id"]
     r2 = await client.patch(f"/api/admin/users/{uid}", headers=hdr,
                             json={"display_name": "User 1b"})
@@ -105,25 +113,46 @@ async def test_open_user_list_accessible_to_non_admin(client):
 
 
 async def test_cannot_deactivate_last_active_admin(client):
-    """Second admin exists but is inactive → deactivating the original must 400."""
+    """The last active users:manage holder is protected. While the bootstrap
+    admin is the sole manager, any roles/is_active PATCH on that row 400s
+    (the self-change guard — the acting manager always counts as another
+    holder, so LastUserManagerError is unreachable via the API and is pinned
+    at service level in the unit tests below). With a second manager
+    granted, that manager may both strip and deactivate the bootstrap."""
     hdr = await _admin_token(client)
-    r = await client.post("/api/admin/users", headers=hdr, json={
-        "email": "adm2@test.local", "display_name": "Admin Two", "password": "pass-12345"})
-    uid2 = r.json()["id"]
-    # second admin via PATCH, then deactivated — original is the only active admin left
-    await client.patch(f"/api/admin/users/{uid2}", headers=hdr, json={"role": "admin"})
-    await client.patch(f"/api/admin/users/{uid2}", headers=hdr, json={"is_active": False})
     users = (await client.get("/api/admin/users", headers=hdr)).json()
-    original = next(u for u in users if u["email"] == "admin@test.local")
-    r2 = await client.patch(f"/api/admin/users/{original['id']}", headers=hdr,
+    uid = next(u["id"] for u in users if u["email"] == "admin@test.local")
+    r1 = await client.patch(f"/api/admin/users/{uid}", headers=hdr,
                             json={"is_active": False})
+    assert r1.status_code == 400
+    assert r1.json()["code"] == "user_self_change_forbidden"
+    r2 = await client.patch(f"/api/admin/users/{uid}", headers=hdr,
+                            json={"roles": []})
     assert r2.status_code == 400
-    # the 400 here is raised by the self-modification guard; the dedicated
-    # last-active-admin branch is unreachable via PATCH (acting admin always counts)
-    # system must not be locked out: the original admin stays active
+    assert r2.json()["code"] == "user_self_change_forbidden"
+    # system must not be locked out: the bootstrap admin stays active
     users_after = (await client.get("/api/admin/users", headers=hdr)).json()
-    original_after = next(u for u in users_after if u["email"] == "admin@test.local")
-    assert original_after["is_active"] is True
+    assert next(u for u in users_after
+                if u["email"] == "admin@test.local")["is_active"] is True
+
+    # grant a second manager; adm2 can now strip AND deactivate the bootstrap
+    r = await client.post("/api/admin/users", headers=hdr, json={
+        "email": "adm2@test.local", "display_name": "Admin Two",
+        "password": "pass-12345",
+        "roles": [str(ROLE_ID_USER_ADMIN), str(ROLE_ID_OPS)]})
+    assert r.status_code == 201
+    first_login = await client.post("/api/auth/login", json={
+        "email": "adm2@test.local", "password": "pass-12345"})
+    tok = {"Authorization": f"Bearer {first_login.json()['access_token']}"}
+    await client.post("/api/auth/change-password", headers=tok, json={
+        "current_password": "pass-12345", "new_password": "adm2-pass-6789"})
+    login = await client.post("/api/auth/login", json={
+        "email": "adm2@test.local", "password": "adm2-pass-6789"})
+    adm2 = {"Authorization": f"Bearer {login.json()['access_token']}"}
+    assert (await client.patch(f"/api/admin/users/{uid}", headers=adm2,
+                               json={"is_active": False})).status_code == 200
+    assert (await client.patch(f"/api/admin/users/{uid}", headers=adm2,
+                               json={"roles": []})).status_code == 200
 
 
 
@@ -140,39 +169,47 @@ async def test_get_user_unknown_id_raises_user_not_found(db_session):
 
 
 async def test_patch_user_guarded_rejects_self_role_change(db_session):
-    """Direct service: admin targeting self with role/is_active → SelfRoleChangeError."""
+    """Direct service: users:manage holder targeting self with
+    roles/is_active → SelfRoleChangeError."""
     import pytest
 
     from graphrag_ui.services.users import SelfRoleChangeError, create_user, patch_user_guarded
 
     admin = await create_user(db_session, "self@test.local", "Self",
-                              "pass-12345", actor_id=None)
+                              "pass-12345", role_ids=None, actor_id=None)
     with pytest.raises(SelfRoleChangeError):
-        await patch_user_guarded(db_session, admin, admin.id,
-                                 display_name=None, role="user", is_active=None)
+        await patch_user_guarded(db_session, admin, frozenset(), admin.id,
+                                 display_name=None, role_ids=[], is_active=None)
 
 
-async def test_patch_user_guarded_rejects_last_active_admin_demotion(db_session):
-    """Direct service: demoting the only active admin → LastActiveAdminError.
+async def test_patch_user_guarded_rejects_last_manager_loss(db_session):
+    """Direct service: stripping or deactivating the only active
+    users:manage holder → LastUserManagerError (shared class, spec §6.2).
 
-    This branch is unreachable via the API (the acting admin always counts as
-    another active admin, and self-changes are rejected first) — pin it here.
+    Unreachable via the API (the acting manager always counts as another
+    holder, and self-changes are rejected first) — pinned here.
     """
     import pytest
 
-    from graphrag_ui.services.users import (
-        LastActiveAdminError,
-        create_user,
-        patch_user_guarded,
-        update_user,
-    )
+    from graphrag_ui.services.users import create_user, patch_user_guarded
 
     actor = await create_user(db_session, "actor@test.local", "Actor",
-                              "pass-12345", actor_id=None)
+                              "pass-12345", role_ids=None, actor_id=None)
     target = await create_user(db_session, "target@test.local", "Target",
-                               "pass-12345", actor_id=None)
-    await update_user(db_session, target, role="admin", actor_id=actor.id)
-    # actor is a plain user → target is the only active admin in the table
-    with pytest.raises(LastActiveAdminError):
-        await patch_user_guarded(db_session, actor, target.id,
-                                 display_name=None, role="user", is_active=None)
+                               "pass-12345",
+                               role_ids=[ROLE_ID_USER_ADMIN], actor_id=None)
+    # actor holds no grants → target is the only active manager; both ways
+    # of losing the atom (strip via roles, deactivate) are guarded
+    with pytest.raises(LastUserManagerError):
+        await patch_user_guarded(db_session, actor, frozenset(), target.id,
+                                 display_name=None, role_ids=[], is_active=None)
+    with pytest.raises(LastUserManagerError):
+        await patch_user_guarded(db_session, actor, frozenset(), target.id,
+                                 display_name=None, role_ids=None, is_active=False)
+    # a second manager existing makes both succeed
+    await create_user(db_session, "second@test.local", "Second",
+                      "pass-12345", role_ids=[ROLE_ID_USER_ADMIN], actor_id=None)
+    stripped = await patch_user_guarded(db_session, actor, frozenset(), target.id,
+                                        display_name=None, role_ids=[],
+                                        is_active=None)
+    assert stripped.is_active is True
