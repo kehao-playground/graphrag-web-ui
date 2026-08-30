@@ -9,6 +9,7 @@ from fastapi.routing import APIRoute, iter_route_contexts
 from graphrag_ui.main import create_app
 
 KNOWN_UNTYPED = {
+    "DELETE /api/admin/roles/{role_id}",
     "DELETE /api/projects/{pid}/env/{key}",
     "DELETE /api/projects/{pid}/files/{filename}",
     "DELETE /api/projects/{project_id}",

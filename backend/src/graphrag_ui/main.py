@@ -19,6 +19,7 @@ from graphrag_ui.api.health_routes import register_health_routes
 from graphrag_ui.api.jobs_routes import register_jobs_routes
 from graphrag_ui.api.projects_routes import register_projects_routes
 from graphrag_ui.api.query_routes import register_query_routes
+from graphrag_ui.api.roles_routes import register_roles_routes
 from graphrag_ui.api.settings_routes import register_settings_routes
 from graphrag_ui.api.users_routes import register_users_routes
 from graphrag_ui.config import get_settings
@@ -114,6 +115,7 @@ def create_app() -> FastAPI:
     register_health_routes(app)
     register_auth_routes(app)
     register_users_routes(app)
+    register_roles_routes(app)
     register_projects_routes(app)
     register_files_routes(app)
     register_env_routes(app)

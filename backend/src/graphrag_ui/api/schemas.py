@@ -19,6 +19,27 @@ class ChangePasswordIn(BaseModel):
     new_password: str = Field(min_length=8)
 
 
+class RoleOut(BaseModel):
+    """One role catalog entry; user_count/member_count are populated only
+    by GET /api/admin/roles (spec §7)."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    scope: str
+    name: str
+    description: str
+    permissions: list[str]
+    is_system: bool
+    user_count: int | None = None
+    member_count: int | None = None
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def _uuid_to_str(cls, v: object) -> object:
+        # pydantic 2 does not implicitly coerce UUID to str; Role.id is a UUID
+        return str(v) if isinstance(v, UUID) else v
+
+
 class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
