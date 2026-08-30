@@ -223,7 +223,11 @@ are `ON CONFLICT DO NOTHING`; backfills are no-ops).
 
 **Downgrade** is lossy and says so rather than guessing. It re-adds
 `users.role` and `project_members.role`, maps holders of `user_admin`
-**or** `ops` back to `'admin'` and everyone else to `'user'`, maps the
+**or** `ops` back to `'admin'` and everyone else to `'user'` —
+upgrade-on-downgrade by design: the two-value column cannot express
+half-admins, and erring toward `'admin'` is what keeps a rollback from
+locking out user management (an `ops`-only holder temporarily gains
+`users:manage`; accepted on a rollback-only path) — maps the
 four built-in project roles back to their strings, and floors **custom**
 project roles at `'viewer'` — never silently upgrading a member's power
 on the way down. Custom roles themselves vanish with the tables; the
@@ -370,9 +374,11 @@ to carry `role`.
   `role_permissions_invalid`. `user_last_admin_protected` is removed
   (superseded). `require_atom` **keeps the existing `admin_only` code**
   on the `/api/admin/*` routers, and project-atom failures keep
-  `forbidden`: both are already in the i18n error catalog and pinned by
-  `tests/test_error_codes.py`, so only the `admin_only` message strings
-  are reworded away from "admin" toward "requires user management".
+  `forbidden`: both already live in the i18n error catalog and renaming
+  buys nothing (nothing in the suite pins either code), so only the
+  `admin_only` message strings are reworded away from "admin" toward
+  "requires user management". The new codes above join the route→code
+  assertions in `tests/test_error_codes.py`.
 
 ## 8. Frontend
 
