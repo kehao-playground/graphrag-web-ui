@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -20,6 +20,34 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Role(Base):
+    """A named set of permission atoms (spec §4). Built-ins are seeded by
+    fixed id and are immutable (is_system); custom roles are admin-created."""
+    __tablename__ = "roles"
+    __table_args__ = (UniqueConstraint("scope", "name", name="uq_roles_scope_name"),)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True,
+                                          default=uuid.uuid4)
+    scope: Mapped[str] = mapped_column(String(10))  # global|project
+    name: Mapped[str] = mapped_column(String(50))
+    description: Mapped[str] = mapped_column(String(200), default="")
+    permissions: Mapped[list[str]] = mapped_column(ARRAY(Text()), default=list)
+    is_system: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),
+                                                 server_default=func.now())
+
+
+class UserRole(Base):
+    """Global role grant. Scope (global) is enforced in the service layer —
+    a CHECK cannot span tables without triggers, which we do not add."""
+    __tablename__ = "user_roles"
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True)
+    role_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("roles.id", ondelete="RESTRICT"),
+        primary_key=True)
 
 
 class RefreshToken(Base):
@@ -63,6 +91,11 @@ class ProjectMember(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
     role: Mapped[str] = mapped_column(String(20))  # owner|editor|viewer
+    # Nullable until the R2 cutover backfills stragglers; nothing reads it
+    # before Task 4 (plan note). Legacy `role` above stays authoritative.
+    role_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("roles.id", ondelete="RESTRICT"),
+        nullable=True)
 
 
 class SettingsVersion(Base):

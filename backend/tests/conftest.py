@@ -14,6 +14,14 @@ from graphrag_ui.adapters.db import make_engine, make_session_factory, reset_eng
 from graphrag_ui.adapters.models import Base
 from graphrag_ui.api import auth_routes
 from graphrag_ui.config import get_settings
+from graphrag_ui.domain.role_catalog import (
+    ROLE_ID_EDITOR,
+    ROLE_ID_MAINTAINER,
+    ROLE_ID_OPS,
+    ROLE_ID_OWNER,
+    ROLE_ID_USER_ADMIN,
+    ROLE_ID_VIEWER,
+)
 from graphrag_ui.main import create_app
 
 # pydantic EmailStr's email-validator rejects .local as a special-use
@@ -42,6 +50,33 @@ def migrated_db(db_url):
     return db_url
 
 
+# The built-in role rows must survive every clean_db truncate (the R1 seed
+# runs once per session; tasks 2+ read the catalog in every fixture). Same
+# descriptions as the R1 migration — keep the two in sync.
+_BUILTIN_ROLES_SQL = text(f"""
+    INSERT INTO roles (id, scope, name, description, permissions,
+                       is_system, created_at) VALUES
+      ('{ROLE_ID_USER_ADMIN}', 'global', 'user_admin',
+       'Manage users and roles', ARRAY['users:manage'], true, now()),
+      ('{ROLE_ID_OPS}', 'global', 'ops', 'Operate every project',
+       ARRAY['projects:view_any', 'projects:act_any'], true, now()),
+      ('{ROLE_ID_VIEWER}', 'project', 'viewer', 'Read-only access',
+       ARRAY['project:view'], true, now()),
+      ('{ROLE_ID_MAINTAINER}', 'project', 'maintainer',
+       'Curate documents and run indexing',
+       ARRAY['project:view', 'project:edit_content', 'project:run_jobs'],
+       true, now()),
+      ('{ROLE_ID_EDITOR}', 'project', 'editor',
+       'Maintainer plus settings and API keys',
+       ARRAY['project:view', 'project:edit_content', 'project:run_jobs',
+             'project:edit_settings'], true, now()),
+      ('{ROLE_ID_OWNER}', 'project', 'owner', 'Full control of the project',
+       ARRAY['project:view', 'project:edit_content', 'project:run_jobs',
+             'project:edit_settings', 'project:manage'], true, now())
+    ON CONFLICT (id) DO NOTHING
+""")
+
+
 @pytest.fixture
 async def clean_db(migrated_db):
     """Truncate all tables before every test.
@@ -55,6 +90,7 @@ async def clean_db(migrated_db):
     names = ", ".join(t.name for t in Base.metadata.sorted_tables)
     async with engine.begin() as conn:
         await conn.execute(text(f"TRUNCATE {names} RESTART IDENTITY CASCADE"))
+        await conn.execute(_BUILTIN_ROLES_SQL)
     await engine.dispose()
     yield
 
