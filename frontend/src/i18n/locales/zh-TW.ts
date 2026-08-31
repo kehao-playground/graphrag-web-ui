@@ -194,9 +194,29 @@ export default {
     loadRolesFailed: "載入角色失敗（{{status}}）",
     rolesPlaceholder: "選擇角色",
   },
+  adminRoles: {
+    title: "角色管理", create: "新增角色", edit: "編輯", scope: "範圍",
+    scopeGlobal: "全域（使用者）", scopeProject: "專案（成員）",
+    permissions: "權限", system: "類型", builtin: "內建",
+    usage: "使用者 / 成員", loadFailed: "載入角色失敗（{{status}}）",
+    saveFailed: "儲存角色失敗", deleteFailed: "刪除角色失敗",
+    nameRequired: "請輸入名稱",
+    deleteConfirm: "刪除角色 {{name}}？",
+    manageWarning: "project:manage 會讓持有此角色的成員可以改名、刪除專案與管理成員。",
+  },
+  // Permission atom labels (spec §7 catalog): shown in the roles table and
+  // the scope-aware checkbox editor — labels only, never a gate.
+  perms: {
+    users_manage: "管理使用者", projects_view_any: "檢視所有專案",
+    projects_act_any: "操作所有專案", projects_create: "建立專案",
+    project_view: "檢視專案", project_edit_content: "編輯文件",
+    project_run_jobs: "執行索引", project_edit_settings: "編輯設定與金鑰",
+    project_manage: "管理專案",
+  },
   layout: {
     projects: "專案",
     adminUsers: "管理者 — 使用者",
+    adminRoles: "管理者 — 角色",
     language: "語言",
     logout: "登出",
     title: "GraphRAG Web UI",

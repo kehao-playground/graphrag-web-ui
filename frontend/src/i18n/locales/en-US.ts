@@ -189,9 +189,29 @@ const enUS = {
     loadRolesFailed: "Failed to load roles ({{status}})",
     rolesPlaceholder: "Select roles",
   },
+  adminRoles: {
+    title: "Roles", create: "Create Role", edit: "Edit", scope: "Scope",
+    scopeGlobal: "Global (users)", scopeProject: "Project (members)",
+    permissions: "Permissions", system: "Type", builtin: "built-in",
+    usage: "Users / Members", loadFailed: "Failed to load roles ({{status}})",
+    saveFailed: "Failed to save role", deleteFailed: "Failed to delete role",
+    nameRequired: "Please enter a name",
+    deleteConfirm: "Delete role {{name}}?",
+    manageWarning: "project:manage grants rename, deletion and member management to any member holding this role.",
+  },
+  // Permission atom labels (spec §7 catalog): shown in the roles table and
+  // the scope-aware checkbox editor — labels only, never a gate.
+  perms: {
+    users_manage: "Manage users", projects_view_any: "See all projects",
+    projects_act_any: "Act in all projects", projects_create: "Create projects",
+    project_view: "View project", project_edit_content: "Edit documents",
+    project_run_jobs: "Run indexing", project_edit_settings: "Edit settings & keys",
+    project_manage: "Manage project",
+  },
   layout: {
     projects: "Projects",
     adminUsers: "Admin — Users",
+    adminRoles: "Admin — Roles",
     language: "Language",
     logout: "Log out",
     title: "GraphRAG Web UI",
