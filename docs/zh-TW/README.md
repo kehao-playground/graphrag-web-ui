@@ -129,6 +129,7 @@ flowchart LR
 密碼重設與停用);AdminRoles 頁面管理角色目錄:
 
 ![管理者使用者](../../assets/screenshots/zh/admin-users.png)
+![角色管理](../../assets/screenshots/zh/admin-roles.png)
 
 ## 已知注意事項
 

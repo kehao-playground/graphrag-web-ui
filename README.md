@@ -131,6 +131,7 @@ tags (plus password resets and deactivation); the AdminRoles page manages
 the catalog:
 
 ![Admin users](docs/assets/screenshots/en/admin-users.png)
+![Admin roles](docs/assets/screenshots/en/admin-roles.png)
 
 ## Known caveats
 
