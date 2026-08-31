@@ -122,8 +122,13 @@ flowchart LR
 10. **Explore** — artifact tables (entities / relationships / communities / documents /
     community_reports / text_units) and the WebGL Graph view.
 
-Admins additionally get the user-management page (roles, password resets,
-deactivation):
+Accounts hold a set of roles rather than a single admin flag: the seeded
+`user_admin` manages users and the role catalog, the seeded `ops` sees and
+operates every project, and project members hold `viewer`/`maintainer`/
+`editor` (owner is fixed to the creator); custom roles compose permission
+atoms in both scopes. AdminUsers shows each account's roles as multi-select
+tags (plus password resets and deactivation); the AdminRoles page manages
+the catalog:
 
 ![Admin users](docs/assets/screenshots/en/admin-users.png)
 
@@ -222,7 +227,8 @@ deployments keep today's behavior byte-for-byte (design:
 - **Users are provisioned just-in-time** — a first-seen email becomes a
   `user` row with an unusable password hash (local login stays
   impossible for it). Emails listed in `PROXY_ADMIN_EMAILS`
-  (comma-separated) are held at `role=admin` on every request.
+  (comma-separated) are granted the `user_admin` + `ops` role pair on
+  every request.
 
 ```mermaid
 sequenceDiagram
@@ -240,7 +246,7 @@ sequenceDiagram
     B->>O: GET / (cookie)
     O->>N: + X-Forwarded-Email / X-Forwarded-Preferred-Username / X-Proxy-Secret
     N->>A: headers proxied
-    A->>A: constant-time secret check, JIT-provision user<br/>(admin when listed in PROXY_ADMIN_EMAILS)
+    A->>A: constant-time secret check, JIT-provision user<br/>(user_admin + ops when listed in PROXY_ADMIN_EMAILS)
     A-->>B: 200
     note over O: /api/* without a cookie → 401 JSON<br/>(the SPA's fetch layer reacts)
     note over A: forged X-Forwarded-* without X-Proxy-Secret → 401

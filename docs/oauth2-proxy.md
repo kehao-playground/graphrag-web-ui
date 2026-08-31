@@ -92,9 +92,9 @@ proxyAuth:
   their passwords (AdminUsers).
 - **Switching local → proxy**: users stuck at `must_change_password` are
   not locked out — the password-change gate is skipped in proxy mode.
-- **`PROXY_ADMIN_EMAILS` only promotes, never demotes.** A listed email
-  is re-promoted to admin on every request; remove it from the variable
-  first, then demote in AdminUsers.
+- **`PROXY_ADMIN_EMAILS` only grants, never revokes.** A listed email
+  is re-granted the `user_admin` + `ops` pair on every request; remove it
+  from the variable first, then change the roles in AdminUsers.
 - **An email change at the IdP is a new identity** — the new address is
   provisioned as a fresh row; the old row keeps its project memberships.
   An admin re-adds the new account to its projects and deactivates the

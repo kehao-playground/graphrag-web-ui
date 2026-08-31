@@ -43,7 +43,7 @@ GraphRAG Web UI 已部署為 release "{{ .Release.Name }}"。
 ℹ proxyAuth enabled — access is gated by oauth2-proxy external auth
   ({{ if .Values.proxyAuth.external.url }}external instance {{ .Values.proxyAuth.external.url }}{{ else }}chart-managed Deployment {{ include "graphrag-ui.fullname" . }}-oauth2-proxy{{ end }}).
   proxyAuth.emailDomains is the REQUIRED login allowlist (["*"] = open registration);
-  PROXY_ADMIN_EMAILS (proxyAuth.adminEmails) is the break-glass admin grant.
+  PROXY_ADMIN_EMAILS (proxyAuth.adminEmails) is the break-glass grant of the `user_admin` + `ops` roles.
 {{- if .Values.proxyAuth.external.url }}
   The external instance owns its login allowlist — enforce an email-domain
   restriction there (the chart's proxyAuth.emailDomains does not apply to it).

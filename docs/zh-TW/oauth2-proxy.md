@@ -89,8 +89,9 @@ JIT 建立會把「IdP 通過了這個人」直接變成「一列 `User` 資料�
   (AdminUsers)重設密碼之前,它們無法使用本機登入。
 - **local → proxy 切換**:卡在 `must_change_password` 的使用者不會被
   鎖在外面 —— proxy 模式會略過密碼變更閘門。
-- **`PROXY_ADMIN_EMAILS` 只升級、永不降級。** 列於其中的 email 在每個
-  請求都會重新升為 admin;要先從變數中移除,才能在 AdminUsers 降級。
+- **`PROXY_ADMIN_EMAILS` 只授予、永不撤銷。** 列於其中的 email 每次請求
+  都會重新授予 `user_admin` + `ops` 組合;要先從變數中移除,才能在
+  AdminUsers 變更角色。
 - **IdP 上的 email 變更即是新身分** —— 新地址會建立全新的資料列;舊資料
   列保有原本的專案成員資格。管理員需將新帳號重新加入專案,並停用舊資料列。
 - **IdP 發出的特殊用途網域(`.local`、`.internal`)會被拒絕** ——

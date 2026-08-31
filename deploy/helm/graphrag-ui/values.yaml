@@ -83,7 +83,7 @@ proxyAuth:
   cookieSecret: ""      # all three feed the chart's proxy-auth Secret keys
   authSecret: ""        # PROXY_AUTH_SECRET — >= 32 chars, validated by the api at startup
   existingSecret: ""    # when set, must contain: client-secret, cookie-secret, proxy-auth-secret
-  adminEmails: []       # PROXY_ADMIN_EMAILS — held at role=admin (spec §5.2)
+  adminEmails: []       # PROXY_ADMIN_EMAILS — granted user_admin+ops roles (spec §5.2)
   emailDomains: []      # REQUIRED when enabled without external.url — render-time
                         # enforced (spec §7.1); ["*"] = open registration
   image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.4

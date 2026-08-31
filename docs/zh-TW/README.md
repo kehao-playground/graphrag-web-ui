@@ -122,7 +122,11 @@ flowchart LR
 10. **探索** — 產物資料表(entities / relationships / communities / documents /
     community_reports / text_units)與圖譜 WebGL 圖形檢視。
 
-管理者另可使用使用者管理頁面(角色、密碼重設、停用):
+帳號持有一組角色,而非單一 admin 旗標:內建 `user_admin` 管理使用者與
+角色目錄,內建 `ops` 可檢視並操作所有專案,而專案成員持有
+`viewer`/`maintainer`/`editor`(owner 固定為建立者);自訂角色則在兩種
+範圍內組合權限原子。AdminUsers 以可多選的標籤呈現各帳號的角色(並提供
+密碼重設與停用);AdminRoles 頁面管理角色目錄:
 
 ![管理者使用者](../../assets/screenshots/zh/admin-users.png)
 
@@ -211,8 +215,8 @@ npm run screenshots   # 寫入 docs/assets/screenshots/{en,zh}/
   `X-Forwarded-*` 標頭毫無用處。
 - **使用者即時(JIT)建立** —— 首次出現的 email 會成為一列 `user`
   資料列,密碼雜湊不可用(本機登入對它永遠失效)。列在
-  `PROXY_ADMIN_EMAILS`(逗號分隔)中的 email 在每個請求都維持
-  `role=admin`。
+  `PROXY_ADMIN_EMAILS`(逗號分隔)中的 email 在每個請求都會被授予
+  `user_admin` + `ops` 角色組合。
 
 ```mermaid
 sequenceDiagram
@@ -230,7 +234,7 @@ sequenceDiagram
     B->>O: GET /(附 cookie)
     O->>N: 注入 X-Forwarded-Email / X-Forwarded-Preferred-Username / X-Proxy-Secret
     N->>A: 標頭透傳
-    A->>A: 常數時間密鑰檢查、JIT 建立使用者<br/>(列於 PROXY_ADMIN_EMAILS 即為 admin)
+    A->>A: 常數時間密鑰檢查、JIT 建立使用者<br/>(列於 PROXY_ADMIN_EMAILS 即授予 user_admin + ops)
     A-->>B: 200
     note over O: /api/* 無 cookie → 401 JSON<br/>(SPA 的 fetch 層據此反應)
     note over A: 無 X-Proxy-Secret 的偽造 X-Forwarded-* → 401
