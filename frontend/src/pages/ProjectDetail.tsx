@@ -7,28 +7,26 @@ import {
 } from "antd";
 import type { TableProps } from "antd";
 import { api, detailOf } from "../api/client";
-import type { Member, Project, UserBrief } from "../api/types";
-import { useAuth } from "../stores/auth";
+import type { Member, Project, Role, UserBrief } from "../api/types";
 import FilesPanel from "../components/FilesPanel";
 import SettingsPanel from "../components/SettingsPanel";
 import JobsPanel from "../components/JobsPanel";
 import QueryPanel from "../components/QueryPanel";
 import ExplorePanel from "../components/ExplorePanel";
 
-// Grantable roles only: owner is fixed to the creator (single-owner policy) and
-// cannot be assigned when adding members; owner rows in the table still render it.
-const ROLES = ["editor", "viewer"] as const;
-type Role = (typeof ROLES)[number];
-const ROLE_OPTIONS = ROLES.map((r) => ({ label: r, value: r }));
+// Built-in role names are the backend seed's closed set, so the template
+// key stays inside typed-t's key union; custom roles render their raw name.
+type BuiltinRoleName =
+  "user_admin" | "ops" | "viewer" | "maintainer" | "editor" | "owner";
 
 
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
   const { t, i18n } = useTranslation();
-  const { user } = useAuth();
   const [addUserId, setAddUserId] = useState<string>();
-  const [addRole, setAddRole] = useState<Role>("viewer");
+  const [addRole, setAddRole] = useState<string>();
+
 
   const project = useQuery({
     queryKey: ["projects", id],
@@ -59,15 +57,47 @@ export default function ProjectDetail() {
     if (members.error) message.error(members.error.message);
   }, [members.error]);
 
-  // Member management: system admin or project owner (the backend still
-  // enforces; this only gates the UI)
-  const myRole = members.data?.find((m) => m.user_id === user?.id)?.role;
-  const canManage = !!user && (user.role === "admin" || myRole === "owner");
+  // Backend-computed permission atoms (spec §8): my_permissions already
+  // folds in owner, ops act_any and custom project:manage roles, so the UI
+  // never rebuilds a role→permission table. Pending query → empty set.
+  // Computed BEFORE the users query: its `enabled` reads canManage, and
+  // every hook must stay above the early returns further down.
+  const myPerms = new Set(project.data?.my_permissions ?? []);
+  const canManage = myPerms.has("project:manage");
+  const canEditFiles = myPerms.has("project:edit_content");
+  const canRunJobs = myPerms.has("project:run_jobs");
+  const canEditSettings = myPerms.has("project:edit_settings");
 
-  // Content editing (upload/delete files): admin or owner/editor (Task 2 permissions)
-  const canEditContent = !!user && (user.role === "admin" || myRole === "owner" || myRole === "editor");
+  // Member role catalog (GET /api/roles?scope=project) — a hook like the
+  // queries above, so it too lives above the early returns.
+  const rolesQ = useQuery({
+    queryKey: ["roles", "project"],
+    queryFn: async () => {
+      const r = await api("/api/roles?scope=project");
+      if (!r.ok) throw new Error(await detailOf(r, "projectDetail.loadRolesFailed"));
+      return (await r.json()) as Role[];
+    },
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (rolesQ.error) message.error(rolesQ.error.message);
+  }, [rolesQ.error]);
+
+  const roleLabel = (r: Role) => (r.is_system ? t(`roles.${r.name as BuiltinRoleName}`) : r.name);
+  // owner is not grantable (single-owner policy; the owner row renders locked)
+  const MEMBER_ROLE_OPTIONS = (rolesQ.data ?? [])
+    .filter((r) => r.name !== "owner")
+    .map((r) => ({ label: roleLabel(r), value: r.id }));
+
+  // Default the add-member role to the catalog's first grantable option
+  // once it loads; later catalog refreshes keep the current choice.
+  useEffect(() => {
+    setAddRole((cur) => cur ?? MEMBER_ROLE_OPTIONS[0]?.value);
+  }, [MEMBER_ROLE_OPTIONS[0]?.value]);
+
   // Adding a member needs user_id; GET /api/users is the narrow list every
-  // logged-in user can call, so a non-admin owner can pick users too
+  // logged-in user can call, so any project:manage holder can pick users
   // (the frontend filters out disabled ones)
   const users = useQuery({
     queryKey: ["users"],
@@ -85,10 +115,10 @@ export default function ProjectDetail() {
   }, [users.error]);
 
   const putMember = useMutation({
-    mutationFn: async ({ userId, role }: { userId: string; role: Role }) => {
+    mutationFn: async ({ userId, roleId }: { userId: string; roleId: string }) => {
       const r = await api(`/api/projects/${id}/members/${userId}`, {
         method: "PUT",
-        body: JSON.stringify({ role }),
+        body: JSON.stringify({ role_id: roleId }),
       });
       if (!r.ok) throw new Error(await detailOf(r, "projectDetail.updateMemberFailed"));
     },
@@ -126,7 +156,7 @@ export default function ProjectDetail() {
   }
 
   const p = project.data;
-  const owner = members.data?.find((m) => m.role === "owner");
+  const owner = members.data?.find((m) => m.role_name === "owner");
   const memberIds = new Set(members.data?.map((m) => m.user_id));
 
   const memberColumns: TableProps<Member>["columns"] = [
@@ -134,17 +164,22 @@ export default function ProjectDetail() {
     { title: t("common.displayName"), dataIndex: "display_name" },
     {
       title: t("common.role"),
-      dataIndex: "role",
-      width: 130,
+      dataIndex: "role_id",
+      width: 140,
       render: (_, m) => (
         <Select
           size="small"
-          style={{ width: 110 }}
-          value={m.role as Role}
-          options={ROLE_OPTIONS}
+          style={{ width: 140 }}
+          value={m.role_id}
+          // owner is filtered out of the grantable catalog, but its locked
+          // row still needs an option — otherwise the Select would render
+          // the raw role uuid instead of a label
+          options={m.role_name === "owner"
+            ? [{ label: t("roles.owner"), value: m.role_id }]
+            : MEMBER_ROLE_OPTIONS}
           // The owner row is 400-protected on the backend; the UI locks it rather than offer a guaranteed failure
-          disabled={!canManage || m.role === "owner"}
-          onChange={(role) => putMember.mutate({ userId: m.user_id, role })}
+          disabled={!canManage || m.role_name === "owner"}
+          onChange={(roleId) => putMember.mutate({ userId: m.user_id, roleId })}
         />
       ),
     },
@@ -152,7 +187,7 @@ export default function ProjectDetail() {
       title: t("common.actions"),
       width: 90,
       render: (_, m) =>
-        canManage && m.role !== "owner" ? (
+        canManage && m.role_name !== "owner" ? (
           <Popconfirm
             title={t("projectDetail.removeTitle", { email: m.email })}
             okText={t("projectDetail.remove")}
@@ -201,16 +236,16 @@ export default function ProjectDetail() {
                   loading={users.isPending}
                 />
                 <Select
-                  style={{ width: 110 }}
+                  style={{ width: 140 }}
                   value={addRole}
-                  options={ROLE_OPTIONS}
+                  options={MEMBER_ROLE_OPTIONS}
                   onChange={setAddRole}
                 />
                 <Button
                   type="primary"
-                  disabled={!addUserId}
+                  disabled={!addUserId || !addRole}
                   loading={putMember.isPending}
-                  onClick={() => addUserId && putMember.mutate({ userId: addUserId, role: addRole })}
+                  onClick={() => addUserId && addRole && putMember.mutate({ userId: addUserId, roleId: addRole })}
                 >
                   {t("projectDetail.add")}
                 </Button>
@@ -231,17 +266,17 @@ export default function ProjectDetail() {
     {
       key: "settings",
       label: t("projectDetail.settingsTab"),
-      children: <SettingsPanel projectId={id} canEdit={canEditContent} />,
+      children: <SettingsPanel projectId={id} canEdit={canEditSettings} />,
     },
     {
       key: "jobs",
       label: t("projectDetail.jobsTab"),
-      children: <JobsPanel projectId={id} canEdit={canEditContent} />,
+      children: <JobsPanel projectId={id} canEdit={canRunJobs} />,
     },
     {
       key: "files",
       label: t("projectDetail.filesTab"),
-      children: <FilesPanel projectId={id} inputFileType={p.input_file_type} canEdit={canEditContent} />,
+      children: <FilesPanel projectId={id} inputFileType={p.input_file_type} canEdit={canEditFiles} />,
     },
     {
       key: "query",

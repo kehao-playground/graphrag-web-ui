@@ -19,7 +19,7 @@ const enUS = {
     auth_invalid_token: "Invalid or expired token",
     auth_must_change_password: "Password change required",
     auth_user_disabled: "This account is disabled",
-    admin_only: "Admin only",
+    admin_only: "Requires user management permission",
     explore_unknown_table: "Unknown table",
     explore_unsupported_filter: "This table does not support that filter",
     explore_read_failed: "Failed to read index output",
@@ -60,6 +60,13 @@ const enUS = {
     email_registered: "email already registered",
     user_self_change_forbidden: "cannot change your own role or active status",
     user_last_admin_protected: "cannot demote or deactivate the last active admin",
+    last_user_manager_protected: "cannot remove the last active user manager",
+    role_is_system: "built-in roles are immutable",
+    role_in_use: "role is still granted; unassign it first",
+    role_name_taken: "a role with that name already exists",
+    role_scope_mismatch: "role scope mismatch",
+    role_not_found: "role not found",
+    role_permissions_invalid: "invalid permission set",
     dry_run_failed: "graphrag dry-run failed",
   },
   common: {
@@ -75,10 +82,21 @@ const enUS = {
     email: "Email",
     displayName: "Display name",
     role: "Role",
+    roles: "Roles",
     status: "Status",
     createdAt: "Created at",
     notApplicable: "—",
     loading: "Loading…",
+  },
+  // Built-in role names (backend seed, spec §7): shown wherever a catalog
+  // entry renders; custom roles fall back to their raw name.
+  roles: {
+    user_admin: "User admin",
+    ops: "Ops",
+    viewer: "Viewer",
+    maintainer: "Maintainer",
+    editor: "Editor",
+    owner: "Owner",
   },
   login: {
     pageTitle: "GraphRAG Web UI Sign in",
@@ -116,6 +134,7 @@ const enUS = {
   },
   projectDetail: {
     loadMembersFailed: "Failed to load members ({{status}})",
+    loadRolesFailed: "Failed to load roles ({{status}})",
     updateMemberFailed: "Failed to update member ({{status}})",
     removeMemberFailed: "Failed to remove member ({{status}})",
     memberRemoved: "Member removed",
@@ -167,7 +186,8 @@ const enUS = {
     reset: "Reset",
     resetHint: "Resetting revokes all of this user's tokens; they must change the password at next sign-in",
     newPasswordRequired: "Please enter the new password",
-    roleRequired: "Please select a role",
+    loadRolesFailed: "Failed to load roles ({{status}})",
+    rolesPlaceholder: "Select roles",
   },
   layout: {
     projects: "Projects",

@@ -15,7 +15,7 @@ export default {
     auth_invalid_token: "token 無效或已過期",
     auth_must_change_password: "需先更改密碼",
     auth_user_disabled: "此帳號已停用",
-    admin_only: "僅管理者可用",
+    admin_only: "需要使用者管理權限",
     // explore
     explore_unknown_table: "未知的資料表",
     explore_unsupported_filter: "此資料表不支援該篩選條件",
@@ -63,6 +63,14 @@ export default {
     email_registered: "email 已被註冊",
     user_self_change_forbidden: "無法變更自己的角色或啟用狀態",
     user_last_admin_protected: "無法降級或停用最後一位啟用中的管理者",
+    last_user_manager_protected: "不能移除最後一位使用者管理者",
+    // roles (RBAC v2, spec §7)
+    role_is_system: "內建角色不可修改",
+    role_in_use: "角色仍被使用，請先解除指派",
+    role_name_taken: "已有同名角色",
+    role_scope_mismatch: "角色範圍不符",
+    role_not_found: "角色不存在",
+    role_permissions_invalid: "權限集合無效",
     // dry run
     dry_run_failed: "graphrag dry-run 失敗",
   },
@@ -79,10 +87,21 @@ export default {
     email: "電子郵件",
     displayName: "顯示名稱",
     role: "角色",
+    roles: "角色",
     status: "狀態",
     createdAt: "建立時間",
     notApplicable: "—",
     loading: "載入中…",
+  },
+  // Built-in role names (backend seed, spec §7): shown wherever a catalog
+  // entry renders; custom roles fall back to their raw name.
+  roles: {
+    user_admin: "使用者管理員",
+    ops: "系統維運",
+    viewer: "檢視者",
+    maintainer: "維護者",
+    editor: "編輯者",
+    owner: "擁有者",
   },
   login: {
     pageTitle: "GraphRAG Web UI 登入",
@@ -120,6 +139,7 @@ export default {
   },
   projectDetail: {
     loadMembersFailed: "載入成員失敗({{status}})",
+    loadRolesFailed: "載入角色失敗（{{status}}）",
     updateMemberFailed: "更新成員失敗({{status}})",
     removeMemberFailed: "移除成員失敗({{status}})",
     memberRemoved: "已移除成員",
@@ -171,7 +191,8 @@ export default {
     reset: "重設",
     resetHint: "重設後該使用者的所有 token 會被撤銷,下次登入需更換密碼",
     newPasswordRequired: "請輸入新密碼",
-    roleRequired: "請選擇角色",
+    loadRolesFailed: "載入角色失敗（{{status}}）",
+    rolesPlaceholder: "選擇角色",
   },
   layout: {
     projects: "專案",

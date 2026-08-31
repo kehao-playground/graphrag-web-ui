@@ -8,7 +8,7 @@ import {
 import type { TableProps } from "antd";
 import { api, detailOf } from "../api/client";
 import type { Project, UserBrief } from "../api/types";
-import { useAuth } from "../stores/auth";
+
 
 const FILE_TYPES: Project["input_file_type"][] = ["text", "csv", "json"];
 
@@ -23,7 +23,6 @@ export default function Projects() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { t, i18n } = useTranslation();
-  const { user } = useAuth();
   const [createOpen, setCreateOpen] = useState(false);
   const [form] = Form.useForm<CreateForm>();
 
@@ -126,7 +125,9 @@ export default function Projects() {
       title: t("common.actions"),
       width: 90,
       render: (_, p) =>
-        user && (user.role === "admin" || p.owner_id === user.id) ? (
+        // my_permissions folds in owner, ops act_any and custom
+        // project:manage roles — no client-side role math (spec §8)
+        p.my_permissions?.includes("project:manage") ? (
           <Popconfirm
             title={t("projects.deleteTitle")}
             description={t("projects.deleteConfirm")}

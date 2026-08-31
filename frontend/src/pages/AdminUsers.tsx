@@ -6,20 +6,23 @@ import {
 } from "antd";
 import type { TableProps } from "antd";
 import { api, detailOf } from "../api/client";
-import type { User } from "../api/types";
+import type { Role, User } from "../api/types";
 import { useAuth } from "../stores/auth";
 
-const ROLE_OPTIONS = (["admin", "user"] as const).map((r) => ({ label: r, value: r }));
-
+// Built-in role names are the backend seed's closed set, so the template
+// key stays inside typed-t's key union; custom roles render their raw name.
+type BuiltinRoleName =
+  "user_admin" | "ops" | "viewer" | "maintainer" | "editor" | "owner";
 
 interface CreateForm {
   email: string;
   display_name: string;
   password: string;
+  roles: string[];
 }
 interface EditForm {
   display_name: string;
-  role: User["role"];
+  roles: string[];
 }
 
 export default function AdminUsers() {
@@ -62,6 +65,28 @@ export default function AdminUsers() {
     onError: (e) => message.error(e.message),
   });
 
+  // Grantable global roles (GET /api/roles?scope=global): every logged-in
+  // user may read the catalog — names leak nothing sensitive.
+  const rolesQ = useQuery({
+    queryKey: ["roles", "global"],
+    queryFn: async () => {
+      const r = await api("/api/roles?scope=global");
+      if (!r.ok) throw new Error(await detailOf(r, "adminUsers.loadRolesFailed"));
+      return (await r.json()) as Role[];
+    },
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (rolesQ.error) message.error(rolesQ.error.message);
+  }, [rolesQ.error]);
+
+  const roleLabel = (name: string, isSystem: boolean) =>
+    isSystem ? t(`roles.${name as BuiltinRoleName}`) : name;
+  const GLOBAL_ROLE_OPTIONS = (rolesQ.data ?? []).map((r) => ({
+    label: roleLabel(r.name, r.is_system), value: r.id,
+  }));
+
   const patch = useMutation({
     mutationFn: async ({ id, ...body }: { id: string } & Partial<EditForm & { is_active: boolean }>) => {
       const r = await api(`/api/admin/users/${id}`, { method: "PATCH", body: JSON.stringify(body) });
@@ -96,10 +121,18 @@ export default function AdminUsers() {
     { title: t("common.email"), dataIndex: "email" },
     { title: t("common.displayName"), dataIndex: "display_name" },
     {
-      title: t("common.role"),
-      dataIndex: "role",
-      width: 100,
-      render: (v: User["role"]) => (v === "admin" ? <Tag color="gold">admin</Tag> : <Tag>user</Tag>),
+      title: t("common.roles"),
+      width: 160,
+      render: (_, u) => (
+        <Space size={4} wrap>
+          {u.roles.length === 0 && <Tag>—</Tag>}
+          {u.roles.map((r) => (
+            <Tag key={r.id} color={r.name === "user_admin" ? "gold" : r.name === "ops" ? "geekblue" : undefined}>
+              {roleLabel(r.name, r.is_system)}
+            </Tag>
+          ))}
+        </Space>
+      ),
     },
     {
       title: t("common.status"),
@@ -118,7 +151,7 @@ export default function AdminUsers() {
               size="small"
               onClick={() => {
                 setEditTarget(u);
-                editForm.setFieldsValue({ display_name: u.display_name, role: u.role });
+                editForm.setFieldsValue({ display_name: u.display_name, roles: u.roles.map((r) => r.id) });
               }}
             >
               {t("adminUsers.edit")}
@@ -205,6 +238,14 @@ export default function AdminUsers() {
           >
             <Input.Password />
           </Form.Item>
+          <Form.Item name="roles" label={t("common.roles")} initialValue={[]}>
+            <Select
+              mode="multiple"
+              options={GLOBAL_ROLE_OPTIONS}
+              loading={rolesQ.isPending}
+              placeholder={t("adminUsers.rolesPlaceholder")}
+            />
+          </Form.Item>
         </Form>
       </Modal>
 
@@ -218,7 +259,7 @@ export default function AdminUsers() {
         onOk={() =>
           editForm.validateFields().then((v) => {
             if (!editTarget) return;
-            // Your own row forbids role changes on the backend — the form's role is display-only, never submitted
+            // Your own row forbids role changes on the backend — the form's roles are display-only, never submitted
             patch.mutate(editTarget.id === me?.id
               ? { id: editTarget.id, display_name: v.display_name }
               : { id: editTarget.id, ...v });
@@ -236,8 +277,14 @@ export default function AdminUsers() {
           >
             <Input />
           </Form.Item>
-          <Form.Item name="role" label={t("common.role")} rules={[{ required: true, message: t("adminUsers.roleRequired") }]}>
-            <Select options={ROLE_OPTIONS} disabled={editTarget?.id === me?.id} />
+          <Form.Item name="roles" label={t("common.roles")}>
+            <Select
+              mode="multiple"
+              options={GLOBAL_ROLE_OPTIONS}
+              loading={rolesQ.isPending}
+              placeholder={t("adminUsers.rolesPlaceholder")}
+              disabled={editTarget?.id === me?.id}
+            />
           </Form.Item>
         </Form>
       </Modal>

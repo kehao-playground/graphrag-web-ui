@@ -3,7 +3,7 @@ import { useAuth } from "../auth";
 
 const meBody = JSON.stringify({
   id: "u1", email: "a@b.c", display_name: "A",
-  role: "user", is_active: true, must_change_password: false,
+  roles: [], permissions: [], is_active: true, must_change_password: false,
 });
 
 beforeEach(() => {
@@ -64,7 +64,10 @@ test("proxy restore(): config -> me -> user set, stale refresh token cleared", a
       return new Response(JSON.stringify({ auth_mode: "proxy" }), { status: 200 });
     }
     if (url.includes("/api/auth/me")) {
-      return new Response(JSON.stringify({ email: "a@b.c", role: "user" }), { status: 200 });
+      return new Response(JSON.stringify({
+        id: "u1", email: "a@b.c", display_name: "A",
+        roles: [], permissions: [], is_active: true, must_change_password: false,
+      }), { status: 200 });
     }
     throw new Error("unexpected " + url);
   }));

@@ -9,6 +9,7 @@ export type User = components["schemas"]["UserOut"];
 export type UserBrief = components["schemas"]["UserBriefOut"];
 export type Project = components["schemas"]["ProjectOut"];
 export type Member = components["schemas"]["MemberOut"];
+export type Role = components["schemas"]["RoleOut"];
 export type FileEntry = components["schemas"]["FileEntryOut"];
 export type FilesOut = components["schemas"]["FileListOut"];
 export type SettingsOut = components["schemas"]["SettingsOut"];

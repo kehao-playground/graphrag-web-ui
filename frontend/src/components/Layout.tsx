@@ -15,9 +15,13 @@ export default function Layout() {
     document.title = t("layout.title");
   }, [i18n.language, t]);
 
+  // The backend-computed atom is the only gate (spec §8): any holder of
+  // users:manage — built-in user_admin, a custom role, ops via act_any —
+  // sees the admin entry; the frontend never maps role names to rights.
+  const canManageUsers = !!user?.permissions?.includes("users:manage");
   const items = [
     { key: "/projects", label: t("layout.projects") },
-  ...(user?.role === "admin" ? [{ key: "/admin/users", label: t("layout.adminUsers") }] : []),
+  ...(canManageUsers ? [{ key: "/admin/users", label: t("layout.adminUsers") }] : []),
   ];
 
   // zh-TW: /projects/:id must also highlight the 專案 (projects) nav item; same for the /admin prefix
