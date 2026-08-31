@@ -2,7 +2,12 @@
 scope isolation, is_active short-circuit."""
 import pytest
 
-from graphrag_ui.domain.permissions import Atom, can, effective_project_perms
+from graphrag_ui.domain.permissions import (
+    Atom,
+    can,
+    effective_project_perms,
+    sees_all_projects,
+)
 
 MANAGER = frozenset({"users:manage"})
 OPS = frozenset({"projects:view_any", "projects:act_any"})
@@ -82,3 +87,14 @@ def test_effective_project_perms_for_my_permissions():
     assert effective_project_perms(AUDITOR, MAINTAINER) == \
         MAINTAINER | {"project:view"}
     assert effective_project_perms(EMPTY, None) == frozenset()
+
+def test_act_any_implies_view_any():
+    # spec §4.1 second half: a global role holding only act_any must
+    # still pass the view_any check (list_projects branches on it)
+    assert can(frozenset({"projects:act_any"}), True,
+               Atom.projects_view_any) is True
+
+
+def test_sees_all_projects():
+    assert sees_all_projects(frozenset({"projects:act_any"})) is True
+    assert sees_all_projects(frozenset({"users:manage"})) is False

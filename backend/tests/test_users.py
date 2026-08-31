@@ -213,3 +213,26 @@ async def test_patch_user_guarded_rejects_last_manager_loss(db_session):
                                         display_name=None, role_ids=[],
                                         is_active=None)
     assert stripped.is_active is True
+
+
+async def test_patch_user_duplicate_role_ids_collapse_to_one_grant(client, db_session):
+    """Duplicate role ids in one PATCH: 200 and exactly one grant — the
+    double insert used to hit the UserRole PK (IntegrityError → 500)."""
+    import uuid
+
+    from sqlalchemy import func, select
+
+    from graphrag_ui.adapters.models import UserRole
+
+    hdr = await _admin_token(client)
+    uid = (await client.post("/api/admin/users", headers=hdr, json={
+        "email": "dup@test.local", "display_name": "Dup",
+        "password": "pass-12345"})).json()["id"]
+    r = await client.patch(f"/api/admin/users/{uid}", headers=hdr,
+                           json={"roles": [str(ROLE_ID_OPS), str(ROLE_ID_OPS)]})
+    assert r.status_code == 200
+    assert [ro["name"] for ro in r.json()["roles"]] == ["ops"]
+    grants = (await db_session.execute(
+        select(func.count()).where(
+            UserRole.user_id == uuid.UUID(uid)))).scalar_one()
+    assert grants == 1

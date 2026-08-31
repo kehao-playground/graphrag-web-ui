@@ -195,6 +195,24 @@ async def test_custom_auditor_role_via_api(client, app, db_session):
         files={"file": ("a.txt", b"x", "text/plain")})).status_code == 403
 
 
+async def test_custom_act_any_only_role_sees_project_list(client, app, db_session):
+    """Spec §4.1 second half: act_any implies view_any — a custom global
+    role holding ONLY projects:act_any still sees every project in the
+    list (the membership-only branch used to hide them)."""
+    app.dependency_overrides[get_initializer] = FakeInitializer
+    admin = await _admin(client)
+    alice = await _mk_user(client, admin, "alice@test.local", "alice-pass-1")
+    gina = await _mk_user(client, admin, "gina@test.local", "gina-pass-1")
+    role_id = (await client.post("/api/admin/roles", headers=admin, json={
+        "scope": "global", "name": "runner", "description": "",
+        "permissions": ["projects:act_any"]})).json()["id"]
+    await _grant_global(client, admin, db_session, "gina@test.local",
+                        [uuid.UUID(role_id)])
+    pid = await _project(client, alice)
+
+    projects = (await client.get("/api/projects", headers=gina)).json()
+    assert any(p["id"] == pid for p in projects)
+
 async def test_userout_carries_roles_and_permissions(client):
     admin = await _admin(client)  # bootstrap admin = user_admin + ops
     me = (await client.get("/api/auth/me", headers=admin)).json()

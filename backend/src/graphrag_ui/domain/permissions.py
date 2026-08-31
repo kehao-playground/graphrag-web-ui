@@ -32,6 +32,11 @@ def can(global_perms: frozenset[str], is_active: bool, action: Atom,
     if action is Atom.projects_create:
         return True  # baseline for every active user (spec §4.1)
     if action in GLOBAL_ATOMS:
+        # act_any implies view_any (spec §4.1 second half) — stated here,
+        # once, at the resolution point
+        if (action is Atom.projects_view_any
+                and Atom.projects_act_any in global_perms):
+            return True
         return action in global_perms
     # act_any implies every project atom AND view_any (spec §4.1); a
     # custom role holding only act_any must still see the project list
@@ -55,3 +60,10 @@ def effective_project_perms(
     if Atom.projects_view_any in global_perms:
         perms |= {Atom.project_view.value}
     return perms
+
+
+def sees_all_projects(global_perms: frozenset[str]) -> bool:
+    """True when the atom set grants the all-projects list view:
+    view_any directly, or via the act_any implication (spec §4.1)."""
+    return (Atom.projects_view_any in global_perms
+            or Atom.projects_act_any in global_perms)

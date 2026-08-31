@@ -162,7 +162,9 @@ async def roles_for_user(session: AsyncSession,
 
 async def load_roles(session: AsyncSession,
                      role_ids: list[uuid.UUID]) -> list[Role]:
-    roles = [await get_role(session, rid) for rid in role_ids]
+    # dict.fromkeys: order-preserving dedupe — a repeated id must not
+    # produce a second UserRole row (same PK → IntegrityError)
+    roles = [await get_role(session, rid) for rid in dict.fromkeys(role_ids)]
     return roles
 
 

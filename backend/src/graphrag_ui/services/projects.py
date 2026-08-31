@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from graphrag_ui.adapters.models import Project, ProjectMember, Role, User
 from graphrag_ui.adapters.workspace import WorkspaceInitError, WorkspaceInitializer
 from graphrag_ui.config import get_settings
-from graphrag_ui.domain.permissions import Atom, can
+from graphrag_ui.domain.permissions import Atom, can, sees_all_projects
 from graphrag_ui.domain.role_catalog import ROLE_ID_OWNER
 from graphrag_ui.domain.workspaces import workspace_path
 from graphrag_ui.services.audit import audit
@@ -105,7 +105,7 @@ async def member_perms_for_projects(
 async def list_projects(session: AsyncSession, user: User,
                         global_perms: frozenset[str]) -> list[Project]:
     stmt = select(Project).order_by(Project.created_at, Project.id)
-    if Atom.projects_view_any not in global_perms:
+    if not sees_all_projects(global_perms):
         stmt = stmt.join(ProjectMember).where(
             ProjectMember.user_id == user.id)
     return list((await session.execute(stmt)).scalars().all())
