@@ -82,7 +82,7 @@ async def test_second_active_job_409(client, app):
     r = await client.post(
         f"/api/projects/{pid}/jobs", headers=alice, json={"type": "update", "method": "standard"}
     )
-    assert r.status_code == 409 and "進行中" in r.json()["detail"]
+    assert r.status_code == 409 and "in progress" in r.json()["detail"]
 
 
 async def test_disk_watermark_409(client, app, monkeypatch):
@@ -94,7 +94,7 @@ async def test_disk_watermark_409(client, app, monkeypatch):
     r = await client.post(
         f"/api/projects/{pid}/jobs", headers=alice, json={"type": "index", "method": "fast"}
     )
-    assert r.status_code == 409 and "磁碟" in r.json()["detail"]
+    assert r.status_code == 409 and "disk space" in r.json()["detail"]
 
 
 async def test_invalid_type_method_422(client, app):
@@ -142,7 +142,7 @@ async def test_cancel_flow(client, app):
         )
     ).json()
     r = await client.post(f"/api/jobs/{j['id']}/cancel", headers=alice)
-    assert r.status_code == 202 and r.json()["detail"] == "已請求取消"
+    assert r.status_code == 202 and r.json()["detail"] == "cancellation requested"
     got = (await client.get(f"/api/jobs/{j['id']}", headers=alice)).json()
     assert got["cancel_requested_at"] is not None
     # cancelling a terminal job

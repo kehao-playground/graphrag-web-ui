@@ -150,7 +150,7 @@ async def test_job_conflict_carries_code(client, app):
     )
     assert r.status_code == 409
     body = r.json()
-    assert body["detail"] == "此專案已有進行中的索引任務"
+    assert body["detail"] == "this project already has an indexing job in progress"
     assert body["code"] == "job_conflict"
 
 
@@ -167,7 +167,7 @@ async def test_disk_watermark_carries_code(client, app, monkeypatch):
     )
     assert r.status_code == 409
     body = r.json()
-    assert body["detail"] == "磁碟剩餘空間不足"
+    assert body["detail"] == "not enough free disk space"
     assert body["code"] == "disk_watermark"
     assert "params" not in body
 
@@ -191,7 +191,7 @@ async def test_job_already_finished_carries_code(client, app):
     r = await client.post(f"/api/jobs/{j['id']}/cancel", headers=alice)
     assert r.status_code == 409
     body = r.json()
-    assert body["detail"] == "任務已結束"
+    assert body["detail"] == "job already finished"
     assert body["code"] == "job_already_finished"
 
 

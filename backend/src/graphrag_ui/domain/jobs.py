@@ -24,7 +24,7 @@ def build_argv(job_type: str, method: str, root: Path) -> list[str]:
 def error_annotation(exit_code: int) -> str | None:
     # exit 137 = 128+SIGKILL; asyncio proc.wait() reports signal deaths as
     # negative POSIX signal codes, so -9 is the same kernel OOM kill (spec §5)
-    return "疑似記憶體不足(OOM)" if exit_code in (137, -9) else None
+    return "likely out of memory (OOM)" if exit_code in (137, -9) else None
 
 
 def display_status(status: str, cancel_requested: bool) -> str:

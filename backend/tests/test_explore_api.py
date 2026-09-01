@@ -202,7 +202,7 @@ async def test_unsupported_filter_422(client, app):
     )
     assert r.status_code == 422
     body = r.json()
-    assert body["detail"] == "此資料表不支援該篩選條件"
+    assert body["detail"] == "this table does not support that filter"
     assert body["code"] == "explore_unsupported_filter"
     r = await client.get(
         f"/api/projects/{pid}/artifacts/documents",
@@ -211,7 +211,7 @@ async def test_unsupported_filter_422(client, app):
     )
     assert r.status_code == 422
     body = r.json()
-    assert body["detail"] == "此資料表不支援該篩選條件"
+    assert body["detail"] == "this table does not support that filter"
     assert body["code"] == "explore_unsupported_filter"
 
 
@@ -287,7 +287,7 @@ async def test_detail_missing_row_404(client, app):
     r = await client.get(f"/api/projects/{pid}/artifacts/entities/99", headers=alice)
     assert r.status_code == 404
     body = r.json()
-    assert body["detail"] == "找不到該筆資料"
+    assert body["detail"] == "row not found"
     assert body["code"] == "explore_row_not_found"
 
 
@@ -297,12 +297,12 @@ async def test_unknown_table_404_list_and_detail(client, app):
     r = await client.get(f"{base}/bogus", headers=alice)
     assert r.status_code == 404
     body = r.json()
-    assert body["detail"] == "未知的資料表"
+    assert body["detail"] == "unknown table"
     assert body["code"] == "explore_unknown_table"
     r = await client.get(f"{base}/bogus/1", headers=alice)
     assert r.status_code == 404
     body = r.json()
-    assert body["detail"] == "未知的資料表"
+    assert body["detail"] == "unknown table"
     assert body["code"] == "explore_unknown_table"
 
 
@@ -315,7 +315,7 @@ async def test_not_indexed_409_list_and_graph(client, app):
         r = await client.get(f"{base}/{path}", headers=alice)
         assert r.status_code == 409, r.text
         body = r.json()
-        assert body["detail"] == "尚未建立索引,請先執行索引任務"
+        assert body["detail"] == "not indexed yet — run an indexing job first"
         assert body["code"] == "not_indexed"
 
 
@@ -346,5 +346,5 @@ async def test_corrupt_parquet_502_list(client, app):
     r = await client.get(f"/api/projects/{pid}/artifacts/entities", headers=alice)
     assert r.status_code == 502
     body = r.json()
-    assert body["detail"] == "讀取索引輸出失敗"
+    assert body["detail"] == "failed to read the index output"
     assert body["code"] == "explore_read_failed"

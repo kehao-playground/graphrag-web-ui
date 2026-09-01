@@ -108,7 +108,7 @@ async def test_missing_file_raises_not_indexed(tmp_path: Path) -> None:
     cache = FrameCache(budget_bytes=10_000_000)
     with pytest.raises(WorkspaceNotIndexedError) as exc:
         await cache.get(tmp_path / "empty", "text_units")
-    assert str(exc.value) == "尚未建立索引,請先執行索引任務"
+    assert str(exc.value) == "not indexed yet — run an indexing job first"
 
 
 def test_tables_for_matrix() -> None:

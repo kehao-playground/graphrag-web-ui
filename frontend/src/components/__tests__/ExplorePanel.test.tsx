@@ -223,13 +223,13 @@ test("table switch with the drawer open closes it and skips the new table's deta
 });
 
 test("404 unknown table surfaces the backend detail", async () => {
-  errorResponse = new Response(JSON.stringify({ detail: "未知的資料表" }), { status: 404 });
+  errorResponse = new Response(JSON.stringify({ detail: "unknown table" }), { status: 404 });
   mount();
-  expect(await screen.findByText("未知的資料表")).toBeInTheDocument();
+  expect(await screen.findByText("unknown table")).toBeInTheDocument();
 });
 
 test("409 not indexed surfaces the backend detail", async () => {
-  errorResponse = new Response(JSON.stringify({ detail: "尚未建立索引,請先執行索引任務" }), { status: 409 });
+  errorResponse = new Response(JSON.stringify({ detail: "not indexed yet — run an indexing job first" }), { status: 409 });
   mount();
-  expect(await screen.findByText("尚未建立索引,請先執行索引任務")).toBeInTheDocument();
+  expect(await screen.findByText("not indexed yet — run an indexing job first")).toBeInTheDocument();
 });

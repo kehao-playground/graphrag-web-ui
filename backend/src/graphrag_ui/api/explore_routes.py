@@ -34,17 +34,21 @@ _ExploreErrors = (
 def _explore_error_http(exc: Exception) -> ApiError:
     """Single error mapping for every explore route (fixed messages)."""
     if isinstance(exc, UnknownTableError):
-        return ApiError(status.HTTP_404_NOT_FOUND, "explore_unknown_table", "未知的資料表")
+        return ApiError(status.HTTP_404_NOT_FOUND, "explore_unknown_table", "unknown table")
     if isinstance(exc, ArtifactsNotIndexedError):
-        return ApiError(status.HTTP_409_CONFLICT, "not_indexed", "尚未建立索引,請先執行索引任務")
+        return ApiError(
+            status.HTTP_409_CONFLICT, "not_indexed", "not indexed yet — run an indexing job first"
+        )
     if isinstance(exc, UnsupportedFilterError):
         return ApiError(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             "explore_unsupported_filter",
-            "此資料表不支援該篩選條件",
+            "this table does not support that filter",
         )
     # detail (exception tail) stays server-side; fixed message only
-    return ApiError(status.HTTP_502_BAD_GATEWAY, "explore_read_failed", "讀取索引輸出失敗")
+    return ApiError(
+        status.HTTP_502_BAD_GATEWAY, "explore_read_failed", "failed to read the index output"
+    )
 
 
 def register_explore_routes(app):
@@ -117,7 +121,7 @@ def register_explore_routes(app):
         except _ExploreErrors as exc:
             raise _explore_error_http(exc) from None
         if data is None:
-            raise ApiError(status.HTTP_404_NOT_FOUND, "explore_row_not_found", "找不到該筆資料")
+            raise ApiError(status.HTTP_404_NOT_FOUND, "explore_row_not_found", "row not found")
         return data
 
     app.include_router(router)

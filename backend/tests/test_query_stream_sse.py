@@ -317,7 +317,7 @@ async def test_rate_limit_third_stream_429_json(client, app, fake_adapter, fake_
     r = await client.get(url, headers=alice)
 
     assert r.status_code == 429
-    assert r.json()["detail"] == "查詢過於頻繁,請稍後再試"
+    assert r.json()["detail"] == "too many queries — please retry later"
     assert r.headers["content-type"].startswith("application/json")
 
 
@@ -327,7 +327,7 @@ async def test_unindexed_409_pre_stream_json(client, app, fake_adapter):
     pid, alice, _, _ = await _viewer_setup(client, app)
     r = await client.get(_url(pid, method="basic", query="q"), headers=alice)
     assert r.status_code == 409
-    assert r.json()["detail"] == "尚未建立索引,請先執行索引任務"
+    assert r.json()["detail"] == "not indexed yet — run an indexing job first"
 
 
 async def test_mid_stream_adapter_error_event_then_close(client, app, fake_adapter, fake_cache):
@@ -340,7 +340,7 @@ async def test_mid_stream_adapter_error_event_then_close(client, app, fake_adapt
     events = _events(body)
     assert events[:2] == [("chunk", "The "), ("chunk", "Analytical ")]
     assert events[2][0] == "error"
-    assert events[2][1]["detail"] == "查詢中斷"
+    assert events[2][1]["detail"] == "query interrupted"
     assert events[2][1]["code"] == "query_interrupted"
     assert len(events) == 3
 
@@ -352,7 +352,7 @@ async def test_pre_chunk_adapter_failure_502_json(client, app, fake_adapter, fak
     fake_adapter.fail_after = 0
     r = await client.get(_url(pid, method="basic", query="q"), headers=alice)
     assert r.status_code == 502
-    assert r.json()["detail"] == "查詢失敗"
+    assert r.json()["detail"] == "query failed"
 
 
 async def test_non_member_403(client, app, fake_adapter, fake_cache):

@@ -182,7 +182,7 @@ async def test_rate_limit_third_post_429(client, app, fake_adapter, fake_cache, 
     r = await _post(client, pid, alice)
 
     assert r.status_code == 429
-    assert r.json()["detail"] == "查詢過於頻繁,請稍後再試"
+    assert r.json()["detail"] == "too many queries — please retry later"
     # other users are independent buckets
     assert (await _post(client, pid, bob)).status_code == 200
 
@@ -277,7 +277,7 @@ async def test_unindexed_workspace_409(client, app, fake_adapter):
     pid, alice, _, _ = await _viewer_setup(client, app)
     r = await _post(client, pid, alice)
     assert r.status_code == 409
-    assert r.json()["detail"] == "尚未建立索引,請先執行索引任務"
+    assert r.json()["detail"] == "not indexed yet — run an indexing job first"
 
 
 async def test_config_load_error_500(client, app, fake_adapter, fake_cache, monkeypatch):
@@ -290,7 +290,7 @@ async def test_config_load_error_500(client, app, fake_adapter, fake_cache, monk
     pid, alice, _, _ = await _viewer_setup(client, app)
     r = await _post(client, pid, alice)
     assert r.status_code == 500
-    assert r.json()["detail"] == "設定載入失敗"
+    assert r.json()["detail"] == "failed to load settings"
 
 
 async def test_adapter_error_502_fixed_detail(client, app, fake_adapter, fake_cache):
@@ -299,7 +299,7 @@ async def test_adapter_error_502_fixed_detail(client, app, fake_adapter, fake_ca
     r = await _post(client, pid, alice)
     assert r.status_code == 502
     # fixed zh-TW message only — internals stay in the server log
-    assert r.json()["detail"] == "查詢失敗"
+    assert r.json()["detail"] == "query failed"
 
 
 async def test_invalid_body_422(client, app, fake_adapter, fake_cache):
@@ -322,4 +322,4 @@ def test_query_errors_share_base():
     assert (e.code, e.detail) == ("search", "boom")
     explore = ExploreReadError("list", "tail text")
     assert (explore.code, explore.detail, explore.tail) == ("list", "tail text", "tail text")
-    assert INTERRUPTED_DETAIL == "查詢中斷"
+    assert INTERRUPTED_DETAIL == "query interrupted"

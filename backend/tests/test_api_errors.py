@@ -24,11 +24,14 @@ async def test_api_error_renders_detail_code_and_params(client, app):
 async def test_api_error_omits_empty_params(client, app):
     @app.get("/api/__plain")
     async def plain():
-        raise ApiError(409, "job_conflict", "此專案已有進行中的索引任務")
+        raise ApiError(409, "job_conflict", "this project already has an indexing job in progress")
 
     r = await client.get("/api/__plain")
     # New test pinning the envelope: dict equality is the point here.
-    assert r.json() == {"detail": "此專案已有進行中的索引任務", "code": "job_conflict"}
+    assert r.json() == {
+        "detail": "this project already has an indexing job in progress",
+        "code": "job_conflict",
+    }
 
 
 async def test_plain_http_exception_has_no_code(client, app):

@@ -4,7 +4,7 @@ code names the failing step; detail is server-log-only material — routes
 return fixed zh-TW messages, never these strings.
 """
 
-INTERRUPTED_DETAIL = "查詢中斷"
+INTERRUPTED_DETAIL = "query interrupted"
 
 
 class ServicePipelineError(RuntimeError):

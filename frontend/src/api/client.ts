@@ -50,8 +50,10 @@ export async function api(path: string, init: RequestInit = {}, retried = false)
   return r;
 }
 
-// Backend error envelope: {"detail"?, "code"?, "params"?} (i18n spec §4.1);
-// detail stays a zh-TW string for legacy errors, code/params localize it.
+// Backend error envelope: {"detail"?, "code"?, "params"?} (i18n spec §4.1).
+// detail is an English developer-facing string; code/params are what the UI
+// localizes from. detail is only ever shown verbatim as a last resort, for a
+// code this build's catalog does not know.
 export async function bodyOf(r: Response): Promise<Record<string, unknown>> {
   try { return (await r.json()) as Record<string, unknown>; } catch { return {}; }
 }

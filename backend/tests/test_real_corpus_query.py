@@ -205,4 +205,4 @@ async def test_real_corpus_query_basic_post_local_stream_rate_limit(
         f"/api/projects/{pid}/query", headers=admin, json={"method": "basic", "query": QUESTION}
     )
     assert r.status_code == 429
-    assert r.json()["detail"] == "查詢過於頻繁,請稍後再試"
+    assert r.json()["detail"] == "too many queries — please retry later"

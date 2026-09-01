@@ -82,10 +82,14 @@ def register_jobs_routes(app):
             job = await jobs_service.enqueue(db, project, body.type, body.method, user.user)
         except JobConflictError:
             raise ApiError(
-                status.HTTP_409_CONFLICT, "job_conflict", "此專案已有進行中的索引任務"
+                status.HTTP_409_CONFLICT,
+                "job_conflict",
+                "this project already has an indexing job in progress",
             ) from None
         except DiskWatermarkError:
-            raise ApiError(status.HTTP_409_CONFLICT, "disk_watermark", "磁碟剩餘空間不足") from None
+            raise ApiError(
+                status.HTTP_409_CONFLICT, "disk_watermark", "not enough free disk space"
+            ) from None
         return job_out(job)
 
     @router.get("/projects/{pid}/jobs", response_model=list[JobOut])
@@ -134,8 +138,8 @@ def register_jobs_routes(app):
         ):
             raise _forbidden()
         if not await jobs_service.cancel(db, job):
-            raise ApiError(status.HTTP_409_CONFLICT, "job_already_finished", "任務已結束")
-        return {"detail": "已請求取消"}
+            raise ApiError(status.HTTP_409_CONFLICT, "job_already_finished", "job already finished")
+        return {"detail": "cancellation requested"}
 
     @sse_router.get("/jobs/{job_id}/logs")
     async def job_logs(

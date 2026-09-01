@@ -74,11 +74,11 @@ class FrameCache:
         try:
             stat = path.stat()
         except FileNotFoundError as exc:
-            raise WorkspaceNotIndexedError("尚未建立索引,請先執行索引任務") from exc
+            raise WorkspaceNotIndexedError("not indexed yet — run an indexing job first") from exc
         try:
             df = await asyncio.to_thread(pd.read_parquet, path)
         except FileNotFoundError as exc:
-            raise WorkspaceNotIndexedError("尚未建立索引,請先執行索引任務") from exc
+            raise WorkspaceNotIndexedError("not indexed yet — run an indexing job first") from exc
         self._insert(key, (path, stat.st_mtime_ns, stat.st_size), df)
         return df
 

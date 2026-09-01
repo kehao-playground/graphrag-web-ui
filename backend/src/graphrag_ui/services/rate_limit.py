@@ -41,7 +41,7 @@ class RateLimiter:
         key = (str(user_id), str(project_id))
         now = _now()
         if self._window.count(key, now) >= self.limit_per_hour:
-            raise QueryRateLimitedError("查詢過於頻繁,請稍後再試")
+            raise QueryRateLimitedError("too many queries — please retry later")
         self._window.add(key, now)
 
 

@@ -60,7 +60,7 @@ const apiMock = vi.fn(async (path: string, init?: RequestInit) => {
     return new Response(JSON.stringify(jobsList), { status: 200 });
   }
   if (path === "/api/jobs/j1/cancel" && init?.method === "POST") {
-    return new Response(JSON.stringify({ detail: "已請求取消" }), { status: 202 });
+    return new Response(JSON.stringify({ detail: "cancellation requested" }), { status: 202 });
   }
   return new Response(JSON.stringify({}), { status: 200 });
 });

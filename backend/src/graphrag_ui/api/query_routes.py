@@ -33,16 +33,20 @@ def _query_error_http(exc: Exception) -> ApiError:
     """Single error mapping for both query paths (POST + SSE pre-stream)."""
     if isinstance(exc, QueryRateLimitedError):
         return ApiError(
-            status.HTTP_429_TOO_MANY_REQUESTS, "query_rate_limited", "查詢過於頻繁,請稍後再試"
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "query_rate_limited",
+            "too many queries — please retry later",
         )
     if isinstance(exc, WorkspaceNotIndexedError):
-        return ApiError(status.HTTP_409_CONFLICT, "not_indexed", "尚未建立索引,請先執行索引任務")
+        return ApiError(
+            status.HTTP_409_CONFLICT, "not_indexed", "not indexed yet — run an indexing job first"
+        )
     # detail (exception tail) stays server-side; fixed message only
     if isinstance(exc, QueryError) and exc.code == "config":
         return ApiError(
-            status.HTTP_500_INTERNAL_SERVER_ERROR, "query_config_failed", "設定載入失敗"
+            status.HTTP_500_INTERNAL_SERVER_ERROR, "query_config_failed", "failed to load settings"
         )
-    return ApiError(status.HTTP_502_BAD_GATEWAY, "query_failed", "查詢失敗")
+    return ApiError(status.HTTP_502_BAD_GATEWAY, "query_failed", "query failed")
 
 
 def _format_event(kind: str, payload) -> str:
