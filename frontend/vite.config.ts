@@ -1,6 +1,9 @@
 /// <reference types="vitest/config" />
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+// Explicit .ts extension: tsconfig.node.json is moduleResolution nodenext
+// (with allowImportingTsExtensions), unlike the app project.
+import { isReactSchedulerTeardownArtifact } from './src/testing/reactTeardownArtifact.ts'
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -34,26 +37,11 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: "./src/setupTests.ts",
-    // React 19.2's dev scheduler reads `window.event` unconditionally when
-    // flushing work from a setImmediate task (react-dom-client
-    // performWorkOnRootViaSchedulerTask). Work still queued when vitest
-    // tears down the jsdom environment fires with no `window` and fails
-    // the whole run despite every test passing — an upstream race the
-    // setupTests afterAll drain mitigates but cannot fully close (see
-    // jaegertracing/jaeger-ui#4339). Return false = ignore, and ONLY for
-    // this exact signature: a ReferenceError with that message raised from
-    // the react-dom scheduler itself. App-code ReferenceErrors carry a
-    // different stack and still fail the run.
-    onUnhandledError: (error) => {
-      // Errors cross the fork boundary as plain serialized objects, so
-      // match structurally instead of with instanceof.
-      const message = (error as { message?: string } | undefined)?.message;
-      if (message !== "window is not defined") {
-        return true;
-      }
-      const stack = ((error as { stack?: string } | undefined)?.stack) ?? "";
-      return !(stack.includes("performWorkOnRootViaSchedulerTask")
-        && stack.includes("react-dom"));
-    },
+    // Ignore exactly one unhandled error: React's jsdom-teardown race.
+    // The predicate lives in src/testing so it is unit-tested against the
+    // real CI stacks — the previous inline version keyed on a single frame
+    // name and failed a run in which every test passed. Return false =
+    // ignore; anything else still fails the run.
+    onUnhandledError: (error: unknown) => !isReactSchedulerTeardownArtifact(error),
   },
 })

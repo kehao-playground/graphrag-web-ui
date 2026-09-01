@@ -59,7 +59,11 @@ jobs:
       - uses: astral-sh/setup-uv@v10.0.1
         with:
           python-version: "3.12"
-      - run: uv run --with pip-audit pip-audit --strict --desc
+      # --skip-editable: the environment contains graphrag-ui itself, which is
+      # not on PyPI and can never be audited. NOT --strict: it escalates every
+      # unauditable/skipped dependency into an error, so it fails on that same
+      # local project either way. A real advisory still exits non-zero.
+      - run: uv run --with pip-audit pip-audit --desc --skip-editable
         working-directory: backend
       - uses: actions/setup-node@v7
         with:
