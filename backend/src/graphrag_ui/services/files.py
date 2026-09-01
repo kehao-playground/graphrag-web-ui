@@ -203,7 +203,7 @@ def _scan_input(input_dir: Path) -> list[dict]:
                 "modified_at": datetime.fromtimestamp(st.st_mtime, tz=UTC).isoformat(),
             }
         )
-    entries.sort(key=lambda e: e["name"])
+    entries.sort(key=lambda e: str(e["name"]))
     return entries
 
 

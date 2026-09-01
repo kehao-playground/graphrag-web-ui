@@ -167,14 +167,17 @@ def _frames_kwargs(method: str, config: Any, frames: dict[str, pd.DataFrame]) ->
     return kwargs
 
 
-_SEARCH_FNS = {
+# Any-valued on purpose: graphrag ships no type information, and these come
+# through the env-shielded import below, so a checker can only see "unknown".
+# The keys are the closed method set the callers validate against.
+_SEARCH_FNS: dict[str, Any] = {
     "basic": basic_search,
     "local": local_search,
     "drift": drift_search,
     "global": global_search,
 }
 
-_STREAM_FNS = {
+_STREAM_FNS: dict[str, Any] = {
     "basic": basic_search_streaming,
     "local": local_search_streaming,
     "drift": drift_search_streaming,

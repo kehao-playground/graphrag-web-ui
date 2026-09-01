@@ -3,8 +3,9 @@ their own transaction except insert_job (caller owns enqueue semantics)."""
 
 import uuid
 from datetime import datetime
+from typing import cast
 
-from sqlalchemy import func, select, update
+from sqlalchemy import CursorResult, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.adapters.models import Job
@@ -73,7 +74,9 @@ async def request_cancel(session: AsyncSession, job_id: uuid.UUID) -> bool:
     # The update leaves identity-map instances expired; AsyncSession cannot
     # lazy-load on later attribute access, so reload explicitly.
     await _reload(session, job_id)
-    return res.rowcount == 1
+    # rowcount is a CursorResult attribute; the execute() return type is the
+    # Result base, which does not declare it.
+    return cast(CursorResult, res).rowcount == 1
 
 
 async def finish(

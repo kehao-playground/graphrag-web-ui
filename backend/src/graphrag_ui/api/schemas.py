@@ -1,6 +1,6 @@
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Protocol
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
@@ -60,9 +60,26 @@ class UserOut(BaseModel):
         return str(v) if isinstance(v, UUID) else v
 
 
-def user_out(user: object, roles: Sequence) -> UserOut:
-    """Build UserOut from a User row plus its loaded global roles.
-    Duck-typed on purpose: schemas stay free of ORM imports."""
+class _UserLike(Protocol):
+    """The shape user_out() needs. A Protocol rather than the ORM class:
+    schemas stay free of ORM imports (the original reason this was typed
+    `object`), but the attribute reads are checked instead of unchecked.
+    Both User and api.deps.Principal satisfy it."""
+
+    @property
+    def id(self) -> UUID: ...
+    @property
+    def email(self) -> str: ...
+    @property
+    def display_name(self) -> str: ...
+    @property
+    def is_active(self) -> bool: ...
+    @property
+    def must_change_password(self) -> bool: ...
+
+
+def user_out(user: _UserLike, roles: Sequence) -> UserOut:
+    """Build UserOut from a User row plus its loaded global roles."""
     role_outs = [RoleOut.model_validate(r) for r in roles]
     perms: set[str] = set()
     for r in roles:

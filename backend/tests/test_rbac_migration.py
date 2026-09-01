@@ -26,7 +26,7 @@ import pytest
 import sqlalchemy as sa
 from alembic import command
 from alembic.config import Config
-from testcontainers.postgres import PostgresContainer
+from testcontainers.community.postgres import PostgresContainer
 
 from graphrag_ui.adapters.db import make_engine
 from graphrag_ui.config import get_settings

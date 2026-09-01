@@ -76,11 +76,15 @@ class IndexRunner:
         )
         cancelled = False
 
+        assert proc.stdout is not None, "created with stdout=PIPE"
+
+        stdout = proc.stdout
+
         async def _pump() -> None:
             # stream stdout(+stderr) to the log file as it arrives
             with log_path.open("ab") as fh:
                 while True:
-                    chunk = await proc.stdout.read(8192)
+                    chunk = await stdout.read(8192)
                     if not chunk:
                         break
                     fh.write(chunk)

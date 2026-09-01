@@ -83,7 +83,7 @@ def _register_upload_size_guard(app):
                     "code": "file_too_large",
                     "params": {"max_mb": get_settings().upload_max_file_mb},
                 },
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
             )
         return await call_next(request)
 
@@ -116,9 +116,7 @@ def register_files_routes(app):
             raise ApiError(status.HTTP_400_BAD_REQUEST, e.code, str(e), e.params) from None
         except (FileTooLargeError, QuotaExceededError) as e:
             # 413 for both single-file cap and project quota (spec §9 error handling)
-            raise ApiError(
-                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, e.code, str(e), e.params
-            ) from None
+            raise ApiError(status.HTTP_413_CONTENT_TOO_LARGE, e.code, str(e), e.params) from None
         return FileOut(name=name, size=size)
 
     @router.get("/{pid}/files", response_model=FileListOut)

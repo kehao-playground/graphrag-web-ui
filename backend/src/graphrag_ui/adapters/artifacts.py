@@ -93,7 +93,9 @@ def list_rows(
     list_columns = ", ".join(f"t.{c}" for c in spec.list_columns)
 
     with duckdb.connect(":memory:") as con:
-        total = con.execute(f"SELECT COUNT(*) {base_sql}", base_params).fetchone()[0]
+        count_row = con.execute(f"SELECT COUNT(*) {base_sql}", base_params).fetchone()
+        assert count_row is not None, "COUNT(*) always yields one row"
+        total = count_row[0]
         cur = con.execute(
             f"SELECT {list_columns} {base_sql} ORDER BY t.human_readable_id LIMIT ? OFFSET ?",
             [*base_params, limit, offset],

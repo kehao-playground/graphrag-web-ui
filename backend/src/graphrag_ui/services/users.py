@@ -172,7 +172,9 @@ async def _loses_last_manager(
 
 async def patch_user_guarded(
     session: AsyncSession,
-    actor: User,
+    # The actor's id, not the actor: only the id was ever read, and the API
+    # caller holds a Principal rather than a User row.
+    actor_id: uuid.UUID,
     actor_perms: frozenset[str],
     user_id: uuid.UUID,
     *,
@@ -181,7 +183,7 @@ async def patch_user_guarded(
     is_active: bool | None,
 ) -> User:
     user = await get_user(session, user_id)
-    if user.id == actor.id and (role_ids is not None or is_active is not None):
+    if user.id == actor_id and (role_ids is not None or is_active is not None):
         raise SelfRoleChangeError("cannot change your own roles or active status")
     if await _loses_last_manager(session, user, role_ids, is_active):
         raise LastUserManagerError("cannot remove the last active holder of users:manage")
@@ -191,5 +193,5 @@ async def patch_user_guarded(
         display_name=display_name,
         role_ids=role_ids,
         is_active=is_active,
-        actor_id=actor.id,
+        actor_id=actor_id,
     )

@@ -67,7 +67,11 @@ def parse_markers(text: str) -> list[tuple[str, list[int]]]:
     return results
 
 
-def build_citations(text: str, texts_by_key: dict[str, dict[int, str]]) -> list[dict]:
+# str | None on the inner value, not str: entries are built with
+# frame.get(i), and a marker citing an id absent from the frame is normal
+# (the LLM cites report ids that were never indexed). The callers always
+# passed such maps; only the annotation claimed otherwise.
+def build_citations(text: str, texts_by_key: dict[str, dict[int, str | None]]) -> list[dict]:
     frames = texts_by_key or {}
     citations: list[dict] = []
     for label, ids in parse_markers(text):

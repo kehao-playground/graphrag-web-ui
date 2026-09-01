@@ -59,7 +59,7 @@ class RoleUpdateIn(BaseModel):
     permissions: list[str]
 
 
-_BAD_REQUEST = {
+_BAD_REQUEST: dict[type[Exception], tuple[str, str | None]] = {
     RoleIsSystemError: ("role_is_system", "built-in roles are immutable"),
     RoleScopeMismatchError: ("role_scope_mismatch", None),
     RolePermissionsInvalidError: ("role_permissions_invalid", None),

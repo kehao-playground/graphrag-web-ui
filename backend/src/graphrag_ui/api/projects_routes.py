@@ -202,6 +202,10 @@ def register_projects_routes(app):
         except RoleScopeMismatchError as e:
             raise ApiError(status.HTTP_400_BAD_REQUEST, "role_scope_mismatch", str(e)) from None
         role = await db.get(Role, member.role_id)
+        # set_member_role validated and assigned this role id in the same
+        # transaction, so the row is there; an assert says why rather than
+        # letting a later attribute access raise a bare AttributeError.
+        assert role is not None, "member.role_id was just set from a loaded role"
         return MemberOut(
             user_id=str(user_id),
             email=target.email,

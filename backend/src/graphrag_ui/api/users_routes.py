@@ -84,7 +84,7 @@ def register_users_routes(app):
         try:
             user = await patch_user_guarded(
                 db,
-                admin,
+                admin.id,
                 admin.global_perms,
                 user_id,
                 display_name=body.display_name,

@@ -165,20 +165,22 @@ async def delete_role(session: AsyncSession, role: Role, *, actor_id: uuid.UUID 
 
 async def usage_counts(session: AsyncSession) -> dict[uuid.UUID, dict[str, int]]:
     """Reference counts per role id: {id: {"users": n, "members": n}}."""
-    users = dict(
-        (
+    users: dict[uuid.UUID, int] = {
+        role_id: count
+        for role_id, count in (
             await session.execute(select(UserRole.role_id, func.count()).group_by(UserRole.role_id))
         ).all()
-    )
-    members = dict(
-        (
+    }
+    members: dict[uuid.UUID, int] = {
+        role_id: count
+        for role_id, count in (
             await session.execute(
                 select(ProjectMember.role_id, func.count())
                 .where(ProjectMember.role_id.is_not(None))  # nullable until R2
                 .group_by(ProjectMember.role_id)
             )
         ).all()
-    )
+    }
     ids = set(users) | set(members)
     return {rid: {"users": users.get(rid, 0), "members": members.get(rid, 0)} for rid in ids}
 

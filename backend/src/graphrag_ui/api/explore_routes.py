@@ -41,7 +41,7 @@ def _explore_error_http(exc: Exception) -> ApiError:
         )
     if isinstance(exc, UnsupportedFilterError):
         return ApiError(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "explore_unsupported_filter",
             "this table does not support that filter",
         )

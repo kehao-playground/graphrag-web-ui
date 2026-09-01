@@ -229,7 +229,13 @@ async def test_patch_user_guarded_rejects_self_role_change(db_session):
     )
     with pytest.raises(SelfRoleChangeError):
         await patch_user_guarded(
-            db_session, admin, frozenset(), admin.id, display_name=None, role_ids=[], is_active=None
+            db_session,
+            admin.id,
+            frozenset(),
+            admin.id,
+            display_name=None,
+            role_ids=[],
+            is_active=None,
         )
 
 
@@ -260,7 +266,7 @@ async def test_patch_user_guarded_rejects_last_manager_loss(db_session):
     with pytest.raises(LastUserManagerError):
         await patch_user_guarded(
             db_session,
-            actor,
+            actor.id,
             frozenset(),
             target.id,
             display_name=None,
@@ -270,7 +276,7 @@ async def test_patch_user_guarded_rejects_last_manager_loss(db_session):
     with pytest.raises(LastUserManagerError):
         await patch_user_guarded(
             db_session,
-            actor,
+            actor.id,
             frozenset(),
             target.id,
             display_name=None,
@@ -287,7 +293,7 @@ async def test_patch_user_guarded_rejects_last_manager_loss(db_session):
         actor_id=None,
     )
     stripped = await patch_user_guarded(
-        db_session, actor, frozenset(), target.id, display_name=None, role_ids=[], is_active=None
+        db_session, actor.id, frozenset(), target.id, display_name=None, role_ids=[], is_active=None
     )
     assert stripped.is_active is True
 

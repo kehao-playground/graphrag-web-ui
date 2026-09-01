@@ -18,7 +18,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 
 from graphrag_ui.api.deps import DbSession, require_atom
-from graphrag_ui.api.schemas import AuditPageOut
+from graphrag_ui.api.schemas import AuditEntryOut, AuditPageOut
 from graphrag_ui.domain.permissions import Atom
 from graphrag_ui.services.audit import list_audit
 
@@ -49,6 +49,6 @@ def register_audit_routes(app):
             target_type=target_type,
             actor_id=actor_id,
         )
-        return AuditPageOut(rows=rows, total=total)
+        return AuditPageOut(rows=[AuditEntryOut(**row) for row in rows], total=total)
 
     app.include_router(router)

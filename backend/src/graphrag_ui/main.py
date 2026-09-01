@@ -132,7 +132,9 @@ def _register_must_change_guard(app: FastAPI) -> None:
 
 def create_app() -> FastAPI:
     app = FastAPI(title="GraphRAG Web UI", lifespan=lifespan)
-    app.add_exception_handler(ApiError, api_error_handler)
+    # Starlette types every handler against bare Exception; a handler
+    # narrowed to its own exception class cannot satisfy that signature.
+    app.add_exception_handler(ApiError, api_error_handler)  # type: ignore[arg-type]
     register_health_routes(app)
     register_auth_routes(app)
     register_users_routes(app)

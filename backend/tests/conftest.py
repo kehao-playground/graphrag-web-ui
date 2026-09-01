@@ -8,7 +8,7 @@ from asgi_lifespan import LifespanManager
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-from testcontainers.postgres import PostgresContainer
+from testcontainers.community.postgres import PostgresContainer
 
 from graphrag_ui.adapters.db import make_engine, make_session_factory, reset_engine
 from graphrag_ui.adapters.models import Base
