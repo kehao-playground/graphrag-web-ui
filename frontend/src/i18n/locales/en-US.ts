@@ -199,6 +199,22 @@ const enUS = {
     deleteConfirm: "Delete role {{name}}?",
     manageWarning: "project:manage grants rename, deletion and member management to any member holding this role.",
   },
+  adminAudit: {
+    title: "Audit log",
+    when: "When",
+    actor: "Actor",
+    action: "Action",
+    target: "Target",
+    details: "Details",
+    system: "system",
+    deletedActor: "(deleted user)",
+    filterAction: "Filter by action",
+    filterTargetType: "Filter by target type",
+    clearFilters: "Clear filters",
+    loadFailed: "Failed to load the audit log ({{status}})",
+    empty: "No audit entries match these filters",
+    retention: "Entries are written by every change; nothing here can be edited or deleted through the UI.",
+  },
   // Permission atom labels (spec §7 catalog): shown in the roles table and
   // the scope-aware checkbox editor — labels only, never a gate.
   perms: {
@@ -212,6 +228,7 @@ const enUS = {
     projects: "Projects",
     adminUsers: "Admin — Users",
     adminRoles: "Admin — Roles",
+    adminAudit: "Admin — Audit",
     language: "Language",
     logout: "Log out",
     title: "GraphRAG Web UI",

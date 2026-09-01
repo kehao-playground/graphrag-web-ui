@@ -136,6 +136,12 @@ the catalog:
 ![Admin users](docs/assets/screenshots/en/admin-users.png)
 ![Admin roles](docs/assets/screenshots/en/admin-roles.png)
 
+Every change writes an audit row (user and role edits, uploads and
+deletions, env-key changes, settings saves). `Admin — Audit` reads them
+back, newest first, filterable by action and target type, and gated on the
+same `users:manage` right as the two pages above. It is read-only: nothing
+in the trail can be edited or deleted through the API.
+
 ## Known caveats
 
 - graphrag is pinned to `==3.1.0`: newer 3.1.x releases pull `lancedb` versions that have

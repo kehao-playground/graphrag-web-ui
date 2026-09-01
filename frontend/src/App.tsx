@@ -12,6 +12,7 @@ import Projects from "./pages/Projects";
 import ProjectDetail from "./pages/ProjectDetail";
 import AdminUsers from "./pages/AdminUsers";
 import AdminRoles from "./pages/AdminRoles";
+import AdminAudit from "./pages/AdminAudit";
 import { useAuth } from "./stores/auth";
 import "./i18n";
 
@@ -33,6 +34,7 @@ export default function App() {
               <Route path="/projects/:id" element={<ProjectDetail />} />
               <Route path="/admin/users" element={<AdminUsers />} />
               <Route path="/admin/roles" element={<AdminRoles />} />
+              <Route path="/admin/audit" element={<AdminAudit />} />
             </Route>
           </Routes>
         </BrowserRouter>

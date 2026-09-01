@@ -133,6 +133,11 @@ flowchart LR
 ![管理者使用者](../assets/screenshots/zh/admin-users.png)
 ![角色管理](../assets/screenshots/zh/admin-roles.png)
 
+每一次變更都會寫入稽核記錄(使用者與角色異動、檔案上傳與刪除、env 金鑰
+變更、設定儲存)。`管理者 — 稽核`頁面可以讀回這些記錄,依時間新到舊排序,
+並可依動作與對象類型篩選;權限與上述兩個頁面相同,皆由 `users:manage`
+控管。此頁面為唯讀 —— 稽核內容無法透過 API 編輯或刪除。
+
 ## 已知注意事項
 
 - graphrag 固定在 `==3.1.0`:較新的 3.1.x 版本會拉入沒有 macOS x86_64

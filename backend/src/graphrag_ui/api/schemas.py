@@ -155,3 +155,29 @@ class PreflightOut(BaseModel):
     cache_quota_mb: int
     disk_free_mb: int
     disk_watermark_mb: int
+
+
+class AuditEntryOut(BaseModel):
+    """One audit row, with the actor resolved to an email.
+
+    actor_id/actor_email are both null for rows the system wrote with no
+    signed-in actor (bootstrap admin creation), and actor_email alone is
+    null when the actor's user row is gone — the history stays readable
+    either way.
+    """
+
+    id: int
+    actor_id: UUID | None
+    actor_email: str | None
+    action: str
+    target_type: str
+    target_id: str
+    payload: dict | None
+    created_at: datetime
+
+
+class AuditPageOut(BaseModel):
+    """One page of audit rows plus the total ignoring limit/offset."""
+
+    rows: list[AuditEntryOut]
+    total: int

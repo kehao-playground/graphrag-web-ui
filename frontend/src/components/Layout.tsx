@@ -24,12 +24,14 @@ export default function Layout() {
     ...(canManageUsers ? [
       { key: "/admin/users", label: t("layout.adminUsers") },
       { key: "/admin/roles", label: t("layout.adminRoles") },
+      { key: "/admin/audit", label: t("layout.adminAudit") },
     ] : []),
   ];
 
   // zh-TW: /projects/:id must also highlight the 專案 (projects) nav item; same for the /admin prefixes
   const selectedKey = location.pathname.startsWith("/projects") ? "/projects"
     : location.pathname.startsWith("/admin/roles") ? "/admin/roles"
+    : location.pathname.startsWith("/admin/audit") ? "/admin/audit"
     : location.pathname.startsWith("/admin") ? "/admin/users"
     : location.pathname;
 

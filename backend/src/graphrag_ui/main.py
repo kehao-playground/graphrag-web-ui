@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from starlette.routing import Match
 
 from graphrag_ui.adapters.db import get_session_factory
+from graphrag_ui.api.audit_routes import register_audit_routes
 from graphrag_ui.api.auth_routes import register_auth_routes
 from graphrag_ui.api.deps import MUST_CHANGE_ALLOWED_PATHS, resolve_access_user
 from graphrag_ui.api.dry_run_routes import register_dry_run_routes
@@ -136,6 +137,7 @@ def create_app() -> FastAPI:
     register_auth_routes(app)
     register_users_routes(app)
     register_roles_routes(app)
+    register_audit_routes(app)
     register_projects_routes(app)
     register_files_routes(app)
     register_env_routes(app)

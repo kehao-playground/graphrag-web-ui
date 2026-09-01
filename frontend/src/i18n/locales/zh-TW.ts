@@ -204,6 +204,22 @@ export default {
     deleteConfirm: "刪除角色 {{name}}？",
     manageWarning: "project:manage 會讓持有此角色的成員可以改名、刪除專案與管理成員。",
   },
+  adminAudit: {
+    title: "稽核記錄",
+    when: "時間",
+    actor: "操作者",
+    action: "動作",
+    target: "對象",
+    details: "細節",
+    system: "系統",
+    deletedActor: "（已刪除的使用者）",
+    filterAction: "依動作篩選",
+    filterTargetType: "依對象類型篩選",
+    clearFilters: "清除篩選",
+    loadFailed: "載入稽核記錄失敗（{{status}}）",
+    empty: "沒有符合篩選條件的稽核記錄",
+    retention: "每次變更都會寫入記錄;此處的內容無法透過介面編輯或刪除。",
+  },
   // Permission atom labels (spec §7 catalog): shown in the roles table and
   // the scope-aware checkbox editor — labels only, never a gate.
   perms: {
@@ -217,6 +233,7 @@ export default {
     projects: "專案",
     adminUsers: "管理者 — 使用者",
     adminRoles: "管理者 — 角色",
+    adminAudit: "管理者 — 稽核",
     language: "語言",
     logout: "登出",
     title: "GraphRAG Web UI",
