@@ -77,7 +77,7 @@ flowchart LR
     W --> E["探索 — duckdb 唯讀 output/ parquet"]
 ```
 
-![專案列表](../../assets/screenshots/zh/projects.png)
+![專案列表](../assets/screenshots/zh/projects.png)
 
 ## 快速開始(15 分鐘)
 
@@ -99,19 +99,19 @@ flowchart LR
 4. **首次登入** — 以 bootstrap 管理員身分登入;UI 會強制先變更密碼,
    之後才能進行其他操作。
 
-   ![登入頁](../../assets/screenshots/zh/login.png)
+   ![登入頁](../assets/screenshots/zh/login.png)
 
 5. **建立專案** — 選擇 `input_file_type`(`text` / `csv` / `json`)。此值
    在建立時即固定,並決定上傳接受的副檔名。
 6. **上傳語料** — 檔案會進入專案工作區的 `input/`。單檔上限
    `UPLOAD_MAX_FILE_MB`,每專案配額 `PROJECT_QUOTA_MB`;超過任一上限 → 413。
 
-   ![專案檔案](../../assets/screenshots/zh/project-files.png)
+   ![專案檔案](../assets/screenshots/zh/project-files.png)
 
 7. **設定 LLM 金鑰** — 專案設定 → 環境:設定 `GRAPHRAG_API_KEY`(每專案
    各自持有,存於工作區 `.env`,回讀時遮罩顯示)。缺少此金鑰,索引工作會失敗。
 
-   ![專案設定](../../assets/screenshots/zh/project-settings.png)
+   ![專案設定](../assets/screenshots/zh/project-settings.png)
 
 8. **索引** — 工作 → 執行一項索引工作(method 為 `fast` 或 `standard`)。
    來自真實語料測試的提醒:在極小語料上,`fast` 方法可能會失敗
@@ -128,8 +128,8 @@ flowchart LR
 範圍內組合權限原子。AdminUsers 以可多選的標籤呈現各帳號的角色(並提供
 密碼重設與停用);AdminRoles 頁面管理角色目錄:
 
-![管理者使用者](../../assets/screenshots/zh/admin-users.png)
-![角色管理](../../assets/screenshots/zh/admin-roles.png)
+![管理者使用者](../assets/screenshots/zh/admin-users.png)
+![角色管理](../assets/screenshots/zh/admin-roles.png)
 
 ## 已知注意事項
 
