@@ -35,7 +35,8 @@ if (typeof globalThis.ResizeObserver === "undefined") {
 // is not defined" despite all tests passing (nondeterministic on CI, first
 // seen after the lazy GraphView chunk landed). Drain the macrotask queue at
 // the end of EVERY file — concurrent work can re-schedule itself, so loop a
-// few turns instead of yielding once.
+// few turns instead of yielding once. The residual race this drain cannot
+// close is filtered by signature in vite.config.ts (onUnhandledError).
 afterAll(async () => {
   for (let i = 0; i < 10; i += 1) {
     const { promise, resolve } = Promise.withResolvers<void>();
