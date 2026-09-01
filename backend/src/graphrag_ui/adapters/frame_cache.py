@@ -1,4 +1,5 @@
 """Per-project parquet DataFrame cache with LRU byte-budget eviction."""
+
 import asyncio
 from collections import OrderedDict
 from functools import lru_cache
@@ -56,9 +57,7 @@ class FrameCache:
     def __init__(self, budget_bytes: int) -> None:
         self.budget_bytes = budget_bytes
         # (root_str, table) -> (validity_key, DataFrame)
-        self._entries: OrderedDict[tuple[str, str], tuple[tuple, pd.DataFrame]] = (
-            OrderedDict()
-        )
+        self._entries: OrderedDict[tuple[str, str], tuple[tuple, pd.DataFrame]] = OrderedDict()
         self._bytes = 0
 
     async def get(self, root: Path, table: str) -> pd.DataFrame:
@@ -98,6 +97,7 @@ class FrameCache:
         except FileNotFoundError:
             return None
         return (path, stat.st_mtime_ns, stat.st_size)
+
     def _remove(self, key: tuple[str, str]) -> None:
         _, df = self._entries.pop(key)
         self._bytes -= _frame_bytes(df)
@@ -129,5 +129,3 @@ def get_frame_cache() -> FrameCache:
 def reset_frame_cache() -> None:
     """Test hygiene: drop the singleton (pair with get_settings.cache_clear)."""
     get_frame_cache.cache_clear()
-
-

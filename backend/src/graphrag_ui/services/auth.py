@@ -39,9 +39,7 @@ def verify_password(pw: str, hashed: str) -> bool:
 UNUSABLE_PASSWORD_HASH = "!proxy-no-local-password"
 
 
-async def get_or_provision_user(
-    session: AsyncSession, email: str, display_name: str
-) -> User:
+async def get_or_provision_user(session: AsyncSession, email: str, display_name: str) -> User:
     """Case-insensitive get-or-create for proxy-mode identity (spec §5.2).
 
     Legacy rows may store the local part with its original case (create_user
@@ -56,8 +54,9 @@ async def get_or_provision_user(
     settings = get_settings()
 
     async def _lookup() -> User | None:
-        return (await session.execute(
-            select(User).where(func.lower(User.email) == addr))).scalar_one_or_none()
+        return (
+            await session.execute(select(User).where(func.lower(User.email) == addr))
+        ).scalar_one_or_none()
 
     user = await _lookup()
     if user is None:
@@ -72,11 +71,20 @@ async def get_or_provision_user(
         try:
             await session.flush()
             if addr in settings.proxy_admin_set:
-                session.add_all([
-                    UserRole(user_id=user.id, role_id=ROLE_ID_USER_ADMIN),
-                    UserRole(user_id=user.id, role_id=ROLE_ID_OPS)])
-            await audit(session, user.id, "user.created", "user", str(user.id),
-                        payload={"email": addr, "origin": "proxy-jit"})
+                session.add_all(
+                    [
+                        UserRole(user_id=user.id, role_id=ROLE_ID_USER_ADMIN),
+                        UserRole(user_id=user.id, role_id=ROLE_ID_OPS),
+                    ]
+                )
+            await audit(
+                session,
+                user.id,
+                "user.created",
+                "user",
+                str(user.id),
+                payload={"email": addr, "origin": "proxy-jit"},
+            )
             await session.commit()
         except IntegrityError:
             # Lost the insert race: the unique-index winner's row is
@@ -90,43 +98,60 @@ async def get_or_provision_user(
     # on every resolve. Grant-set difference, not role-name equality —
     # a user holding only user_admin gets ops added, and so on.
     if addr in settings.proxy_admin_set:
-        have = set((await session.execute(
-            select(UserRole.role_id).where(UserRole.user_id == user.id)
-        )).scalars().all())
-        missing = [rid for rid in (ROLE_ID_USER_ADMIN, ROLE_ID_OPS)
-                   if rid not in have]
+        have = set(
+            (await session.execute(select(UserRole.role_id).where(UserRole.user_id == user.id)))
+            .scalars()
+            .all()
+        )
+        missing = [rid for rid in (ROLE_ID_USER_ADMIN, ROLE_ID_OPS) if rid not in have]
         if missing:
-            session.add_all([UserRole(user_id=user.id, role_id=rid)
-                             for rid in missing])
-            await audit(session, user.id, "user.role_promoted", "user",
-                        str(user.id), payload={"via": "proxy_admin_emails"})
+            session.add_all([UserRole(user_id=user.id, role_id=rid) for rid in missing])
+            await audit(
+                session,
+                user.id,
+                "user.role_promoted",
+                "user",
+                str(user.id),
+                payload={"via": "proxy_admin_emails"},
+            )
             await session.commit()
     return user
+
 
 def create_access_token(user: User) -> str:
     s = get_settings()
     now = datetime.now(UTC)
     return jwt.encode(
-        {"sub": str(user.id), "type": "access",
-         "iat": now, "exp": now + timedelta(minutes=s.access_token_minutes)},
-        s.jwt_secret, algorithm="HS256")
+        {
+            "sub": str(user.id),
+            "type": "access",
+            "iat": now,
+            "exp": now + timedelta(minutes=s.access_token_minutes),
+        },
+        s.jwt_secret,
+        algorithm="HS256",
+    )
 
 
 async def issue_refresh_token(session: AsyncSession, user_id: uuid.UUID) -> str:
     s = get_settings()
     token = secrets.token_urlsafe(48)
-    session.add(RefreshToken(
-        user_id=user_id,
-        token_hash=hashlib.sha256(token.encode()).hexdigest(),
-        expires_at=datetime.now(UTC) + timedelta(days=s.refresh_token_days)))
+    session.add(
+        RefreshToken(
+            user_id=user_id,
+            token_hash=hashlib.sha256(token.encode()).hexdigest(),
+            expires_at=datetime.now(UTC) + timedelta(days=s.refresh_token_days),
+        )
+    )
     await session.commit()
     return token
 
 
 async def _find(session: AsyncSession, token: str) -> RefreshToken | None:
     h = hashlib.sha256(token.encode()).hexdigest()
-    return (await session.execute(
-        select(RefreshToken).where(RefreshToken.token_hash == h))).scalar_one_or_none()
+    return (
+        await session.execute(select(RefreshToken).where(RefreshToken.token_hash == h))
+    ).scalar_one_or_none()
 
 
 async def rotate_refresh(session: AsyncSession, token: str) -> tuple[uuid.UUID, str] | None:
@@ -140,7 +165,7 @@ async def rotate_refresh(session: AsyncSession, token: str) -> tuple[uuid.UUID, 
         return None
     if row.expires_at < datetime.now(UTC):
         return None
-    row.revoked_at = datetime.now(UTC)   # mark instead of delete, so reuse detection works
+    row.revoked_at = datetime.now(UTC)  # mark instead of delete, so reuse detection works
     await session.commit()
     return row.user_id, await issue_refresh_token(session, row.user_id)
 
@@ -163,7 +188,9 @@ _DUMMY_HASH = _ph.hash("dummy-for-constant-time")
 async def authenticate(session: AsyncSession, email: str, password: str) -> User | None:
     user = (await session.execute(select(User).where(User.email == email))).scalar_one_or_none()
     if user is None or not user.is_active:
-        verify_password(password, _DUMMY_HASH)   # flatten response time; prevents account enumeration via timing
+        verify_password(
+            password, _DUMMY_HASH
+        )  # flatten response time; prevents account enumeration via timing
         return None
     return user if verify_password(password, user.password_hash) else None
 
@@ -180,13 +207,15 @@ async def bootstrap_admin(session: AsyncSession) -> None:
     # Probe by EFFECTIVE permission, not role name, and never with a
     # scalar_one_or_none(): multiple admins raise MultipleResultsFound —
     # a startup crash. user_admin is expected to have several holders.
-    holder = (await session.execute(
-        select(User.email)
-        .join(UserRole, UserRole.user_id == User.id)
-        .join(Role, Role.id == UserRole.role_id)
-        .where(User.is_active.is_(True),
-               Role.permissions.contains(["users:manage"]))
-        .limit(1))).scalar_one_or_none()
+    holder = (
+        await session.execute(
+            select(User.email)
+            .join(UserRole, UserRole.user_id == User.id)
+            .join(Role, Role.id == UserRole.role_id)
+            .where(User.is_active.is_(True), Role.permissions.contains(["users:manage"]))
+            .limit(1)
+        )
+    ).scalar_one_or_none()
     if holder is not None:
         # Silently returning here is the most confusing trial failure: the
         # .env password was changed between runs, the persisted admin keeps
@@ -195,17 +224,31 @@ async def bootstrap_admin(session: AsyncSession) -> None:
             "Bootstrap admin %s skipped: %s already holds users:manage "
             "(BOOTSTRAP_ADMIN_PASSWORD is ignored; to recreate the admin: "
             "docker compose down -v — destroys all data).",
-            s.bootstrap_admin_email, holder)
+            s.bootstrap_admin_email,
+            holder,
+        )
         return
-    admin = User(email=s.bootstrap_admin_email,
-                 password_hash=hash_password(s.bootstrap_admin_password),
-                 display_name="Administrator",
-                 is_active=True, must_change_password=True)
+    admin = User(
+        email=s.bootstrap_admin_email,
+        password_hash=hash_password(s.bootstrap_admin_password),
+        display_name="Administrator",
+        is_active=True,
+        must_change_password=True,
+    )
     session.add(admin)
     await session.flush()
-    session.add_all([UserRole(user_id=admin.id, role_id=ROLE_ID_USER_ADMIN),
-                     UserRole(user_id=admin.id, role_id=ROLE_ID_OPS)])
-    await audit(session, None, "user.created", "user", str(admin.id),
-                payload={"email": s.bootstrap_admin_email,
-                         "origin": "bootstrap"})
+    session.add_all(
+        [
+            UserRole(user_id=admin.id, role_id=ROLE_ID_USER_ADMIN),
+            UserRole(user_id=admin.id, role_id=ROLE_ID_OPS),
+        ]
+    )
+    await audit(
+        session,
+        None,
+        "user.created",
+        "user",
+        str(admin.id),
+        payload={"email": s.bootstrap_admin_email, "origin": "bootstrap"},
+    )
     await session.commit()

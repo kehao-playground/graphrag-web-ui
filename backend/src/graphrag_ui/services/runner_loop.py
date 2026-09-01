@@ -48,16 +48,16 @@ async def reconcile_stale() -> int:
         stale = await jobs_repo.find_stale_running(s, cutoff)
         for job in stale:
             await jobs_repo.finish(
-                s, job.id, "failed(interrupted)",
-                error="worker heartbeat timeout; job interrupted")
+                s, job.id, "failed(interrupted)", error="worker heartbeat timeout; job interrupted"
+            )
     return len(stale)
 
 
 async def _cancel_requested_in_db(job_id: uuid.UUID) -> bool:
     """Fresh-session read of cancel_requested_at — no identity-map staleness."""
     async with get_session_factory()() as s:
-        row = (await s.execute(
-            select(Job.cancel_requested_at).where(Job.id == job_id))
+        row = (
+            await s.execute(select(Job.cancel_requested_at).where(Job.id == job_id))
         ).scalar_one_or_none()
     return row is not None
 
@@ -91,22 +91,25 @@ async def _execute(job_id: uuid.UUID) -> None:
                 if await _cancel_requested_in_db(job_id):
                     state["cancelled"] = True
             except Exception:  # one failed poll must not kill the watcher
-                logger.warning("watch poll failed for job %s", job_id,
-                               exc_info=True)
+                logger.warning("watch poll failed for job %s", job_id, exc_info=True)
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(hb_stop.wait(), timeout=_CANCEL_POLL_S)
 
     hb_task = asyncio.create_task(watch())
     try:
         res = await IndexRunner().run(
-            argv=argv, root=root, log_path=log_path_for(root, job_id),
+            argv=argv,
+            root=root,
+            log_path=log_path_for(root, job_id),
             job_type=job_type,
             heartbeat=lambda: asyncio.sleep(0),  # placeholder: run() never awaits it
-            cancel_requested=lambda: state["cancelled"])
+            cancel_requested=lambda: state["cancelled"],
+        )
     except Exception as exc:  # the job must reach a terminal state regardless
         logger.exception("job execution crashed: %s", job_id)
-        res = RunResult(status="failed", exit_code=None,
-                        error=f"internal error: {exc!r}", stats=None)
+        res = RunResult(
+            status="failed", exit_code=None, error=f"internal error: {exc!r}", stats=None
+        )
     finally:
         hb_stop.set()
         hb_task.cancel()
@@ -117,9 +120,9 @@ async def _execute(job_id: uuid.UUID) -> None:
         except Exception:  # a dead watcher must not block finish()
             logger.warning("watch task ended with an error", exc_info=True)
     async with get_session_factory()() as s:
-        await jobs_repo.finish(s, job_id, res.status,
-                               exit_code=res.exit_code, error=res.error,
-                               stats=res.stats)
+        await jobs_repo.finish(
+            s, job_id, res.status, exit_code=res.exit_code, error=res.error, stats=res.stats
+        )
     if job_type == "update" and res.status == "succeeded":
         # Retention (spec §6.3): the merge already consumed older deltas;
         # keep only the newest update_output runs on disk.
@@ -145,8 +148,7 @@ async def run_loop(stop: asyncio.Event) -> None:
             # resource blip, never a correctness issue.
             async with get_session_factory()() as s:
                 running = await jobs_repo.count_running(s)
-                job = (await jobs_repo.claim_next(s, worker_id())
-                       if running < cap else None)
+                job = await jobs_repo.claim_next(s, worker_id()) if running < cap else None
             if job is not None:
                 t = asyncio.create_task(_execute(job.id))
                 _executing.add(t)

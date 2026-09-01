@@ -18,6 +18,7 @@ away:
    loop — an `async def` test would break every alembic call. The helpers
    therefore wrap their async work in `asyncio.run()`.
 """
+
 import asyncio
 import os
 
@@ -138,9 +139,15 @@ def test_r1_seeds_builtins_and_backfills(legacy_db):
     _seed_legacy_rows(url)
     command.upgrade(cfg, R1)
 
-    roles = {r[0]: (r[1], tuple(r[2])) for r in _rows(url, """
+    roles = {
+        r[0]: (r[1], tuple(r[2]))
+        for r in _rows(
+            url,
+            """
         SELECT name, scope, permissions FROM roles ORDER BY name
-    """)}
+    """,
+        )
+    }
     # spot-check the six built-ins carry the spec §4.2 atom sets
     assert roles["user_admin"] == ("global", ("users:manage",))
     assert set(roles["ops"][1]) == {"projects:view_any", "projects:act_any"}
@@ -148,41 +155,67 @@ def test_r1_seeds_builtins_and_backfills(legacy_db):
     assert roles["viewer"] == ("project", ("project:view",))
     assert roles["editor"][0] == "project"
     assert set(roles["editor"][1]) == {
-        "project:view", "project:edit_content", "project:run_jobs",
-        "project:edit_settings"}
+        "project:view",
+        "project:edit_content",
+        "project:run_jobs",
+        "project:edit_settings",
+    }
     assert set(roles["owner"][1]) == {
-        "project:view", "project:edit_content", "project:run_jobs",
-        "project:edit_settings", "project:manage"}
+        "project:view",
+        "project:edit_content",
+        "project:run_jobs",
+        "project:edit_settings",
+        "project:manage",
+    }
     assert set(roles["maintainer"][1]) == {
-        "project:view", "project:edit_content", "project:run_jobs"}
+        "project:view",
+        "project:edit_content",
+        "project:run_jobs",
+    }
 
     # users.role='admin' rows gain exactly [user_admin, ops]; 'user' rows none
-    grants = _rows(url, """
+    grants = _rows(
+        url,
+        """
         SELECT u.email, r.name FROM users u
         JOIN user_roles ur ON ur.user_id = u.id
         JOIN roles r ON r.id = ur.role_id
         ORDER BY u.email, r.name
-    """)
+    """,
+    )
     assert grants == [
-        ("a@x.com", "ops"), ("a@x.com", "user_admin"),
-        ("d@x.com", "ops"), ("d@x.com", "user_admin"),
+        ("a@x.com", "ops"),
+        ("a@x.com", "user_admin"),
+        ("d@x.com", "ops"),
+        ("d@x.com", "user_admin"),
     ]
 
     # member strings map to role_id; the combination case (global admin
     # AND project editor on one user, spec §9) must not interfere
-    members = {r[0]: r[1] for r in _rows(url, """
+    members = {
+        r[0]: r[1]
+        for r in _rows(
+            url,
+            """
         SELECT u.email, r.name FROM project_members pm
         JOIN users u ON u.id = pm.user_id
         JOIN roles r ON r.id = pm.role_id
-    """)}
-    assert members == {
-        "a@x.com": "owner", "b@x.com": "editor", "d@x.com": "viewer"}
+    """,
+        )
+    }
+    assert members == {"a@x.com": "owner", "b@x.com": "editor", "d@x.com": "viewer"}
 
     # R1 keeps the legacy columns (spec deviation note in plan header)
-    cols = {r[0] for r in _rows(url, """
+    cols = {
+        r[0]
+        for r in _rows(
+            url,
+            """
         SELECT column_name FROM information_schema.columns
         WHERE table_name IN ('users', 'project_members') AND column_name = 'role'
-    """)}
+    """,
+        )
+    }
     assert cols == {"role"}
 
 
@@ -198,10 +231,16 @@ def test_r1_downgrade_drops_rbac_tables(legacy_db):
     _seed_legacy_rows(url)
     command.upgrade(cfg, R1)
     command.downgrade(cfg, LEGACY_BASE)
-    tables = {r[0] for r in _rows(url, """
+    tables = {
+        r[0]
+        for r in _rows(
+            url,
+            """
         SELECT table_name FROM information_schema.tables
         WHERE table_schema = 'public'
-    """)}
+    """,
+        )
+    }
     assert "roles" not in tables and "user_roles" not in tables
     # legacy data untouched by the roundtrip
     assert len(_rows(url, "SELECT id FROM users")) == 4
@@ -213,10 +252,16 @@ def test_r2_drops_columns_and_lossy_downgrade(legacy_db):
     url, cfg = legacy_db
     _seed_legacy_rows(url)
     command.upgrade(cfg, R2)
-    cols = {r[0] for r in _rows(url, """
+    cols = {
+        r[0]
+        for r in _rows(
+            url,
+            """
         SELECT column_name FROM information_schema.columns
         WHERE table_schema = 'public' AND table_name = 'users'
-    """)}
+    """,
+        )
+    }
     assert "role" not in cols
 
     # new-model state: ops-only holder + maintainer member + editor member
@@ -251,10 +296,15 @@ def test_r2_drops_columns_and_lossy_downgrade(legacy_db):
     users = dict(_rows(url, "SELECT email, role FROM users"))
     assert users["e@x.com"] == "admin"  # ops-only upgraded on purpose
     assert users["b@x.com"] == "user"
-    members = dict(_rows(url, """
+    members = dict(
+        _rows(
+            url,
+            """
         SELECT u.email, pm.role FROM project_members pm
         JOIN users u ON u.id = pm.user_id
-    """))
+    """,
+        )
+    )
     assert members["b@x.com"] == "viewer"  # maintainer floors at viewer
     assert members["a@x.com"] == "owner"
     assert members["d@x.com"] == "editor"

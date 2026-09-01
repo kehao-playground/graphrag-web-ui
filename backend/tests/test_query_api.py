@@ -87,7 +87,8 @@ async def _setup_users(client, app):
         ("carol@test.local", "carol-pass-1", "Carol"),
     ]:
         r = await client.post(
-            "/api/admin/users", headers=admin,
+            "/api/admin/users",
+            headers=admin,
             json={"email": email, "display_name": name, "password": pw},
         )
         assert r.status_code == 201, r.text
@@ -99,7 +100,8 @@ async def _setup_users(client, app):
 
 async def _project(client, alice, name="Q3"):
     r = await client.post(
-        "/api/projects", headers=alice,
+        "/api/projects",
+        headers=alice,
         json={"name": name, "description": None, "input_file_type": "text"},
     )
     assert r.status_code == 201, r.text
@@ -110,8 +112,7 @@ async def _add_viewer(client, alice, pid, email):
     users = (await client.get("/api/users", headers=alice)).json()
     vid = next(u["id"] for u in users if u["email"] == email)
     r = await client.put(
-        f"/api/projects/{pid}/members/{vid}", headers=alice,
-        json={"role_id": str(ROLE_ID_VIEWER)}
+        f"/api/projects/{pid}/members/{vid}", headers=alice, json={"role_id": str(ROLE_ID_VIEWER)}
     )
     assert r.status_code in (200, 201), r.text
 
@@ -153,7 +154,11 @@ async def test_mode_loads_its_tables(client, app, fake_adapter, fake_cache):
     r = await _post(client, pid, alice, method="local")
     assert r.status_code == 200
     assert fake_cache.tables == [
-        "entities", "communities", "community_reports", "text_units", "relationships",
+        "entities",
+        "communities",
+        "community_reports",
+        "text_units",
+        "relationships",
     ]
     r = await _post(client, pid, alice, method="global")
     assert r.status_code == 200
@@ -182,7 +187,6 @@ async def test_rate_limit_third_post_429(client, app, fake_adapter, fake_cache, 
     assert (await _post(client, pid, bob)).status_code == 200
 
 
-
 def test_load_config_binds_function_not_submodule():
     """`from graphrag.config import load_config` binds the SUBMODULE (the
     import system shadows the package re-export), which is not callable —
@@ -205,25 +209,52 @@ def test_adapter_kwargs_match_graphrag_signatures():
     frames = {
         name: pd.DataFrame()
         for name in (
-            "entities", "communities", "community_reports", "text_units", "relationships",
+            "entities",
+            "communities",
+            "community_reports",
+            "text_units",
+            "relationships",
         )
     }
     config = type("Cfg", (), {})()  # no community_level attr → default applies
     expectations = {
         "basic": {"text_units"},
-        "local": {"entities", "communities", "community_reports", "text_units",
-                  "relationships", "covariates", "community_level"},
-        "drift": {"entities", "communities", "community_reports", "text_units",
-                  "relationships", "community_level"},
-        "global": {"entities", "communities", "community_reports", "community_level",
-                   "dynamic_community_selection"},
+        "local": {
+            "entities",
+            "communities",
+            "community_reports",
+            "text_units",
+            "relationships",
+            "covariates",
+            "community_level",
+        },
+        "drift": {
+            "entities",
+            "communities",
+            "community_reports",
+            "text_units",
+            "relationships",
+            "community_level",
+        },
+        "global": {
+            "entities",
+            "communities",
+            "community_reports",
+            "community_level",
+            "dynamic_community_selection",
+        },
     }
     for method, expected_kwargs in expectations.items():
         kwargs = gsa._frames_kwargs(method, config, frames)
         assert set(kwargs) == expected_kwargs, method
         for mode_fns in (gsa._SEARCH_FNS, gsa._STREAM_FNS):
             params = set(inspect.signature(mode_fns[method]).parameters) - {
-                "config", "query", "response_type", "callbacks", "verbose"}
+                "config",
+                "query",
+                "response_type",
+                "callbacks",
+                "verbose",
+            }
             assert params == expected_kwargs, (method, mode_fns[method].__name__)
         if method != "basic":
             assert kwargs["community_level"] == gsa.DEFAULT_COMMUNITY_LEVEL

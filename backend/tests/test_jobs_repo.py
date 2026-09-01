@@ -23,8 +23,7 @@ async def _mk_project(session, email="owner@t.local"):
     u = User(email=email, password_hash="x", display_name="o")
     session.add(u)
     await session.flush()
-    p = Project(name="p", slug=f"s-{uuid.uuid4().hex[:8]}", owner_id=u.id,
-                input_file_type="text")
+    p = Project(name="p", slug=f"s-{uuid.uuid4().hex[:8]}", owner_id=u.id, input_file_type="text")
     session.add(p)
     await session.flush()
     return p, u
@@ -32,8 +31,13 @@ async def _mk_project(session, email="owner@t.local"):
 
 async def _insert(session, p, u, type_="index"):
     return await insert_job(
-        session, project_id=p.id, type=type_, method="standard",
-        argv=["index", "--root", "/ws", "--method", "standard"], queued_by=u.id)
+        session,
+        project_id=p.id,
+        type=type_,
+        method="standard",
+        argv=["index", "--root", "/ws", "--method", "standard"],
+        queued_by=u.id,
+    )
 
 
 async def test_claim_next_exclusive_and_running(db_session):
@@ -64,8 +68,7 @@ async def test_finish_and_last_finished(db_session):
     p, u = await _mk_project(db_session)
     j = await _insert(db_session, p, u)
     await claim_next(db_session, "w1")
-    await finish(db_session, j.id, "succeeded", exit_code=0,
-                 stats={"num_documents": 3})
+    await finish(db_session, j.id, "succeeded", exit_code=0, stats={"num_documents": 3})
     got = await get_job(db_session, j.id)
     assert got.status == "succeeded" and got.stats["num_documents"] == 3
     assert got.finished_at is not None
@@ -93,8 +96,7 @@ async def test_find_stale_running(db_session):
     p, u = await _mk_project(db_session)
     j = await _insert(db_session, p, u)
     await claim_next(db_session, "w1")
-    stale = await find_stale_running(
-        db_session, datetime.now(UTC) + timedelta(seconds=61))
+    stale = await find_stale_running(db_session, datetime.now(UTC) + timedelta(seconds=61))
     assert [x.id for x in stale] == [j.id]
 
 

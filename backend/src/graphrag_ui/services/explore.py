@@ -60,9 +60,14 @@ async def _stale(session: AsyncSession, project: Project) -> bool:
 
 
 async def list_artifacts(
-    session: AsyncSession, project: Project, table: str, *,
-    limit: int, offset: int,
-    q: str | None = None, type_filter: str | None = None,
+    session: AsyncSession,
+    project: Project,
+    table: str,
+    *,
+    limit: int,
+    offset: int,
+    q: str | None = None,
+    type_filter: str | None = None,
     community: int | None = None,
 ) -> dict:
     spec = table_spec(table)
@@ -77,21 +82,28 @@ async def list_artifacts(
     stale = await _stale(session, project)
     try:
         rows, total = await asyncio.to_thread(
-            list_rows, ws_path(project.id), table,
-            limit=limit, offset=offset, q=q,
-            type_filter=type_filter, community=community,
+            list_rows,
+            ws_path(project.id),
+            table,
+            limit=limit,
+            offset=offset,
+            q=q,
+            type_filter=type_filter,
+            community=community,
         )
     except ArtifactsNotIndexedError:
         raise
     except Exception as exc:  # corrupt parquet etc. — 502, tail stays logged
-        logger.exception("explore list failed (project %s, table %s)",
-                         project.id, table)
+        logger.exception("explore list failed (project %s, table %s)", project.id, table)
         raise ExploreReadError("list", str(exc)[-500:]) from exc
     return {"rows": rows, "total": total, "stale": stale}
 
 
 async def artifact_detail(
-    session: AsyncSession, project: Project, table: str, hrid: int,
+    session: AsyncSession,
+    project: Project,
+    table: str,
+    hrid: int,
 ) -> dict | None:
     """Full row envelope, or None when no row carries the hrid (→ 404)."""
     _guard_table(table)
@@ -101,14 +113,15 @@ async def artifact_detail(
     except ArtifactsNotIndexedError:
         raise
     except Exception as exc:
-        logger.exception("explore detail failed (project %s, table %s)",
-                         project.id, table)
+        logger.exception("explore detail failed (project %s, table %s)", project.id, table)
         raise ExploreReadError("detail", str(exc)[-500:]) from exc
     return None if row is None else {"row": row, "stale": stale}
 
 
 async def knowledge_graph(
-    session: AsyncSession, project: Project, level: int | None = None,
+    session: AsyncSession,
+    project: Project,
+    level: int | None = None,
 ) -> dict:
     stale = await _stale(session, project)
     try:

@@ -43,8 +43,9 @@ def fake_cache(monkeypatch):
 
 
 async def test_login_failure_carries_code(client):
-    r = await client.post("/api/auth/login",
-                          json={"email": "admin@test.local", "password": "wrong"})
+    r = await client.post(
+        "/api/auth/login", json={"email": "admin@test.local", "password": "wrong"}
+    )
     assert r.status_code == 401
     assert r.json()["code"] == "auth_invalid_credentials"
     assert r.json()["detail"] == "invalid email or password"
@@ -56,11 +57,10 @@ async def test_must_change_guard_carries_code(client):
     # The guard only fires when Authorization starts with "Bearer " —
     # a bare request would 401 in get_current_user instead.
     login = await client.post(
-        "/api/auth/login",
-        json={"email": "admin@test.local", "password": "admin-pass-123"})
+        "/api/auth/login", json={"email": "admin@test.local", "password": "admin-pass-123"}
+    )
     token = login.json()["access_token"]
-    r = await client.get("/api/projects",
-                         headers={"Authorization": f"Bearer {token}"})
+    r = await client.get("/api/projects", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 403
     body = r.json()
     assert body["detail"] == "password change required"
@@ -75,8 +75,9 @@ async def test_query_not_indexed_carries_code(client, app, _seams, fake_adapter)
     assert r.json()["code"] == "not_indexed"
 
 
-async def test_query_config_failed_carries_code(client, app, _seams, fake_adapter,
-                                                fake_cache, monkeypatch):
+async def test_query_config_failed_carries_code(
+    client, app, _seams, fake_adapter, fake_cache, monkeypatch
+):
     from graphrag_ui.adapters.graphrag_search import ConfigLoadError
 
     def boom(root):
@@ -97,8 +98,9 @@ async def test_query_failed_carries_code(client, app, _seams, fake_adapter, fake
     assert r.json()["code"] == "query_failed"
 
 
-async def test_query_rate_limited_carries_code(client, app, _seams, fake_adapter,
-                                               fake_cache, monkeypatch):
+async def test_query_rate_limited_carries_code(
+    client, app, _seams, fake_adapter, fake_cache, monkeypatch
+):
     monkeypatch.setenv("QUERY_RATE_LIMIT_PER_HOUR", "2")
     get_settings.cache_clear()
     reset_rate_limiter()
@@ -116,8 +118,7 @@ async def test_upload_bad_extension_carries_code_and_params(client):
     alice = await _alice(client)
     pid = await _make_project(client, alice)
     files = {"file": ("notes.exe", b"x")}
-    r = await client.post(f"/api/projects/{pid}/files", files=files,
-                          headers=alice)
+    r = await client.post(f"/api/projects/{pid}/files", files=files, headers=alice)
     assert r.status_code == 400
     body = r.json()
     assert body["code"] == "file_ext_not_allowed"
@@ -202,8 +203,9 @@ async def test_job_invalid_last_event_id_carries_code(client, app):
             f"/api/projects/{pid}/jobs", headers=alice, json={"type": "index", "method": "fast"}
         )
     ).json()
-    r = await client.get(f"/api/jobs/{j['id']}/logs",
-                         headers={**alice, "Last-Event-ID": "not-a-number"})
+    r = await client.get(
+        f"/api/jobs/{j['id']}/logs", headers={**alice, "Last-Event-ID": "not-a-number"}
+    )
     assert r.status_code == 400
     body = r.json()
     assert body["detail"] == "invalid Last-Event-ID"
@@ -217,10 +219,8 @@ async def project_with_members(client, app):
     admin, who may manage members on any project."""
     admin, alice, _ = await _setup_users(client, app)
     pid = await _project(client, alice)
-    members = (await client.get(f"/api/projects/{pid}/members",
-                                headers=alice)).json()
-    owner_id = next(m["user_id"] for m in members
-                    if m["role_name"] == "owner")
+    members = (await client.get(f"/api/projects/{pid}/members", headers=alice)).json()
+    owner_id = next(m["user_id"] for m in members if m["role_name"] == "owner")
     return SimpleNamespace(id=pid, owner_id=owner_id, admin_headers=admin)
 
 
@@ -230,7 +230,8 @@ async def test_demote_owner_carries_code(client, app, project_with_members):
     r = await client.put(
         f"/api/projects/{project_with_members.id}/members/{project_with_members.owner_id}",
         json={"role_id": str(ROLE_ID_EDITOR)},
-        headers=project_with_members.admin_headers)
+        headers=project_with_members.admin_headers,
+    )
     assert r.status_code == 400
     body = r.json()
     assert body["detail"] == "cannot change or remove the project owner"
@@ -244,7 +245,6 @@ async def project(client, app):
     return SimpleNamespace(id=await _project(client, alice), owner_headers=alice)
 
 
-
 @pytest.fixture
 async def project_with_settings(project):
     # FakeInitializer writes settings.yaml at creation, so any expected_hash
@@ -254,9 +254,11 @@ async def project_with_settings(project):
 
 async def test_settings_conflict_carries_code(client, app, project_with_settings):
     # Mirror test_settings.py's stale-hash conflict setup (write twice).
-    r = await client.put(f"/api/projects/{project_with_settings.id}/settings",
-                         headers=project_with_settings.owner_headers,
-                         json={"content": "server: 1\n", "expected_hash": "stale"})
+    r = await client.put(
+        f"/api/projects/{project_with_settings.id}/settings",
+        headers=project_with_settings.owner_headers,
+        json={"content": "server: 1\n", "expected_hash": "stale"},
+    )
     assert r.status_code == 409
     body = r.json()
     assert body["detail"] == "conflict"
@@ -265,9 +267,11 @@ async def test_settings_conflict_carries_code(client, app, project_with_settings
 
 
 async def test_env_invalid_key_carries_code(client, app, project):
-    r = await client.patch(f"/api/projects/{project.id}/env",
-                           headers=project.owner_headers,
-                           json={"key": "bad key!", "value": "v"})
+    r = await client.patch(
+        f"/api/projects/{project.id}/env",
+        headers=project.owner_headers,
+        json={"key": "bad key!", "value": "v"},
+    )
     assert r.status_code == 400
     body = r.json()
     assert body["detail"] == "invalid key: bad key!"

@@ -1,39 +1,46 @@
 async def test_bootstrap_admin_login_and_forced_change(client):
-    r = await client.post("/api/auth/login", json={
-        "email": "admin@test.local", "password": "admin-pass-123"})
+    r = await client.post(
+        "/api/auth/login", json={"email": "admin@test.local", "password": "admin-pass-123"}
+    )
     assert r.status_code == 200
     body = r.json()
     assert {r["name"] for r in body["user"]["roles"]} == {"user_admin", "ops"}
     assert body["user"]["must_change_password"] is True
     # Forced password-change flow
     hdr = {"Authorization": f"Bearer {body['access_token']}"}
-    r2 = await client.post("/api/auth/change-password", headers=hdr, json={
-        "current_password": "admin-pass-123", "new_password": "new-pass-456"})
+    r2 = await client.post(
+        "/api/auth/change-password",
+        headers=hdr,
+        json={"current_password": "admin-pass-123", "new_password": "new-pass-456"},
+    )
     assert r2.status_code == 204
-    r3 = await client.post("/api/auth/login", json={
-        "email": "admin@test.local", "password": "new-pass-456"})
+    r3 = await client.post(
+        "/api/auth/login", json={"email": "admin@test.local", "password": "new-pass-456"}
+    )
     assert r3.json()["user"]["must_change_password"] is False
 
 
 async def test_login_wrong_password(client):
-    r = await client.post("/api/auth/login", json={
-        "email": "admin@test.local", "password": "nope"})
+    r = await client.post("/api/auth/login", json={"email": "admin@test.local", "password": "nope"})
     assert r.status_code == 401
 
 
 async def test_login_rate_limit_blocks_after_ten_failures_per_email(client):
     for _ in range(10):
-        r = await client.post("/api/auth/login", json={
-            "email": "admin@test.local", "password": "wrong"})
+        r = await client.post(
+            "/api/auth/login", json={"email": "admin@test.local", "password": "wrong"}
+        )
         assert r.status_code == 401
     # 11th attempt: 429 even with the correct password (buckets key on
     # (ip, email) and count failures only)
-    r = await client.post("/api/auth/login", json={
-        "email": "admin@test.local", "password": "admin-pass-123"})
+    r = await client.post(
+        "/api/auth/login", json={"email": "admin@test.local", "password": "admin-pass-123"}
+    )
     assert r.status_code == 429
     # Another email's bucket is unaffected (still 401, not 429)
-    r2 = await client.post("/api/auth/login", json={
-        "email": "other@test.local", "password": "nope"})
+    r2 = await client.post(
+        "/api/auth/login", json={"email": "other@test.local", "password": "nope"}
+    )
     assert r2.status_code == 401
 
 
@@ -41,14 +48,18 @@ async def test_successful_logins_do_not_count_toward_rate_limit(client):
     # Successful logins never fill a bucket: 12 successful logins within a
     # minute must not 429
     for _ in range(12):
-        r = await client.post("/api/auth/login", json={
-            "email": "admin@test.local", "password": "admin-pass-123"})
+        r = await client.post(
+            "/api/auth/login", json={"email": "admin@test.local", "password": "admin-pass-123"}
+        )
         assert r.status_code == 200
 
 
 async def test_refresh_rotation_invalidates_old(client):
-    body = (await client.post("/api/auth/login", json={
-        "email": "admin@test.local", "password": "admin-pass-123"})).json()
+    body = (
+        await client.post(
+            "/api/auth/login", json={"email": "admin@test.local", "password": "admin-pass-123"}
+        )
+    ).json()
     old = body["refresh_token"]
     r1 = await client.post("/api/auth/refresh", json={"refresh_token": old})
     assert r1.status_code == 200
@@ -57,10 +68,15 @@ async def test_refresh_rotation_invalidates_old(client):
 
 
 async def test_refresh_reuse_revokes_family(client):
-    body = (await client.post("/api/auth/login", json={
-        "email": "admin@test.local", "password": "admin-pass-123"})).json()
+    body = (
+        await client.post(
+            "/api/auth/login", json={"email": "admin@test.local", "password": "admin-pass-123"}
+        )
+    ).json()
     old = body["refresh_token"]
-    new = (await client.post("/api/auth/refresh", json={"refresh_token": old})).json()["refresh_token"]
+    new = (await client.post("/api/auth/refresh", json={"refresh_token": old})).json()[
+        "refresh_token"
+    ]
     # Replay the consumed old token -> treated as a leak; the newly issued
     # one is revoked too
     assert (await client.post("/api/auth/refresh", json={"refresh_token": old})).status_code == 401
@@ -68,8 +84,11 @@ async def test_refresh_reuse_revokes_family(client):
 
 
 async def test_me_returns_current_user(client):
-    body = (await client.post("/api/auth/login", json={
-        "email": "admin@test.local", "password": "admin-pass-123"})).json()
+    body = (
+        await client.post(
+            "/api/auth/login", json={"email": "admin@test.local", "password": "admin-pass-123"}
+        )
+    ).json()
     hdr = {"Authorization": f"Bearer {body['access_token']}"}
     # While must_change_password is true, endpoints other than /me and
     # change-password must be blocked
@@ -81,8 +100,11 @@ async def test_me_returns_current_user(client):
 
 
 async def test_logout_revokes(client):
-    body = (await client.post("/api/auth/login", json={
-        "email": "admin@test.local", "password": "admin-pass-123"})).json()
+    body = (
+        await client.post(
+            "/api/auth/login", json={"email": "admin@test.local", "password": "admin-pass-123"}
+        )
+    ).json()
     await client.post("/api/auth/logout", json={"refresh_token": body["refresh_token"]})
     r = await client.post("/api/auth/refresh", json={"refresh_token": body["refresh_token"]})
     assert r.status_code == 401

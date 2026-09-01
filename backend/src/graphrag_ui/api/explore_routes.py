@@ -24,7 +24,10 @@ from graphrag_ui.services.explore import (
 from graphrag_ui.services.projects import get_member_perms
 
 _ExploreErrors = (
-    UnknownTableError, ArtifactsNotIndexedError, ExploreReadError, UnsupportedFilterError,
+    UnknownTableError,
+    ArtifactsNotIndexedError,
+    ExploreReadError,
+    UnsupportedFilterError,
 )
 
 
@@ -35,7 +38,11 @@ def _explore_error_http(exc: Exception) -> ApiError:
     if isinstance(exc, ArtifactsNotIndexedError):
         return ApiError(status.HTTP_409_CONFLICT, "not_indexed", "尚未建立索引,請先執行索引任務")
     if isinstance(exc, UnsupportedFilterError):
-        return ApiError(status.HTTP_422_UNPROCESSABLE_ENTITY, "explore_unsupported_filter", "此資料表不支援該篩選條件")
+        return ApiError(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "explore_unsupported_filter",
+            "此資料表不支援該篩選條件",
+        )
     # detail (exception tail) stays server-side; fixed message only
     return ApiError(status.HTTP_502_BAD_GATEWAY, "explore_read_failed", "讀取索引輸出失敗")
 
@@ -48,7 +55,9 @@ def register_explore_routes(app):
     async def _allowed(db: DbSession, user: CurrentUser, pid: uuid.UUID):
         project = await _project_or_404(db, pid)
         if not can(
-            user.global_perms, user.is_active, Atom.project_view,
+            user.global_perms,
+            user.is_active,
+            Atom.project_view,
             await get_member_perms(db, pid, user.id),
         ):
             raise _forbidden()
@@ -56,7 +65,9 @@ def register_explore_routes(app):
 
     @router.get("/{pid}/artifacts/graph")  # MUST register before {table}
     async def get_graph(
-        pid: uuid.UUID, db: DbSession, user: CurrentUser,
+        pid: uuid.UUID,
+        db: DbSession,
+        user: CurrentUser,
         level: int | None = Query(default=None),
     ):
         project = await _allowed(db, user, pid)
@@ -67,7 +78,10 @@ def register_explore_routes(app):
 
     @router.get("/{pid}/artifacts/{table}")
     async def list_table(
-        pid: uuid.UUID, table: str, db: DbSession, user: CurrentUser,
+        pid: uuid.UUID,
+        table: str,
+        db: DbSession,
+        user: CurrentUser,
         limit: int = Query(50, ge=1, le=200),
         offset: int = Query(0, ge=0),
         q: str | None = Query(default=None),
@@ -77,16 +91,25 @@ def register_explore_routes(app):
         project = await _allowed(db, user, pid)
         try:
             return await list_artifacts(
-                db, project, table,
-                limit=limit, offset=offset, q=q,
-                type_filter=type, community=community,
+                db,
+                project,
+                table,
+                limit=limit,
+                offset=offset,
+                q=q,
+                type_filter=type,
+                community=community,
             )
         except _ExploreErrors as exc:
             raise _explore_error_http(exc) from None
 
     @router.get("/{pid}/artifacts/{table}/{hrid}")
     async def get_row_detail(
-        pid: uuid.UUID, table: str, hrid: int, db: DbSession, user: CurrentUser,
+        pid: uuid.UUID,
+        table: str,
+        hrid: int,
+        db: DbSession,
+        user: CurrentUser,
     ):
         project = await _allowed(db, user, pid)
         try:

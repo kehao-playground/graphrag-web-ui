@@ -69,17 +69,31 @@ class GraphragInitInitializer:
         root.mkdir(parents=True, exist_ok=True)
         try:
             subprocess.run(
-                ["graphrag", "init", "--root", str(root),
-                 "--model", _INIT_MODEL, "--embedding", _INIT_EMBEDDING],
+                [
+                    "graphrag",
+                    "init",
+                    "--root",
+                    str(root),
+                    "--model",
+                    _INIT_MODEL,
+                    "--embedding",
+                    _INIT_EMBEDDING,
+                ],
                 # ~7s measured (~10s under load); 300s still safe for load spikes
                 # and also covers a hung CLI
-                check=True, capture_output=True, timeout=300)
+                check=True,
+                capture_output=True,
+                timeout=300,
+            )
         except subprocess.CalledProcessError as e:
             # str(e) carries only the exit code; the real root cause is on
             # stderr — log it for diagnosis (HTTP stays a detail-free 500 so
             # internals never leak to clients)
-            _logger.error("graphrag init failed (exit %s): %s", e.returncode,
-                          (e.stderr or b"").decode(errors="replace").strip())
+            _logger.error(
+                "graphrag init failed (exit %s): %s",
+                e.returncode,
+                (e.stderr or b"").decode(errors="replace").strip(),
+            )
             raise WorkspaceInitError(str(e)) from e
         except (subprocess.TimeoutExpired, FileNotFoundError) as e:
             _logger.error("graphrag init failed: %r", e)  # FileNotFoundError = CLI not on PATH
@@ -94,8 +108,9 @@ class GraphragInitInitializer:
         # Read back and assert after writing so a future graphrag version that
         # renames keys fails loudly here instead of breaking silently.
         check_input = yaml.safe_load(settings_path.read_text()).get("input", {})
-        if (check_input.get("type") != input_file_type
-                or check_input.get("file_pattern") != _escaped_pattern(input_file_type)):
+        if check_input.get("type") != input_file_type or check_input.get(
+            "file_pattern"
+        ) != _escaped_pattern(input_file_type):
             msg = f"settings.yaml input patch failed: {check_input}"
             raise WorkspaceInitError(msg)
 
@@ -107,9 +122,16 @@ class FakeInitializer:
 
     async def init(self, root: Path, input_file_type: str) -> None:
         (root / "input").mkdir(parents=True, exist_ok=True)
-        (root / "settings.yaml").write_text(yaml.safe_dump(
-            {"input": {"type": input_file_type,
-                       "file_pattern": _escaped_pattern(input_file_type)}}))
+        (root / "settings.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "input": {
+                        "type": input_file_type,
+                        "file_pattern": _escaped_pattern(input_file_type),
+                    }
+                }
+            )
+        )
 
 
 async def dry_run(root: Path) -> dict:
@@ -131,16 +153,19 @@ def _tail(*streams: bytes | None) -> str:
 def _dry_run(root: Path) -> dict:
     try:
         proc = subprocess.run(
-            ["graphrag", "index", "--root", str(root), "--dry-run",
-             "--skip-validation"],
+            ["graphrag", "index", "--root", str(root), "--dry-run", "--skip-validation"],
             # non-zero exit is DATA (ok=False), never an exception here
             check=False,
-            capture_output=True, timeout=_DRY_RUN_TIMEOUT)
+            capture_output=True,
+            timeout=_DRY_RUN_TIMEOUT,
+        )
     except subprocess.TimeoutExpired as e:
         # POSIX run() already captured partial output into the exception
-        return {"ok": False,
-                "output": _tail(e.stdout, e.stderr)
-                + f"\n[dry-run timed out after {_DRY_RUN_TIMEOUT}s]"}
+        return {
+            "ok": False,
+            "output": _tail(e.stdout, e.stderr)
+            + f"\n[dry-run timed out after {_DRY_RUN_TIMEOUT}s]",
+        }
     except FileNotFoundError as e:
         _logger.error("graphrag dry-run failed: %r", e)  # CLI not on PATH
         raise WorkspaceInitError(str(e)) from e

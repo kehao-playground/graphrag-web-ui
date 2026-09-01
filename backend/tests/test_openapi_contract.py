@@ -4,6 +4,7 @@ A5.2 ratchet): the set may only shrink. New endpoints MUST declare one.
 FastAPI 0.141 keeps lazily-included routers as _IncludedRouter placeholders
 in app.routes, so the walk uses iter_route_contexts() — the same iterator
 the OpenAPI generator itself uses."""
+
 from fastapi.routing import APIRoute, iter_route_contexts
 
 from graphrag_ui.main import create_app
@@ -37,5 +38,4 @@ def test_untyped_endpoints_ratchet():
         for rc in iter_route_contexts(app.routes)
         if isinstance(rc.original_route, APIRoute) and rc.response_model is None
     }
-    assert untyped == KNOWN_UNTYPED, (
-        f"response_model debt changed: {untyped ^ KNOWN_UNTYPED}")
+    assert untyped == KNOWN_UNTYPED, f"response_model debt changed: {untyped ^ KNOWN_UNTYPED}"

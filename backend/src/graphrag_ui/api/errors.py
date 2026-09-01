@@ -7,6 +7,7 @@ working. Every user-visible raise site in api/ uses ApiError; the three
 JSONResponse exits (settings 409, must-change guard, upload size guard)
 and the SSE error frame attach code by hand (spec §4.3/§4.4).
 """
+
 from typing import Any
 
 from fastapi import HTTPException, Request
@@ -15,7 +16,10 @@ from fastapi.responses import JSONResponse
 
 class ApiError(HTTPException):
     def __init__(
-        self, status_code: int, code: str, detail: str,
+        self,
+        status_code: int,
+        code: str,
+        detail: str,
         params: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(status_code=status_code, detail=detail)

@@ -1,12 +1,17 @@
 """Registry invariants (spec §6.1/§13): six tables, list projections exclude
 big columns, filter flags only where the parquet schema supports them."""
+
 from graphrag_ui.domain.artifacts import TABLES, table_spec
 
 
 def test_six_tables_registered():
     assert set(TABLES) == {
-        "entities", "relationships", "communities",
-        "community_reports", "text_units", "documents",
+        "entities",
+        "relationships",
+        "communities",
+        "community_reports",
+        "text_units",
+        "documents",
     }
 
 

@@ -76,13 +76,21 @@ class SearchAdapter(Protocol):
     """Seam for tests (and Task 4 streaming): search + stream callables."""
 
     async def search(
-        self, method: str, config: Any, frames: dict[str, pd.DataFrame],
-        query: str, response_type: str,
+        self,
+        method: str,
+        config: Any,
+        frames: dict[str, pd.DataFrame],
+        query: str,
+        response_type: str,
     ) -> tuple[str, dict[str, pd.DataFrame]]: ...
 
     def stream(
-        self, method: str, config: Any, frames: dict[str, pd.DataFrame],
-        query: str, response_type: str,
+        self,
+        method: str,
+        config: Any,
+        frames: dict[str, pd.DataFrame],
+        query: str,
+        response_type: str,
     ) -> AsyncIterator[str]: ...
 
 
@@ -90,14 +98,20 @@ class GraphragSearchAdapter:
     """Calls graphrag.api search functions; raises through on any failure."""
 
     async def search(
-        self, method: str, config: Any, frames: dict[str, pd.DataFrame],
-        query: str, response_type: str,
+        self,
+        method: str,
+        config: Any,
+        frames: dict[str, pd.DataFrame],
+        query: str,
+        response_type: str,
     ) -> tuple[str, dict[str, pd.DataFrame]]:
         fn = _SEARCH_FNS.get(method)
         if fn is None:
             raise ValueError(f"unknown query method: {method!r}")
         result, context = await fn(
-            config=config, query=query, response_type=response_type,
+            config=config,
+            query=query,
+            response_type=response_type,
             **_frames_kwargs(method, config, frames),
         )
         # answer is str in practice; dict/list occur with JSON-mode response types
@@ -107,21 +121,28 @@ class GraphragSearchAdapter:
         else:
             logger.warning(
                 "graphrag %s_search returned %s context (not dict); dropping it",
-                method, type(context).__name__,
+                method,
+                type(context).__name__,
             )
             context_frames = {}
         return answer, context_frames
 
     def stream(
-        self, method: str, config: Any, frames: dict[str, pd.DataFrame],
-        query: str, response_type: str,
+        self,
+        method: str,
+        config: Any,
+        frames: dict[str, pd.DataFrame],
+        query: str,
+        response_type: str,
     ) -> AsyncIterator[str]:
         fn = _STREAM_FNS.get(method)
         if fn is None:
             raise ValueError(f"unknown query method: {method!r}")
         # *_streaming are sync calls returning AsyncGenerator[str, None]
         return fn(
-            config=config, query=query, response_type=response_type,
+            config=config,
+            query=query,
+            response_type=response_type,
             **_frames_kwargs(method, config, frames),
         )
 

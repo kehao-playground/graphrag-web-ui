@@ -31,6 +31,7 @@ async def test_success_captures_log_and_stats(tmp_path):
     assert b"hello" in log.read_bytes()
     assert res.stats is None  # no stats.json written by the fake
 
+
 async def test_subprocess_env_silences_litellm_import_warnings(tmp_path):
     # litellm (graphrag's LLM layer) logs "could not pre-load bedrock/sagemaker
     # response stream shape — No module named 'botocore'" at WARNING on every

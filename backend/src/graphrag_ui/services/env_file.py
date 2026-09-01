@@ -21,8 +21,7 @@ class EnvValidationError(ValueError):
     """Key/value-level .env rejection — routes map to 400 (spec §4.2).
     Subclasses ValueError (historical contract)."""
 
-    def __init__(self, code: str, detail: str,
-                 params: dict[str, str] | None = None) -> None:
+    def __init__(self, code: str, detail: str, params: dict[str, str] | None = None) -> None:
         super().__init__(detail)
         self.code = code
         self.params = params
@@ -72,8 +71,7 @@ def _validate(key: str, value: str) -> None:
     EnvValidationError with messages that never contain the value (routes
     echo str(e))."""
     if not _KEY_RE.fullmatch(key):
-        raise EnvValidationError("env_invalid_key", f"invalid key: {key}",
-                                 {"key": key})
+        raise EnvValidationError("env_invalid_key", f"invalid key: {key}", {"key": key})
     if "\n" in value or "\r" in value:
         raise EnvValidationError("env_value_single_line", "value must be a single line")
 
@@ -101,8 +99,9 @@ def _remove_lines(project: Project, key: str) -> list[str]:
     return out
 
 
-async def set_env_key(session: AsyncSession, project: Project, key: str,
-                      value: str, actor_id: uuid.UUID | None) -> None:
+async def set_env_key(
+    session: AsyncSession, project: Project, key: str, value: str, actor_id: uuid.UUID | None
+) -> None:
     """Upsert `key=value` AND audit it, one transaction (spec A1).
 
     Payload-known-first shape: the audit row is added and flushed BEFORE
@@ -113,8 +112,7 @@ async def set_env_key(session: AsyncSession, project: Project, key: str,
     _validate(key, value)
     lines = _upsert_lines(project, key, value)
     try:
-        await audit(session, actor_id, "env.key_set", "project",
-                    str(project.id), {"key": key})
+        await audit(session, actor_id, "env.key_set", "project", str(project.id), {"key": key})
         await session.flush()
         _atomic_write(project, lines)
         await session.commit()
@@ -123,8 +121,9 @@ async def set_env_key(session: AsyncSession, project: Project, key: str,
         raise
 
 
-async def delete_env_key(session: AsyncSession, project: Project, key: str,
-                         actor_id: uuid.UUID | None) -> None:
+async def delete_env_key(
+    session: AsyncSession, project: Project, key: str, actor_id: uuid.UUID | None
+) -> None:
     """Remove the key's line AND audit it, one transaction (spec A1).
 
     Same payload-known-first shape: audit+flush, then the .env write, then
@@ -132,8 +131,7 @@ async def delete_env_key(session: AsyncSession, project: Project, key: str,
     """
     lines = _remove_lines(project, key)
     try:
-        await audit(session, actor_id, "env.key_deleted", "project",
-                    str(project.id), {"key": key})
+        await audit(session, actor_id, "env.key_deleted", "project", str(project.id), {"key": key})
         await session.flush()
         _atomic_write(project, lines)
         await session.commit()

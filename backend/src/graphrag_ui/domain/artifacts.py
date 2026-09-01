@@ -34,7 +34,11 @@ TABLES: dict[str, TableSpec] = {
     "entities": TableSpec(
         name="entities",
         list_columns=(
-            "human_readable_id", "title", "type", "frequency", "degree",
+            "human_readable_id",
+            "title",
+            "type",
+            "frequency",
+            "degree",
         ),
         keyword_fields=("title", "type", "description"),
         type_filter=True,
@@ -43,7 +47,11 @@ TABLES: dict[str, TableSpec] = {
     "relationships": TableSpec(
         name="relationships",
         list_columns=(
-            "human_readable_id", "source", "target", "weight", "combined_degree",
+            "human_readable_id",
+            "source",
+            "target",
+            "weight",
+            "combined_degree",
         ),
         keyword_fields=("source", "target", "description"),
         type_filter=False,
@@ -52,7 +60,12 @@ TABLES: dict[str, TableSpec] = {
     "communities": TableSpec(
         name="communities",
         list_columns=(
-            "human_readable_id", "community", "level", "parent", "size", "title",
+            "human_readable_id",
+            "community",
+            "level",
+            "parent",
+            "size",
+            "title",
         ),
         keyword_fields=("title",),
         type_filter=False,
@@ -61,7 +74,11 @@ TABLES: dict[str, TableSpec] = {
     "community_reports": TableSpec(
         name="community_reports",
         list_columns=(
-            "human_readable_id", "community", "level", "rank", "title",
+            "human_readable_id",
+            "community",
+            "level",
+            "rank",
+            "title",
         ),
         keyword_fields=("title", "summary"),
         type_filter=False,

@@ -23,6 +23,7 @@ class ChangePasswordIn(BaseModel):
 class RoleOut(BaseModel):
     """One role catalog entry; user_count/member_count are populated only
     by GET /api/admin/roles (spec §7)."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: str
@@ -48,7 +49,7 @@ class UserOut(BaseModel):
     email: EmailStr
     display_name: str
     roles: list[RoleOut] = []
-    permissions: list[str] = []   # union of roles' atoms (spec §7)
+    permissions: list[str] = []  # union of roles' atoms (spec §7)
     is_active: bool
     must_change_password: bool
 
@@ -67,10 +68,14 @@ def user_out(user: object, roles: Sequence) -> UserOut:
     for r in roles:
         perms.update(r.permissions or [])
     return UserOut(
-        id=str(user.id), email=user.email, display_name=user.display_name,
-        roles=role_outs, permissions=sorted(perms),
+        id=str(user.id),
+        email=user.email,
+        display_name=user.display_name,
+        roles=role_outs,
+        permissions=sorted(perms),
         is_active=user.is_active,
-        must_change_password=user.must_change_password)
+        must_change_password=user.must_change_password,
+    )
 
 
 class UserBriefOut(BaseModel):
@@ -104,6 +109,7 @@ class RefreshOut(BaseModel):
 
 class AuthConfigOut(BaseModel):
     """Runtime auth mode for SPA boot detection (spec §5.3)."""
+
     auth_mode: Literal["local", "proxy"]
 
 

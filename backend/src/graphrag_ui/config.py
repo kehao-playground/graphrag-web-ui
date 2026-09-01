@@ -32,8 +32,7 @@ class Settings(BaseSettings):
     @property
     def proxy_admin_set(self) -> frozenset[str]:
         """Lowercased PROXY_ADMIN_EMAILS; matching is case-insensitive (spec §9)."""
-        return frozenset(
-            e.strip().lower() for e in self.proxy_admin_emails.split(",") if e.strip())
+        return frozenset(e.strip().lower() for e in self.proxy_admin_emails.split(",") if e.strip())
 
     # The shared secret is proxy mode's entire trust anchor (spec §4): unlike
     # a password it is never rate-limited and never rotated, so a weak one is
@@ -43,8 +42,7 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _proxy_mode_needs_strong_secret(self) -> "Settings":
         if self.auth_mode == "proxy" and len(self.proxy_auth_secret) < 32:
-            raise ValueError(
-                "AUTH_MODE=proxy requires PROXY_AUTH_SECRET >= 32 characters")
+            raise ValueError("AUTH_MODE=proxy requires PROXY_AUTH_SECRET >= 32 characters")
         return self
 
 

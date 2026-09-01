@@ -69,15 +69,22 @@ def _register_upload_size_guard(app):
     @app.middleware("http")
     async def reject_oversized_uploads(request: Request, call_next):
         declared = request.headers.get("content-length", "")
-        if (request.method == "POST" and _UPLOAD_PATH.match(request.url.path)
-                and declared.isdigit()
-                and int(declared) > max_file_bytes() + _DECLARED_LENGTH_SLACK):
+        if (
+            request.method == "POST"
+            and _UPLOAD_PATH.match(request.url.path)
+            and declared.isdigit()
+            and int(declared) > max_file_bytes() + _DECLARED_LENGTH_SLACK
+        ):
             return JSONResponse(
-                {"detail": (f"file exceeds the "
-                            f"{get_settings().upload_max_file_mb} MiB upload limit"),
-                 "code": "file_too_large",
-                 "params": {"max_mb": get_settings().upload_max_file_mb}},
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
+                {
+                    "detail": (
+                        f"file exceeds the {get_settings().upload_max_file_mb} MiB upload limit"
+                    ),
+                    "code": "file_too_large",
+                    "params": {"max_mb": get_settings().upload_max_file_mb},
+                },
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            )
         return await call_next(request)
 
 
@@ -87,31 +94,42 @@ def register_files_routes(app):
     _register_upload_size_guard(app)
     router = APIRouter(prefix="/api/projects", dependencies=[Depends(get_current_user)])
 
-    @router.post("/{pid}/files", response_model=FileOut,
-                 status_code=status.HTTP_201_CREATED)
-    async def upload_file(pid: uuid.UUID, request: Request, file: UploadFile,
-                          db: DbSession, user: CurrentUser):
+    @router.post("/{pid}/files", response_model=FileOut, status_code=status.HTTP_201_CREATED)
+    async def upload_file(
+        pid: uuid.UUID, request: Request, file: UploadFile, db: DbSession, user: CurrentUser
+    ):
         project = await _project_or_404(db, pid)
-        if not can(user.global_perms, user.is_active, Atom.project_edit_content,
-                   await get_member_perms(db, pid, user.id)):
+        if not can(
+            user.global_perms,
+            user.is_active,
+            Atom.project_edit_content,
+            await get_member_perms(db, pid, user.id),
+        ):
             raise _forbidden()
         try:
             # the UploadFile streams through save_file in fixed chunks;
             # nothing larger than one chunk is ever held in memory
             name, size = await files_service.save_file(
-                db, project, file.filename or "", file, actor_id=user.id)
+                db, project, file.filename or "", file, actor_id=user.id
+            )
         except FileServiceError as e:
             raise ApiError(status.HTTP_400_BAD_REQUEST, e.code, str(e), e.params) from None
         except (FileTooLargeError, QuotaExceededError) as e:
             # 413 for both single-file cap and project quota (spec §9 error handling)
-            raise ApiError(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, e.code, str(e), e.params) from None
+            raise ApiError(
+                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, e.code, str(e), e.params
+            ) from None
         return FileOut(name=name, size=size)
 
     @router.get("/{pid}/files", response_model=FileListOut)
     async def list_files(pid: uuid.UUID, db: DbSession, user: CurrentUser):
         project = await _project_or_404(db, pid)
-        if not can(user.global_perms, user.is_active, Atom.project_view,
-                   await get_member_perms(db, pid, user.id)):
+        if not can(
+            user.global_perms,
+            user.is_active,
+            Atom.project_view,
+            await get_member_perms(db, pid, user.id),
+        ):
             raise _forbidden()
         return FileListOut(
             files=[FileEntryOut(**f) for f in await files_service.list_files(project)],
@@ -119,17 +137,18 @@ def register_files_routes(app):
             quota_bytes=files_service.quota_bytes(),
         )
 
-    @router.delete("/{pid}/files/{filename}",
-                   status_code=status.HTTP_204_NO_CONTENT)
-    async def delete_file(pid: uuid.UUID, filename: str,
-                          db: DbSession, user: CurrentUser):
+    @router.delete("/{pid}/files/{filename}", status_code=status.HTTP_204_NO_CONTENT)
+    async def delete_file(pid: uuid.UUID, filename: str, db: DbSession, user: CurrentUser):
         project = await _project_or_404(db, pid)
-        if not can(user.global_perms, user.is_active, Atom.project_edit_content,
-                   await get_member_perms(db, pid, user.id)):
+        if not can(
+            user.global_perms,
+            user.is_active,
+            Atom.project_edit_content,
+            await get_member_perms(db, pid, user.id),
+        ):
             raise _forbidden()
         try:
-            await files_service.delete_file(db, project, filename,
-                                            actor_id=user.id)
+            await files_service.delete_file(db, project, filename, actor_id=user.id)
         except FileServiceError as e:
             raise ApiError(status.HTTP_400_BAD_REQUEST, e.code, str(e), e.params) from None
         except FileNotFoundError:

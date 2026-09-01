@@ -31,13 +31,15 @@ async def get_user(session: AsyncSession, user_id: uuid.UUID) -> User:
     return user
 
 
-async def list_users_with_roles(
-        session: AsyncSession) -> list[tuple[User, list[Role]]]:
-    rows = (await session.execute(
-        select(User, Role)
-        .outerjoin(UserRole, UserRole.user_id == User.id)
-        .outerjoin(Role, Role.id == UserRole.role_id)
-        .order_by(User.created_at, User.id))).all()
+async def list_users_with_roles(session: AsyncSession) -> list[tuple[User, list[Role]]]:
+    rows = (
+        await session.execute(
+            select(User, Role)
+            .outerjoin(UserRole, UserRole.user_id == User.id)
+            .outerjoin(Role, Role.id == UserRole.role_id)
+            .order_by(User.created_at, User.id)
+        )
+    ).all()
     out: list[tuple[User, list[Role]]] = []
     for user, role in rows:
         if not out or out[-1][0].id != user.id:
@@ -48,13 +50,17 @@ async def list_users_with_roles(
 
 
 async def list_users_by_email(session: AsyncSession) -> list[User]:
-    return list((await session.execute(
-        select(User).order_by(User.email))).scalars().all())
+    return list((await session.execute(select(User).order_by(User.email))).scalars().all())
 
 
-async def create_user(session: AsyncSession, email: str, display_name: str,
-                      password: str, role_ids: list[uuid.UUID] | None,
-                      actor_id: uuid.UUID | None) -> User:
+async def create_user(
+    session: AsyncSession,
+    email: str,
+    display_name: str,
+    password: str,
+    role_ids: list[uuid.UUID] | None,
+    actor_id: uuid.UUID | None,
+) -> User:
     roles = await load_roles(session, role_ids or [])
     validate_global_roles(roles)
     user = User(
@@ -68,22 +74,31 @@ async def create_user(session: AsyncSession, email: str, display_name: str,
     await session.flush()  # produce user.id for the audit target_id
     for r in roles:
         session.add(UserRole(user_id=user.id, role_id=r.id))
-    await audit(session, actor_id, "user.created", "user", str(user.id),
-                payload={"email": email, "roles": [r.name for r in roles]})
+    await audit(
+        session,
+        actor_id,
+        "user.created",
+        "user",
+        str(user.id),
+        payload={"email": email, "roles": [r.name for r in roles]},
+    )
     await session.commit()
     return user
 
 
-async def _user_grant_names(session: AsyncSession,
-                            user_id: uuid.UUID) -> list[str]:
+async def _user_grant_names(session: AsyncSession, user_id: uuid.UUID) -> list[str]:
     return sorted(r.name for r in await roles_for_user(session, user_id))
 
 
-async def update_user(session: AsyncSession, user: User, *,
-                      display_name: str | None = None,
-                      role_ids: list[uuid.UUID] | None = None,
-                      is_active: bool | None = None,
-                      actor_id: uuid.UUID | None) -> User:
+async def update_user(
+    session: AsyncSession,
+    user: User,
+    *,
+    display_name: str | None = None,
+    role_ids: list[uuid.UUID] | None = None,
+    is_active: bool | None = None,
+    actor_id: uuid.UUID | None,
+) -> User:
     changed: dict = {}
     if display_name is not None and display_name != user.display_name:
         user.display_name = display_name
@@ -93,8 +108,7 @@ async def update_user(session: AsyncSession, user: User, *,
         validate_global_roles(roles)
         names = sorted(r.name for r in roles)
         if names != await _user_grant_names(session, user.id):
-            await session.execute(sa_delete(UserRole).where(
-                UserRole.user_id == user.id))
+            await session.execute(sa_delete(UserRole).where(UserRole.user_id == user.id))
             for r in roles:
                 session.add(UserRole(user_id=user.id, role_id=r.id))
             changed["roles"] = names
@@ -103,8 +117,7 @@ async def update_user(session: AsyncSession, user: User, *,
         changed["is_active"] = is_active
     if not changed:  # an empty PATCH is not a write; no audit
         return user
-    await audit(session, actor_id, "user.updated", "user", str(user.id),
-                payload=changed)
+    await audit(session, actor_id, "user.updated", "user", str(user.id), payload=changed)
     if changed.get("is_active") is False:
         # Deactivation revokes all refresh tokens; revoke_all_for_user commits
         # internally, flushing the user mutation and audit record above too.
@@ -113,28 +126,32 @@ async def update_user(session: AsyncSession, user: User, *,
     return user
 
 
-async def reset_password(session: AsyncSession, user: User, new_password: str,
-                         actor_id: uuid.UUID | None) -> None:
+async def reset_password(
+    session: AsyncSession, user: User, new_password: str, actor_id: uuid.UUID | None
+) -> None:
     user.password_hash = hash_password(new_password)
     user.must_change_password = True  # an admin reset likewise forces a change at next login
     await audit(session, actor_id, "user.password_reset", "user", str(user.id))
-    await revoke_all_for_user(session, user.id)  # commits internally, flushing password change + audit
+    await revoke_all_for_user(
+        session, user.id
+    )  # commits internally, flushing password change + audit
     await session.commit()
 
 
-async def _holds_users_manage(session: AsyncSession,
-                              user_id: uuid.UUID) -> bool:
-    return (await session.execute(
-        select(func.count()).select_from(UserRole)
-        .join(Role, Role.id == UserRole.role_id)
-        .where(UserRole.user_id == user_id,
-               Role.permissions.contains(["users:manage"]))
-    )).scalar_one() > 0
+async def _holds_users_manage(session: AsyncSession, user_id: uuid.UUID) -> bool:
+    return (
+        await session.execute(
+            select(func.count())
+            .select_from(UserRole)
+            .join(Role, Role.id == UserRole.role_id)
+            .where(UserRole.user_id == user_id, Role.permissions.contains(["users:manage"]))
+        )
+    ).scalar_one() > 0
 
 
-async def _loses_last_manager(session: AsyncSession, user: User,
-                              role_ids: list[uuid.UUID] | None,
-                              is_active: bool | None) -> bool:
+async def _loses_last_manager(
+    session: AsyncSession, user: User, role_ids: list[uuid.UUID] | None, is_active: bool | None
+) -> bool:
     """True when this mutation would take the system to zero ACTIVE
     users:manage holders (spec §6.2). Only the target's loss matters:
     if they keep the atom post-change, nothing is lost."""
@@ -144,26 +161,32 @@ async def _loses_last_manager(session: AsyncSession, user: User,
     if role_ids is not None:
         roles = await load_roles(session, role_ids)
         validate_global_roles(roles)
-        keeps = keeps and any(
-            "users:manage" in (r.permissions or []) for r in roles)
+        keeps = keeps and any("users:manage" in (r.permissions or []) for r in roles)
     if keeps:
         return False
     return await other_active_manager_count(session, user.id) == 0
 
 
-async def patch_user_guarded(session: AsyncSession, actor: User,
-                             actor_perms: frozenset[str],
-                             user_id: uuid.UUID, *,
-                             display_name: str | None,
-                             role_ids: list[uuid.UUID] | None,
-                             is_active: bool | None) -> User:
+async def patch_user_guarded(
+    session: AsyncSession,
+    actor: User,
+    actor_perms: frozenset[str],
+    user_id: uuid.UUID,
+    *,
+    display_name: str | None,
+    role_ids: list[uuid.UUID] | None,
+    is_active: bool | None,
+) -> User:
     user = await get_user(session, user_id)
     if user.id == actor.id and (role_ids is not None or is_active is not None):
-        raise SelfRoleChangeError(
-            "cannot change your own roles or active status")
+        raise SelfRoleChangeError("cannot change your own roles or active status")
     if await _loses_last_manager(session, user, role_ids, is_active):
-        raise LastUserManagerError(
-            "cannot remove the last active holder of users:manage")
-    return await update_user(session, user, display_name=display_name,
-                             role_ids=role_ids, is_active=is_active,
-                             actor_id=actor.id)
+        raise LastUserManagerError("cannot remove the last active holder of users:manage")
+    return await update_user(
+        session,
+        user,
+        display_name=display_name,
+        role_ids=role_ids,
+        is_active=is_active,
+        actor_id=actor.id,
+    )

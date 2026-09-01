@@ -25,35 +25,37 @@ class User(Base):
 class Role(Base):
     """A named set of permission atoms (spec §4). Built-ins are seeded by
     fixed id and are immutable (is_system); custom roles are admin-created."""
+
     __tablename__ = "roles"
     __table_args__ = (UniqueConstraint("scope", "name", name="uq_roles_scope_name"),)
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True,
-                                          default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     scope: Mapped[str] = mapped_column(String(10))  # global|project
     name: Mapped[str] = mapped_column(String(50))
     description: Mapped[str] = mapped_column(String(200), default="")
     permissions: Mapped[list[str]] = mapped_column(ARRAY(Text()), default=list)
     is_system: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),
-                                                 server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class UserRole(Base):
     """Global role grant. Scope (global) is enforced in the service layer —
     a CHECK cannot span tables without triggers, which we do not add."""
+
     __tablename__ = "user_roles"
     user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"),
-        primary_key=True)
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
     role_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("roles.id", ondelete="RESTRICT"),
-        primary_key=True)
+        UUID(as_uuid=True), ForeignKey("roles.id", ondelete="RESTRICT"), primary_key=True
+    )
 
 
 class RefreshToken(Base):
     __tablename__ = "refresh_tokens"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -87,26 +89,29 @@ class ProjectMember(Base):
     # Both FKs CASCADE: the DB handles member cleanup on project/user deletion;
     # services never delete members manually
     project_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True)
+        ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True
+    )
     user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
     role_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("roles.id", ondelete="RESTRICT"))
+        UUID(as_uuid=True), ForeignKey("roles.id", ondelete="RESTRICT")
+    )
 
 
 class SettingsVersion(Base):
     """Snapshot of settings.yaml written by write_settings(); restore re-snapshots."""
+
     __tablename__ = "settings_versions"
     # project FK CASCADE follows project_members: deleting the project drops its history
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     project_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
     content: Mapped[str] = mapped_column(Text)
     content_hash: Mapped[str] = mapped_column(String(64))  # sha256 hex
-    saved_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True),
-                                                ForeignKey("users.id"))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),
-                                                 server_default=func.now())
+    saved_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class Job(Base):
@@ -116,10 +121,12 @@ class Job(Base):
     jobs_one_active_per_project (migration); application logic never
     checks-and-inserts (race-prone) — it inserts and maps IntegrityError.
     """
+
     __tablename__ = "jobs"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     project_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
     type: Mapped[str] = mapped_column(String(10))  # index|update
     method: Mapped[str] = mapped_column(String(16))  # standard|fast
     argv: Mapped[list] = mapped_column(JSONB)
@@ -128,7 +135,9 @@ class Job(Base):
     worker_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     pid: Mapped[int | None] = mapped_column(Integer, nullable=True)
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    cancel_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancel_requested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     stats: Mapped[dict | None] = mapped_column(JSONB, nullable=True)

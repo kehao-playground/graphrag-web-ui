@@ -13,28 +13,46 @@ from graphrag_ui.adapters.artifacts import (
 def ws(tmp_path):
     out = tmp_path / "output"
     out.mkdir()
-    pd.DataFrame({
-        "id": ["e1", "e2", "e3"], "human_readable_id": [1, 2, 3],
-        "title": ["Alan Turing", "Analytical Engine", "Ada Lovelace"],
-        "type": ["PERSON", "ARTIFACT", "PERSON"],
-        "text_unit_ids": [["a"], ["b"], ["c"]],
-        "frequency": [3, 2, 2], "degree": [2, 1, 0],
-        "description": ["computed", "machine", "first programmer"],
-    }).to_parquet(out / "entities.parquet")
-    pd.DataFrame({
-        "id": ["r1", "r2"], "human_readable_id": [1, 2],
-        "source": ["Alan Turing", "Ada Lovelace"], "target": ["Ada Lovelace", "Ghost Entity"],
-        "weight": [4.0, 1.0], "combined_degree": [2, 0], "text_unit_ids": [["a"], []],
-        "description": ["correspondence", "dangling"],
-    }).to_parquet(out / "relationships.parquet")
-    pd.DataFrame({
-        "id": ["c1", "c2"], "human_readable_id": [0, 1], "community": [0, 1],
-        "level": [0, 1], "parent": [-1, 0], "children": [[1], []],
-        "title": ["C0", "C1"],
-        "entity_ids": [["e1", "e2"], ["e3"]],
-        "relationship_ids": [["r1"], []], "text_unit_ids": [[], []],
-        "period": ["2026-08-22"] * 2, "size": [2, 1],
-    }).to_parquet(out / "communities.parquet")
+    pd.DataFrame(
+        {
+            "id": ["e1", "e2", "e3"],
+            "human_readable_id": [1, 2, 3],
+            "title": ["Alan Turing", "Analytical Engine", "Ada Lovelace"],
+            "type": ["PERSON", "ARTIFACT", "PERSON"],
+            "text_unit_ids": [["a"], ["b"], ["c"]],
+            "frequency": [3, 2, 2],
+            "degree": [2, 1, 0],
+            "description": ["computed", "machine", "first programmer"],
+        }
+    ).to_parquet(out / "entities.parquet")
+    pd.DataFrame(
+        {
+            "id": ["r1", "r2"],
+            "human_readable_id": [1, 2],
+            "source": ["Alan Turing", "Ada Lovelace"],
+            "target": ["Ada Lovelace", "Ghost Entity"],
+            "weight": [4.0, 1.0],
+            "combined_degree": [2, 0],
+            "text_unit_ids": [["a"], []],
+            "description": ["correspondence", "dangling"],
+        }
+    ).to_parquet(out / "relationships.parquet")
+    pd.DataFrame(
+        {
+            "id": ["c1", "c2"],
+            "human_readable_id": [0, 1],
+            "community": [0, 1],
+            "level": [0, 1],
+            "parent": [-1, 0],
+            "children": [[1], []],
+            "title": ["C0", "C1"],
+            "entity_ids": [["e1", "e2"], ["e3"]],
+            "relationship_ids": [["r1"], []],
+            "text_unit_ids": [[], []],
+            "period": ["2026-08-22"] * 2,
+            "size": [2, 1],
+        }
+    ).to_parquet(out / "communities.parquet")
     return tmp_path
 
 

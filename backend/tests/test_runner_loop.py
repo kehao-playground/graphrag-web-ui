@@ -17,8 +17,9 @@ from graphrag_ui.services import runner_loop
 class FakeRunner:
     """Records kwargs; simulates a subprocess result without forking."""
 
-    def __init__(self, result: RunResult | None = None,
-                 exc: Exception | None = None, sleep_s: float = 0.05):
+    def __init__(
+        self, result: RunResult | None = None, exc: Exception | None = None, sleep_s: float = 0.05
+    ):
         self.result = result
         self.exc = exc
         self.sleep_s = sleep_s
@@ -39,17 +40,22 @@ def _ok() -> RunResult:
 async def _seed_job() -> uuid.UUID:
     """One user + project + queued job; returns the job id."""
     async with get_session_factory()() as s:
-        u = User(email=f"u{uuid.uuid4().hex[:6]}@t.local", password_hash="x",
-                 display_name="u")
+        u = User(email=f"u{uuid.uuid4().hex[:6]}@t.local", password_hash="x", display_name="u")
         s.add(u)
         await s.flush()
-        p = Project(name="p", slug=f"s-{uuid.uuid4().hex[:8]}", owner_id=u.id,
-                    input_file_type="text")
+        p = Project(
+            name="p", slug=f"s-{uuid.uuid4().hex[:8]}", owner_id=u.id, input_file_type="text"
+        )
         s.add(p)
         await s.flush()
         job = await jobs_repo.insert_job(
-            s, project_id=p.id, type="index", method="fast",
-            argv=["index", "--root", "/ws", "--method", "fast"], queued_by=u.id)
+            s,
+            project_id=p.id,
+            type="index",
+            method="fast",
+            argv=["index", "--root", "/ws", "--method", "fast"],
+            queued_by=u.id,
+        )
         await s.commit()
         return job.id
 
@@ -65,8 +71,9 @@ async def _get(job_id: uuid.UUID) -> Job:
 
 
 async def test_execute_runs_and_finishes(app, monkeypatch):
-    fake = FakeRunner(RunResult(status="succeeded", exit_code=0, error=None,
-                                stats={"num_documents": 1}))
+    fake = FakeRunner(
+        RunResult(status="succeeded", exit_code=0, error=None, stats={"num_documents": 1})
+    )
     monkeypatch.setattr(runner_loop, "IndexRunner", lambda: fake)
     job_id = await _seed_job()
     await _claim(job_id)
@@ -155,8 +162,11 @@ async def test_reconcile_marks_stale(app):
     await _claim(job_id, "w-dead")
     # heartbeat is fresh — force-stale by backdating it
     async with get_session_factory()() as s:
-        await s.execute(update(Job).where(Job.id == job_id).values(
-            heartbeat_at=datetime.now(UTC) - timedelta(seconds=120)))
+        await s.execute(
+            update(Job)
+            .where(Job.id == job_id)
+            .values(heartbeat_at=datetime.now(UTC) - timedelta(seconds=120))
+        )
         await s.commit()
     assert await runner_loop.reconcile_stale() == 1
     job = await _get(job_id)

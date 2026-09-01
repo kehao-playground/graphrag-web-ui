@@ -1,4 +1,5 @@
 """Permission atoms (spec §4.1). Pure: no I/O, no ORM, frozensets only."""
+
 from enum import StrEnum
 
 
@@ -14,16 +15,23 @@ class Atom(StrEnum):
     project_manage = "project:manage"
 
 
-GLOBAL_ATOMS: frozenset[Atom] = frozenset({
-    Atom.users_manage, Atom.projects_view_any, Atom.projects_act_any,
-    Atom.projects_create,
-})
-PROJECT_ATOMS: frozenset[Atom] = frozenset(
-    {a for a in Atom if a not in GLOBAL_ATOMS})
+GLOBAL_ATOMS: frozenset[Atom] = frozenset(
+    {
+        Atom.users_manage,
+        Atom.projects_view_any,
+        Atom.projects_act_any,
+        Atom.projects_create,
+    }
+)
+PROJECT_ATOMS: frozenset[Atom] = frozenset({a for a in Atom if a not in GLOBAL_ATOMS})
 
 
-def can(global_perms: frozenset[str], is_active: bool, action: Atom,
-        member_perms: frozenset[str] | None = None) -> bool:
+def can(
+    global_perms: frozenset[str],
+    is_active: bool,
+    action: Atom,
+    member_perms: frozenset[str] | None = None,
+) -> bool:
     """Effective-permission check. `global_perms` is the union of the
     actor's global-role atoms; `member_perms` the member-role atoms for
     the project in question (None = not a member)."""
@@ -34,8 +42,7 @@ def can(global_perms: frozenset[str], is_active: bool, action: Atom,
     if action in GLOBAL_ATOMS:
         # act_any implies view_any (spec §4.1 second half) — stated here,
         # once, at the resolution point
-        if (action is Atom.projects_view_any
-                and Atom.projects_act_any in global_perms):
+        if action is Atom.projects_view_any and Atom.projects_act_any in global_perms:
             return True
         return action in global_perms
     # act_any implies every project atom AND view_any (spec §4.1); a
@@ -65,5 +72,4 @@ def effective_project_perms(
 def sees_all_projects(global_perms: frozenset[str]) -> bool:
     """True when the atom set grants the all-projects list view:
     view_any directly, or via the act_any implication (spec §4.1)."""
-    return (Atom.projects_view_any in global_perms
-            or Atom.projects_act_any in global_perms)
+    return Atom.projects_view_any in global_perms or Atom.projects_act_any in global_perms

@@ -29,8 +29,9 @@ async def _alice(client, app):
 
 
 async def _make_project(client, headers, name="Env"):
-    r = await client.post("/api/projects", headers=headers,
-                          json={"name": name, "input_file_type": "text"})
+    r = await client.post(
+        "/api/projects", headers=headers, json={"name": name, "input_file_type": "text"}
+    )
     assert r.status_code == 201, r.text
     return uuid.UUID(r.json()["id"])
 
@@ -40,17 +41,23 @@ def _env_path(pid: uuid.UUID):
 
 
 async def _set(client, headers, pid, key, value):
-    return await client.patch(f"/api/projects/{pid}/env", headers=headers,
-                              json={"key": key, "value": value})
+    return await client.patch(
+        f"/api/projects/{pid}/env", headers=headers, json={"key": key, "value": value}
+    )
 
 
 async def _env_audit(db_session, pid):
     """env.* audit rows for this project, in order (project.created excluded)."""
-    return (await db_session.execute(
-        select(AuditLog.action, AuditLog.payload)
-        .where(AuditLog.target_id == str(pid),
-               AuditLog.action.in_(["env.key_set", "env.key_deleted"]))
-        .order_by(AuditLog.id))).all()
+    return (
+        await db_session.execute(
+            select(AuditLog.action, AuditLog.payload)
+            .where(
+                AuditLog.target_id == str(pid),
+                AuditLog.action.in_(["env.key_set", "env.key_deleted"]),
+            )
+            .order_by(AuditLog.id)
+        )
+    ).all()
 
 
 async def test_patch_get_masked_cycle(client, app, db_session):
@@ -77,16 +84,16 @@ async def test_patch_get_masked_cycle(client, app, db_session):
     assert "GRAPHRAG_API_KEY=sk-123456789" in _env_path(pid).read_text()
 
     # audit carries the key only — never the value
-    assert await _env_audit(db_session, pid) == [
-        ("env.key_set", {"key": "GRAPHRAG_API_KEY"})]
+    assert await _env_audit(db_session, pid) == [("env.key_set", {"key": "GRAPHRAG_API_KEY"})]
 
 
 async def test_patch_same_key_replaces_in_place(client, app):
     alice = await _alice(client, app)
     pid = await _make_project(client, alice)
     assert (await _set(client, alice, pid, "GRAPHRAG_API_KEY", SECRET)).status_code == 204
-    assert (await _set(client, alice, pid, "GRAPHRAG_API_KEY",
-                       "new-secret-value-9")).status_code == 204
+    assert (
+        await _set(client, alice, pid, "GRAPHRAG_API_KEY", "new-secret-value-9")
+    ).status_code == 204
 
     lines = [ln for ln in _env_path(pid).read_text().splitlines() if ln]
     assert lines == ["GRAPHRAG_API_KEY=new-secret-value-9"]
@@ -98,12 +105,14 @@ async def test_patch_preserves_other_lines_and_order(client, app):
     alice = await _alice(client, app)
     pid = await _make_project(client, alice)
     _env_path(pid).write_text(
-        "# graphrag init placeholder\nGRAPHRAG_API_KEY=<API_KEY>\nOTHER_KEY=keepme\n")
+        "# graphrag init placeholder\nGRAPHRAG_API_KEY=<API_KEY>\nOTHER_KEY=keepme\n"
+    )
 
     assert (await _set(client, alice, pid, "GRAPHRAG_API_KEY", SECRET)).status_code == 204
 
     assert _env_path(pid).read_text() == (
-        "# graphrag init placeholder\nGRAPHRAG_API_KEY=sk-123456789\nOTHER_KEY=keepme\n")
+        "# graphrag init placeholder\nGRAPHRAG_API_KEY=sk-123456789\nOTHER_KEY=keepme\n"
+    )
     r = await client.get(f"/api/projects/{pid}/env", headers=alice)
     assert r.json()["keys"] == [
         {"key": "GRAPHRAG_API_KEY", "masked": "sk****"},
@@ -145,8 +154,8 @@ async def test_invalid_key_is_400_without_leaking_value(client, app):
 
     r = await _set(client, alice, pid, "bad-key", SECRET)
     assert r.status_code == 400, r.text
-    assert SECRET not in r.text          # error payload never echoes the value
-    assert not _env_path(pid).exists()   # rejected before touching disk
+    assert SECRET not in r.text  # error payload never echoes the value
+    assert not _env_path(pid).exists()  # rejected before touching disk
 
 
 async def test_patch_oversized_value_is_400_and_leaves_disk_unchanged(client, app):
@@ -159,7 +168,7 @@ async def test_patch_oversized_value_is_400_and_leaves_disk_unchanged(client, ap
     r = await _set(client, alice, pid, "GRAPHRAG_API_KEY", value)
     assert r.status_code == 400, r.text
     assert r.json()["detail"] == "value too large"
-    assert value not in r.text          # error payload never echoes the value
+    assert value not in r.text  # error payload never echoes the value
     assert not _env_path(pid).exists()  # rejected before touching disk
 
 
@@ -172,17 +181,24 @@ async def test_viewer_reads_but_cannot_write(client, app):
 
     users = (await client.get("/api/admin/users", headers=admin)).json()
     bob_id = next(u["id"] for u in users if u["email"] == "bob@test.local")
-    assert (await client.put(f"/api/projects/{pid}/members/{bob_id}", headers=alice,
-                             json={"role_id": str(ROLE_ID_VIEWER)})).status_code == 200
+    assert (
+        await client.put(
+            f"/api/projects/{pid}/members/{bob_id}",
+            headers=alice,
+            json={"role_id": str(ROLE_ID_VIEWER)},
+        )
+    ).status_code == 200
     bob = await _activate(client, "bob@test.local", "bob-pass-1234", "bob-pass-5678")
 
     r = await client.get(f"/api/projects/{pid}/env", headers=bob)
-    assert r.status_code == 200                          # viewer+ can read (masked)
+    assert r.status_code == 200  # viewer+ can read (masked)
     assert r.json()["keys"] == [{"key": "GRAPHRAG_API_KEY", "masked": "sk****"}]
     assert (await _set(client, bob, pid, "GRAPHRAG_API_KEY", "evil")).status_code == 403
-    assert (await client.delete(f"/api/projects/{pid}/env/GRAPHRAG_API_KEY",
-                                headers=bob)).status_code == 403
+    assert (
+        await client.delete(f"/api/projects/{pid}/env/GRAPHRAG_API_KEY", headers=bob)
+    ).status_code == 403
     assert "GRAPHRAG_API_KEY=sk-123456789" in _env_path(pid).read_text()
+
 
 # --- transaction rollback tests (spec A1: services own audit + commit) ---
 
@@ -194,14 +210,16 @@ def project(monkeypatch, tmp_path):
     monkeypatch.setenv("WORKSPACES_DIR", str(tmp_path / "ws"))
     get_settings.cache_clear()
     try:
-        yield Project(id=uuid.uuid4(), name="pin", slug="pin",
-                      owner_id=uuid.uuid4(), input_file_type="text")
+        yield Project(
+            id=uuid.uuid4(), name="pin", slug="pin", owner_id=uuid.uuid4(), input_file_type="text"
+        )
     finally:
         get_settings.cache_clear()
 
 
 async def test_set_env_key_rollback_leaves_no_audit_row_when_write_fails(
-        db_session, project, monkeypatch):
+    db_session, project, monkeypatch
+):
     """Atomic-write failure (disk full, permissions): set_env_key rolls the
     audit row back and leaves the .env untouched — never an env.key_set row
     without the real change (spec A1)."""
@@ -216,10 +234,12 @@ async def test_set_env_key_rollback_leaves_no_audit_row_when_write_fails(
 
     monkeypatch.setattr(env_file, "_atomic_write", _boom)
     with pytest.raises(OSError, match="disk full"):
-        await env_file.set_env_key(db_session, project, "GRAPHRAG_API_KEY",
-                                   "x", actor_id=uuid.uuid4())
+        await env_file.set_env_key(
+            db_session, project, "GRAPHRAG_API_KEY", "x", actor_id=uuid.uuid4()
+        )
 
     assert _env_path(project.id).read_text() == "OTHER_KEY=keepme\n"
-    rows = (await db_session.execute(
-        select(AuditLog).where(AuditLog.action == "env.key_set"))).scalars()
+    rows = (
+        await db_session.execute(select(AuditLog).where(AuditLog.action == "env.key_set"))
+    ).scalars()
     assert list(rows) == []

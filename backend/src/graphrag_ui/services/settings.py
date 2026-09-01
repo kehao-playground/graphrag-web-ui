@@ -41,12 +41,10 @@ class SettingsValidationError(ValueError):
     """Content-level settings rejection — routes map to 400 (spec §4.2).
     Subclasses ValueError (historical contract)."""
 
-    def __init__(self, code: str, detail: str,
-                 params: dict[str, str] | None = None) -> None:
+    def __init__(self, code: str, detail: str, params: dict[str, str] | None = None) -> None:
         super().__init__(detail)
         self.code = code
         self.params = params
-
 
 
 def _hash_bytes(data: bytes) -> str:
@@ -59,8 +57,9 @@ def read_settings(project: Project) -> tuple[str, str]:
     return data.decode(), _hash_bytes(data)
 
 
-async def write_settings(session: AsyncSession, project: Project, content: str,
-                         expected_hash: str, actor_id: uuid.UUID) -> str:
+async def write_settings(
+    session: AsyncSession, project: Project, content: str, expected_hash: str, actor_id: uuid.UUID
+) -> str:
     """Optimistic-lock write; returns the new hash.
 
     Raises SettingsConflictError when the disk hash differs from expected_hash
@@ -79,7 +78,8 @@ async def write_settings(session: AsyncSession, project: Project, content: str,
         yaml.safe_load(content)
     except yaml.YAMLError as e:
         raise SettingsValidationError(
-            "settings_invalid_yaml", f"invalid yaml: {e}", {"reason": str(e)}) from e
+            "settings_invalid_yaml", f"invalid yaml: {e}", {"reason": str(e)}
+        ) from e
 
     # graphrag 3.1.0 runs STRICT string.Template substitution on settings.yaml
     # BEFORE parsing it (load_config.py): a lone "$" or an undefined
@@ -101,7 +101,8 @@ async def write_settings(session: AsyncSession, project: Project, content: str,
         # KeyError: ${X} with X in neither environ nor .env — equally
         # unloadable by the CLI; same 400 as an invalid "$".
         raise SettingsValidationError(
-            "settings_invalid_placeholder", "invalid $ placeholder in settings") from e
+            "settings_invalid_placeholder", "invalid $ placeholder in settings"
+        ) from e
 
     data = content.encode()
     new_hash = _hash_bytes(data)
@@ -110,27 +111,38 @@ async def write_settings(session: AsyncSession, project: Project, content: str,
     tmp.write_bytes(data)
     tmp.replace(path)
 
-    session.add(SettingsVersion(project_id=project.id, content=content,
-                                content_hash=new_hash, saved_by=actor_id))
-    await audit(session, actor_id, "settings.updated", "project", str(project.id),
-                {"content_hash": new_hash})
+    session.add(
+        SettingsVersion(
+            project_id=project.id, content=content, content_hash=new_hash, saved_by=actor_id
+        )
+    )
+    await audit(
+        session,
+        actor_id,
+        "settings.updated",
+        "project",
+        str(project.id),
+        {"content_hash": new_hash},
+    )
     await session.commit()
     return new_hash
 
 
-async def list_versions(session: AsyncSession,
-                        project: Project) -> list[SettingsVersion]:
+async def list_versions(session: AsyncSession, project: Project) -> list[SettingsVersion]:
     """Newest first, capped at VERSIONS_PAGE_CAP rows."""
-    stmt = (select(SettingsVersion)
-            .where(SettingsVersion.project_id == project.id)
-            .order_by(SettingsVersion.created_at.desc(), SettingsVersion.id.desc())
-            .limit(VERSIONS_PAGE_CAP))
+    stmt = (
+        select(SettingsVersion)
+        .where(SettingsVersion.project_id == project.id)
+        .order_by(SettingsVersion.created_at.desc(), SettingsVersion.id.desc())
+        .limit(VERSIONS_PAGE_CAP)
+    )
     return list((await session.execute(stmt)).scalars().all())
 
 
-async def get_version(session: AsyncSession, project: Project,
-                      version_id: int) -> SettingsVersion | None:
+async def get_version(
+    session: AsyncSession, project: Project, version_id: int
+) -> SettingsVersion | None:
     stmt = select(SettingsVersion).where(
-        SettingsVersion.id == version_id,
-        SettingsVersion.project_id == project.id)
+        SettingsVersion.id == version_id, SettingsVersion.project_id == project.id
+    )
     return (await session.execute(stmt)).scalar_one_or_none()

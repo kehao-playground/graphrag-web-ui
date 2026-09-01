@@ -50,69 +50,75 @@ class ResetPasswordIn(BaseModel):
 
 def register_users_routes(app):
     # Router built inside the function (like auth_routes): create_app() is called repeatedly in tests
-    router = APIRouter(prefix="/api/admin/users",
-                       dependencies=[Depends(require_atom(Atom.users_manage))])
+    router = APIRouter(
+        prefix="/api/admin/users", dependencies=[Depends(require_atom(Atom.users_manage))]
+    )
 
     @router.get("", response_model=list[UserOut])
     async def list_users(db: DbSession):
-        return [user_out(u, roles)
-                for u, roles in await list_users_with_roles(db)]
+        return [user_out(u, roles) for u, roles in await list_users_with_roles(db)]
 
     @router.post("", response_model=UserOut, status_code=status.HTTP_201_CREATED)
-    async def post_user(body: UserCreateIn,
-                        admin: ManageUsers,
-                        db: DbSession):
+    async def post_user(body: UserCreateIn, admin: ManageUsers, db: DbSession):
         try:
-            user = await create_user(db, body.email, body.display_name,
-                                     body.password, role_ids=body.roles,
-                                     actor_id=admin.id)
+            user = await create_user(
+                db,
+                body.email,
+                body.display_name,
+                body.password,
+                role_ids=body.roles,
+                actor_id=admin.id,
+            )
         except IntegrityError:
-            raise ApiError(status.HTTP_409_CONFLICT,
-                           "email_registered", "email already registered") from None
+            raise ApiError(
+                status.HTTP_409_CONFLICT, "email_registered", "email already registered"
+            ) from None
         except RoleNotFound:
-            raise ApiError(status.HTTP_404_NOT_FOUND, "role_not_found",
-                           "role not found") from None
+            raise ApiError(status.HTTP_404_NOT_FOUND, "role_not_found", "role not found") from None
         except RoleScopeMismatchError as e:
-            raise ApiError(status.HTTP_400_BAD_REQUEST, "role_scope_mismatch",
-                           str(e)) from None
+            raise ApiError(status.HTTP_400_BAD_REQUEST, "role_scope_mismatch", str(e)) from None
         return user_out(user, await roles_for_user(db, user.id))
 
     @router.patch("/{user_id}", response_model=UserOut)
-    async def patch_user(user_id: uuid.UUID, body: UserUpdateIn,
-                         admin: ManageUsers,
-                         db: DbSession):
+    async def patch_user(user_id: uuid.UUID, body: UserUpdateIn, admin: ManageUsers, db: DbSession):
         try:
-            user = await patch_user_guarded(db, admin, admin.global_perms,
-                                            user_id,
-                                            display_name=body.display_name,
-                                            role_ids=body.roles,
-                                            is_active=body.is_active)
+            user = await patch_user_guarded(
+                db,
+                admin,
+                admin.global_perms,
+                user_id,
+                display_name=body.display_name,
+                role_ids=body.roles,
+                is_active=body.is_active,
+            )
         except UserNotFound:
-            raise ApiError(status.HTTP_404_NOT_FOUND, "user_not_found",
-                           "user not found") from None
+            raise ApiError(status.HTTP_404_NOT_FOUND, "user_not_found", "user not found") from None
         except SelfRoleChangeError:
-            raise ApiError(status.HTTP_400_BAD_REQUEST, "user_self_change_forbidden",
-                           "cannot change your own role or active status") from None
+            raise ApiError(
+                status.HTTP_400_BAD_REQUEST,
+                "user_self_change_forbidden",
+                "cannot change your own role or active status",
+            ) from None
         except LastUserManagerError:
-            raise ApiError(status.HTTP_400_BAD_REQUEST, "last_user_manager_protected",
-                           "cannot remove the last active user manager") from None
+            raise ApiError(
+                status.HTTP_400_BAD_REQUEST,
+                "last_user_manager_protected",
+                "cannot remove the last active user manager",
+            ) from None
         except RoleNotFound:
-            raise ApiError(status.HTTP_404_NOT_FOUND, "role_not_found",
-                           "role not found") from None
+            raise ApiError(status.HTTP_404_NOT_FOUND, "role_not_found", "role not found") from None
         except RoleScopeMismatchError as e:
-            raise ApiError(status.HTTP_400_BAD_REQUEST, "role_scope_mismatch",
-                           str(e)) from None
+            raise ApiError(status.HTTP_400_BAD_REQUEST, "role_scope_mismatch", str(e)) from None
         return user_out(user, await roles_for_user(db, user.id))
 
     @router.post("/{user_id}/reset-password", status_code=status.HTTP_204_NO_CONTENT)
-    async def post_reset_password(user_id: uuid.UUID, body: ResetPasswordIn,
-                                  admin: ManageUsers,
-                                  db: DbSession):
+    async def post_reset_password(
+        user_id: uuid.UUID, body: ResetPasswordIn, admin: ManageUsers, db: DbSession
+    ):
         try:
             user = await get_user(db, user_id)
         except UserNotFound:
-            raise ApiError(status.HTTP_404_NOT_FOUND, "user_not_found",
-                           "user not found") from None
+            raise ApiError(status.HTTP_404_NOT_FOUND, "user_not_found", "user not found") from None
         await reset_password(db, user, body.new_password, actor_id=admin.id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 

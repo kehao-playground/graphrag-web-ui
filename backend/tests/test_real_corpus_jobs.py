@@ -43,17 +43,20 @@ DOCS = {
         "Earth's magnetic field into the polar atmosphere. Oxygen emissions "
         "appear green or red, while nitrogen contributes blue and purple hues. "
         "The display is brightest near the auroral oval around 67 degrees "
-        "magnetic latitude."),
+        "magnetic latitude."
+    ),
     "harbor.txt": (
         "Rotterdam's Europoort is the largest seaport in Europe and handled "
         "roughly 14.5 million containers in 2023. Its deep-dredged access "
         "channels allow fully laden container ships to dock around the clock. "
-        "The port generates about one percent of the Dutch GDP."),
+        "The port generates about one percent of the Dutch GDP."
+    ),
     "lithium.txt": (
         "Lithium-ion cells store energy by shuttling lithium ions between a "
         "graphite anode and a metal-oxide cathode. Commercial cells first "
         "shipped in 1991 and now dominate portable electronics and electric "
-        "vehicles. Recycling capacity is growing but still lags production."),
+        "vehicles. Recycling capacity is growing but still lags production."
+    ),
 }
 # Fourth document added before the incremental update (corpus 3 → 4 docs).
 EXTRA_DOC = {
@@ -61,11 +64,13 @@ EXTRA_DOC = {
         "The Bay of Fundy has the highest tidal range on Earth, reaching about "
         "16 meters at spring tide. Twice daily, more water moves through the "
         "bay than the outflow of every river on Earth combined. Tidal power "
-        "stations there have generated electricity since 1984."),
+        "stations there have generated electricity since 1984."
+    ),
 }
 MUTATED_SENTENCE = (
     "Oxygen emissions appear green, crimson, or deep red depending on "
-    "altitude, while nitrogen contributes blue and purple hues.")
+    "altitude, while nitrogen contributes blue and purple hues."
+)
 
 
 def _graphrag_rss_kib(ws_root: Path) -> int:  # noqa: F811  (fixture imported above)
@@ -77,7 +82,10 @@ def _graphrag_rss_kib(ws_root: Path) -> int:  # noqa: F811  (fixture imported ab
     try:
         out = subprocess.run(
             ["ps", "-axo", "pid=,ppid=,rss=,command="],
-            capture_output=True, text=True, timeout=15, check=False,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
         ).stdout
     except (OSError, subprocess.SubprocessError):
         return 0
@@ -90,8 +98,13 @@ def _graphrag_rss_kib(ws_root: Path) -> int:  # noqa: F811  (fixture imported ab
     return total
 
 
-async def _run_to_terminal(client, headers, job_id, ws_root,  # noqa: F811  (fixture imported above)
-                           timeout_s=600):
+async def _run_to_terminal(
+    client,
+    headers,
+    job_id,
+    ws_root,  # noqa: F811  (fixture imported above)
+    timeout_s=600,
+):
     """Poll GET /api/jobs/{id} every 2 s until terminal, sampling the CLI's
     RSS on every poll; returns (final job json, peak RSS KiB)."""
     peak, deadline = 0, time.monotonic() + timeout_s
@@ -101,29 +114,40 @@ async def _run_to_terminal(client, headers, job_id, ws_root,  # noqa: F811  (fix
         if body["status"] in TERMINAL_STATUSES:
             return body, peak
         assert time.monotonic() < deadline, (
-            f"job {job_id} not terminal after {timeout_s}s (last: {body['status']})")
+            f"job {job_id} not terminal after {timeout_s}s (last: {body['status']})"
+        )
         await asyncio.sleep(2)
 
 
 async def _upload(client, headers, pid, name: str, text: str):
-    r = await client.post(f"/api/projects/{pid}/files", headers=headers,
-                          files={"file": (name, text.encode(), "text/plain")})
+    r = await client.post(
+        f"/api/projects/{pid}/files",
+        headers=headers,
+        files={"file": (name, text.encode(), "text/plain")},
+    )
     assert r.status_code == 201, r.text
 
 
-async def test_real_corpus_standard_index_then_incremental_update(
-        runner_client, ws_root):  # noqa: F811  (fixtures imported above)
+async def test_real_corpus_standard_index_then_incremental_update(runner_client, ws_root):  # noqa: F811  (fixtures imported above)
     client = runner_client
     admin = await _setup_two_users(client)
     # Fresh access token for the SSE ?token= path (helpers return only headers).
-    token = (await client.post("/api/auth/login", json={
-        "email": "admin@test.local", "password": "admin-new-1",
-    })).json()["access_token"]
+    token = (
+        await client.post(
+            "/api/auth/login",
+            json={
+                "email": "admin@test.local",
+                "password": "admin-new-1",
+            },
+        )
+    ).json()["access_token"]
 
     # Real init: graphrag CLI actually forks here (~7 s).
-    pid = (await client.post("/api/projects", headers=admin,
-                             json={"name": "Real Corpus",
-                                   "input_file_type": "text"})).json()["id"]
+    pid = (
+        await client.post(
+            "/api/projects", headers=admin, json={"name": "Real Corpus", "input_file_type": "text"}
+        )
+    ).json()["id"]
     ws = (ws_root / pid).resolve()
     assert (ws / "settings.yaml").is_file() and (ws / "input").is_dir()
 
@@ -132,12 +156,14 @@ async def test_real_corpus_standard_index_then_incremental_update(
 
     # Env key: value comes from the environment and must never come back —
     # assert the secret is absent from every response body below.
-    r = await client.patch(f"/api/projects/{pid}/env", headers=admin, json={
-        "key": "GRAPHRAG_API_KEY", "value": os.environ["GRAPHRAG_API_KEY"]})
+    r = await client.patch(
+        f"/api/projects/{pid}/env",
+        headers=admin,
+        json={"key": "GRAPHRAG_API_KEY", "value": os.environ["GRAPHRAG_API_KEY"]},
+    )
     assert r.status_code == 204
     secret = os.environ["GRAPHRAG_API_KEY"]
-    assert secret not in (await client.get(f"/api/projects/{pid}/env",
-                                           headers=admin)).text
+    assert secret not in (await client.get(f"/api/projects/{pid}/env", headers=admin)).text
 
     # Switch to the cheap real-endpoint models via the YAML settings editor
     # (graphrag 3.1.0 key layout verified against a real `graphrag init`).
@@ -145,23 +171,32 @@ async def test_real_corpus_standard_index_then_incremental_update(
     cfg = yaml.safe_load(got["content"])
     cfg["completion_models"]["default_completion_model"]["model"] = "gpt-4o-mini"
     cfg["embedding_models"]["default_embedding_model"]["model"] = "text-embedding-3-small"
-    r = await client.put(f"/api/projects/{pid}/settings", headers=admin, json={
-        "content": yaml.safe_dump(cfg, sort_keys=False),
-        "expected_hash": got["content_hash"]})
+    r = await client.put(
+        f"/api/projects/{pid}/settings",
+        headers=admin,
+        json={
+            "content": yaml.safe_dump(cfg, sort_keys=False),
+            "expected_hash": got["content_hash"],
+        },
+    )
     assert r.status_code == 200, r.text
-    reread = yaml.safe_load((await client.get(f"/api/projects/{pid}/settings",
-                                              headers=admin)).json()["content"])
-    assert (reread["completion_models"]["default_completion_model"]["model"]
-            == "gpt-4o-mini")
-    assert (reread["embedding_models"]["default_embedding_model"]["model"]
-            == "text-embedding-3-small")
+    reread = yaml.safe_load(
+        (await client.get(f"/api/projects/{pid}/settings", headers=admin)).json()["content"]
+    )
+    assert reread["completion_models"]["default_completion_model"]["model"] == "gpt-4o-mini"
+    assert (
+        reread["embedding_models"]["default_embedding_model"]["model"] == "text-embedding-3-small"
+    )
     # $-escaping must survive the round-trip: a bare $ would make the CLI
     # unable to load the workspace (strict Template substitution).
     assert reread["input"]["file_pattern"] == r".*\.(txt|md)$$"
 
     # --- index (standard) through the enabled runner loop ---
-    job = (await client.post(f"/api/projects/{pid}/jobs", headers=admin,
-                             json={"type": "index", "method": "standard"})).json()
+    job = (
+        await client.post(
+            f"/api/projects/{pid}/jobs", headers=admin, json={"type": "index", "method": "standard"}
+        )
+    ).json()
     body, peak_kib = await _run_to_terminal(client, admin, job["id"], ws)
     assert body["status"] == "succeeded", body.get("error")
     assert (body["stats"] or {}).get("num_documents") == 3
@@ -169,8 +204,9 @@ async def test_real_corpus_standard_index_then_incremental_update(
     assert log.is_file() and log.stat().st_size > 0
     assert secret not in log.read_text(errors="replace")
     print(f"\n[real-corpus] index peak graphrag RSS: {peak_kib / 1024:.0f} MiB")
-    assert (await client.get(f"/api/projects/{pid}/jobs/preflight",
-                             headers=admin)).status_code == 200
+    assert (
+        await client.get(f"/api/projects/{pid}/jobs/preflight", headers=admin)
+    ).status_code == 200
 
     # SSE via ?token= (EventSource cannot send headers): log chunks + done.
     sse = await client.get(f"/api/jobs/{job['id']}/logs?token={token}")
@@ -181,15 +217,26 @@ async def test_real_corpus_standard_index_then_incremental_update(
     assert pq.read_metadata(documents).num_rows == 3
 
     # --- incremental update: mutate one doc, add a fourth ---
-    await _upload(client, admin, pid, "aurora.txt",
-                  DOCS["aurora.txt"].replace(
-                      "Oxygen emissions appear green or red, "
-                      "while nitrogen contributes blue and purple hues.",
-                      MUTATED_SENTENCE))
+    await _upload(
+        client,
+        admin,
+        pid,
+        "aurora.txt",
+        DOCS["aurora.txt"].replace(
+            "Oxygen emissions appear green or red, "
+            "while nitrogen contributes blue and purple hues.",
+            MUTATED_SENTENCE,
+        ),
+    )
     for name, text in EXTRA_DOC.items():
         await _upload(client, admin, pid, name, text)
-    upd = (await client.post(f"/api/projects/{pid}/jobs", headers=admin,
-                             json={"type": "update", "method": "standard"})).json()
+    upd = (
+        await client.post(
+            f"/api/projects/{pid}/jobs",
+            headers=admin,
+            json={"type": "update", "method": "standard"},
+        )
+    ).json()
     ubody, upeak_kib = await _run_to_terminal(client, admin, upd["id"], ws)
     assert ubody["status"] == "succeeded", ubody.get("error")
     print(f"[real-corpus] update peak graphrag RSS: {upeak_kib / 1024:.0f} MiB")
@@ -198,7 +245,6 @@ async def test_real_corpus_standard_index_then_incremental_update(
     # of update_documents proves the update-specific scan.
     assert (ubody["stats"] or {}).get("update_documents", 0) >= 1
     # Retention: only keep_latest update_output timestamp dirs survive.
-    assert len(list((ws / "update_output").iterdir())) \
-        <= get_settings().update_output_keep_latest
+    assert len(list((ws / "update_output").iterdir())) <= get_settings().update_output_keep_latest
     # Merge landed the fourth document (spec §13 row 1: 3 → 4).
     assert pq.read_metadata(documents).num_rows == 4

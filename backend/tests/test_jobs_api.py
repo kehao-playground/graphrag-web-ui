@@ -113,8 +113,7 @@ async def test_viewer_cannot_start_but_can_read(client, app):
     users = (await client.get("/api/users", headers=alice)).json()
     vid = next(u["id"] for u in users if u["email"] == "bob@test.local")
     r = await client.put(
-        f"/api/projects/{pid}/members/{vid}", headers=alice,
-        json={"role_id": str(ROLE_ID_VIEWER)}
+        f"/api/projects/{pid}/members/{vid}", headers=alice, json={"role_id": str(ROLE_ID_VIEWER)}
     )
     assert r.status_code in (200, 201)
     # viewer: read OK, start 403, cancel 403

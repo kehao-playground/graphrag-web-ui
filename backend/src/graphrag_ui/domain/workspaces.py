@@ -6,6 +6,7 @@ validates. The service wrapper (services.projects.ws_path) owns
 get_settings() and Path.resolve() — resolve() issues real syscalls and
 can follow symlinks, so the post-resolve containment re-check lives there.
 """
+
 import os
 from pathlib import Path
 

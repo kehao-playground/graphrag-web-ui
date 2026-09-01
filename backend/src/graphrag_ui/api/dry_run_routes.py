@@ -31,15 +31,20 @@ def register_dry_run_routes(app):
     async def run_dry_run(pid: uuid.UUID, db: DbSession, user: CurrentUser):
         project = await _project_or_404(db, pid)
         # dry-run validates settings drafts (spec §4.3) — settings-grade
-        if not can(user.global_perms, user.is_active, Atom.project_edit_settings,
-                   await get_member_perms(db, pid, user.id)):
+        if not can(
+            user.global_perms,
+            user.is_active,
+            Atom.project_edit_settings,
+            await get_member_perms(db, pid, user.id),
+        ):
             raise _forbidden()
         try:
             # module-level import above: tests monkeypatch dry_run_routes.dry_run
             result = await dry_run(ws_path(project.id))
         except WorkspaceInitError:
-            raise ApiError(status.HTTP_500_INTERNAL_SERVER_ERROR,
-                           "dry_run_failed", "graphrag dry-run failed") from None
+            raise ApiError(
+                status.HTTP_500_INTERNAL_SERVER_ERROR, "dry_run_failed", "graphrag dry-run failed"
+            ) from None
         return DryRunOut(**result)
 
     app.include_router(router)

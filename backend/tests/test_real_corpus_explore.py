@@ -38,19 +38,25 @@ async def test_real_corpus_explore_browse_graph_and_filters(query_client):  # no
     client = query_client
     admin = await _setup_two_users(client)
 
-    pid = (await client.post("/api/projects", headers=admin,
-                             json={"name": "Real Explore Corpus",
-                                   "input_file_type": "text"})).json()["id"]
+    pid = (
+        await client.post(
+            "/api/projects",
+            headers=admin,
+            json={"name": "Real Explore Corpus", "input_file_type": "text"},
+        )
+    ).json()["id"]
     for name, text in DOCS.items():
         await _upload(client, admin, pid, name, text)
 
     # Env key: value comes from the environment and must never come back.
-    r = await client.patch(f"/api/projects/{pid}/env", headers=admin, json={
-        "key": "GRAPHRAG_API_KEY", "value": os.environ["GRAPHRAG_API_KEY"]})
+    r = await client.patch(
+        f"/api/projects/{pid}/env",
+        headers=admin,
+        json={"key": "GRAPHRAG_API_KEY", "value": os.environ["GRAPHRAG_API_KEY"]},
+    )
     assert r.status_code == 204
     secret = os.environ["GRAPHRAG_API_KEY"]
-    assert secret not in (await client.get(f"/api/projects/{pid}/env",
-                                           headers=admin)).text
+    assert secret not in (await client.get(f"/api/projects/{pid}/env", headers=admin)).text
 
     # Cheap real-endpoint models via the YAML settings editor (graphrag 3.1.0
     # key layout, same as test_real_corpus_query).
@@ -58,20 +64,29 @@ async def test_real_corpus_explore_browse_graph_and_filters(query_client):  # no
     cfg = yaml.safe_load(got["content"])
     cfg["completion_models"]["default_completion_model"]["model"] = "gpt-4o-mini"
     cfg["embedding_models"]["default_embedding_model"]["model"] = "text-embedding-3-small"
-    r = await client.put(f"/api/projects/{pid}/settings", headers=admin, json={
-        "content": yaml.safe_dump(cfg, sort_keys=False),
-        "expected_hash": got["content_hash"]})
+    r = await client.put(
+        f"/api/projects/{pid}/settings",
+        headers=admin,
+        json={
+            "content": yaml.safe_dump(cfg, sort_keys=False),
+            "expected_hash": got["content_hash"],
+        },
+    )
     assert r.status_code == 200, r.text
 
     # --- index once (standard); the artifact reads below are LLM-free ---
-    job = (await client.post(f"/api/projects/{pid}/jobs", headers=admin,
-                             json={"type": "index", "method": "standard"})).json()
+    job = (
+        await client.post(
+            f"/api/projects/{pid}/jobs", headers=admin, json={"type": "index", "method": "standard"}
+        )
+    ).json()
     body = await _job_to_terminal(client, admin, job["id"])
     assert body["status"] == "succeeded", body.get("error")
 
     # --- (a) entities list: 200 envelope, list projection drops description ---
-    r = await client.get(f"/api/projects/{pid}/artifacts/entities",
-                         params={"limit": 10}, headers=admin)
+    r = await client.get(
+        f"/api/projects/{pid}/artifacts/entities", params={"limit": 10}, headers=admin
+    )
     assert r.status_code == 200, r.text
     data = r.json()
     assert set(data) == {"rows", "total", "stale"}
@@ -85,17 +100,20 @@ async def test_real_corpus_explore_browse_graph_and_filters(query_client):  # no
     g = r.json()
     assert g["levels"], "real index yields at least one community level"
     assert len(g["nodes"]) >= 5
-    assert all(n["community"] is None or isinstance(n["community"], int)
-               and not isinstance(n["community"], bool)
-               for n in g["nodes"]), "community comes from parquet ints or None"
+    assert all(
+        n["community"] is None
+        or isinstance(n["community"], int)
+        and not isinstance(n["community"], bool)
+        for n in g["nodes"]
+    ), "community comes from parquet ints or None"
     titles = {n["title"] for n in g["nodes"]}
     assert g["edges"], "the corpus's docs are about the same machine — edges exist"
-    assert all(e["source"] in titles and e["target"] in titles for e in g["edges"]), \
+    assert all(e["source"] in titles and e["target"] in titles for e in g["edges"]), (
         "every edge endpoint must be a real entity title (dangling dropped)"
+    )
 
     # --- (c) community-report full row: list-typed findings survive _clean ---
-    r = await client.get(f"/api/projects/{pid}/artifacts/community_reports/0",
-                         headers=admin)
+    r = await client.get(f"/api/projects/{pid}/artifacts/community_reports/0", headers=admin)
     assert r.status_code == 200, r.text
     row = r.json()["row"]
     assert isinstance(row["findings"], list)
@@ -103,10 +121,12 @@ async def test_real_corpus_explore_browse_graph_and_filters(query_client):  # no
 
     # --- (d) q= keyword filter narrows the unfiltered total ---
     needle = data["rows"][0]["title"].split()[0]
-    r = await client.get(f"/api/projects/{pid}/artifacts/entities",
-                         params={"q": needle}, headers=admin)
+    r = await client.get(
+        f"/api/projects/{pid}/artifacts/entities", params={"q": needle}, headers=admin
+    )
     assert r.status_code == 200, r.text
     filtered = r.json()
-    assert 1 <= filtered["total"] < data["total"], \
+    assert 1 <= filtered["total"] < data["total"], (
         f"q={needle!r} must return a strict subset ({filtered['total']} vs {data['total']})"
+    )
     assert secret not in r.text

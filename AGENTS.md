@@ -55,6 +55,7 @@ briefs; their Global Constraints always apply.
 # reads explore parquet artifacts read-only)
 cd backend && uv run pytest -v          # 242 tests with GRAPHRAG_API_KEY (237 fast); 5 slow tests fork the real graphrag CLI (3 need the key, skipped without it); fast only: uv run pytest -m "not slow"
 cd backend && uv run ruff check
+cd backend && uv run ruff format --check   # formatting is CI-enforced; `ruff format` to fix
 
 # frontend (Node 24; jsdom+undici need >=22; explore graph renders via
 # react-sigma + graphology, lazy-loaded as a separate build chunk)

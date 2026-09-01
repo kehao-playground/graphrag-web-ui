@@ -47,15 +47,17 @@ async def _secret_body(request: Request) -> dict:
     try:
         body = await request.json()
     except ValueError:
-        raise ApiError(status.HTTP_400_BAD_REQUEST, "env_invalid_body",
-                       "invalid body") from None
-    if (not isinstance(body, dict) or not isinstance(body.get("key"), str)
-            or not isinstance(body.get("value"), str)):
-        raise ApiError(status.HTTP_400_BAD_REQUEST, "env_key_value_required",
-                       "key and value are required")
+        raise ApiError(status.HTTP_400_BAD_REQUEST, "env_invalid_body", "invalid body") from None
+    if (
+        not isinstance(body, dict)
+        or not isinstance(body.get("key"), str)
+        or not isinstance(body.get("value"), str)
+    ):
+        raise ApiError(
+            status.HTTP_400_BAD_REQUEST, "env_key_value_required", "key and value are required"
+        )
     if len(body["value"].encode()) > _MAX_VALUE_BYTES:
-        raise ApiError(status.HTTP_400_BAD_REQUEST, "env_value_too_large",
-                       "value too large")
+        raise ApiError(status.HTTP_400_BAD_REQUEST, "env_value_too_large", "value too large")
     return body
 
 
@@ -67,41 +69,50 @@ def register_env_routes(app):
     @router.get("/{pid}/env", response_model=EnvOut)
     async def get_env(pid: uuid.UUID, db: DbSession, user: CurrentUser):
         project = await _project_or_404(db, pid)
-        if not can(user.global_perms, user.is_active, Atom.project_view,
-                   await get_member_perms(db, pid, user.id)):
+        if not can(
+            user.global_perms,
+            user.is_active,
+            Atom.project_view,
+            await get_member_perms(db, pid, user.id),
+        ):
             raise _forbidden()
         return EnvOut(keys=[EnvKeyOut(**e) for e in list_env(project)])
 
     @router.patch("/{pid}/env", status_code=status.HTTP_204_NO_CONTENT)
-    async def patch_env(pid: uuid.UUID, request: Request,
-                        db: DbSession, user: CurrentUser):
+    async def patch_env(pid: uuid.UUID, request: Request, db: DbSession, user: CurrentUser):
         project = await _project_or_404(db, pid)
-        if not can(user.global_perms, user.is_active, Atom.project_edit_settings,
-                   await get_member_perms(db, pid, user.id)):
+        if not can(
+            user.global_perms,
+            user.is_active,
+            Atom.project_edit_settings,
+            await get_member_perms(db, pid, user.id),
+        ):
             raise _forbidden()
         body = await _secret_body(request)
         try:
-            await set_env_key(db, project, body["key"], body["value"],
-                              actor_id=user.id)
+            await set_env_key(db, project, body["key"], body["value"], actor_id=user.id)
         except EnvValidationError as e:
             # str(e) may echo the (non-secret) key but never the value —
             # env_file's messages are fixed to keep it that way
-            raise ApiError(status.HTTP_400_BAD_REQUEST, e.code, str(e),
-                           e.params) from None
+            raise ApiError(status.HTTP_400_BAD_REQUEST, e.code, str(e), e.params) from None
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @router.delete("/{pid}/env/{key}", status_code=status.HTTP_204_NO_CONTENT)
-    async def delete_env(pid: uuid.UUID, key: str,
-                         db: DbSession, user: CurrentUser):
+    async def delete_env(pid: uuid.UUID, key: str, db: DbSession, user: CurrentUser):
         project = await _project_or_404(db, pid)
-        if not can(user.global_perms, user.is_active, Atom.project_edit_settings,
-                   await get_member_perms(db, pid, user.id)):
+        if not can(
+            user.global_perms,
+            user.is_active,
+            Atom.project_edit_settings,
+            await get_member_perms(db, pid, user.id),
+        ):
             raise _forbidden()
         try:
             await delete_env_key(db, project, key, actor_id=user.id)
         except KeyError:
-            raise ApiError(status.HTTP_404_NOT_FOUND, "env_key_not_found",
-                           "key not found") from None
+            raise ApiError(
+                status.HTTP_404_NOT_FOUND, "env_key_not_found", "key not found"
+            ) from None
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     app.include_router(router)

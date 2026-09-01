@@ -1,6 +1,7 @@
 """Retention policies (spec §6.3): expired job-log deletion, update_output
 pruning, and the daily sweep. DB rows are never deleted — history and the
 error tail in jobs.error survive; only files are reclaimed."""
+
 import shutil
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -31,13 +32,18 @@ async def sweep_job_logs(session, now: datetime) -> dict:
             select(Job.id, Job.project_id, Job.status, Job.finished_at)
             .where(Job.status.in_(TERMINAL_STATUSES))
             .order_by(Job.queued_at, Job.id)
-            .limit(_BATCH).offset(offset))
+            .limit(_BATCH)
+            .offset(offset)
+        )
         rows = res.all()
         for job_id, project_id, status, finished_at in rows:
             if finished_at is None:
                 continue  # defensive: finish() always stamps it
-            days = (settings.job_log_failed_retention_days
-                    if status != "succeeded" else settings.job_log_retention_days)
+            days = (
+                settings.job_log_failed_retention_days
+                if status != "succeeded"
+                else settings.job_log_retention_days
+            )
             if finished_at + timedelta(days=days) >= now:
                 continue
             # log_path_for mkdirs parents — skip deleted projects so the
@@ -93,6 +99,5 @@ async def sweep_all() -> dict:
     root = Path(settings.workspaces_dir).resolve()
     if root.is_dir():
         for project_dir in _project_dirs(root):
-            pruned += prune_update_output(project_dir,
-                                          settings.update_output_keep_latest)
+            pruned += prune_update_output(project_dir, settings.update_output_keep_latest)
     return {"deleted_logs": deleted_logs, "pruned_dirs": pruned}

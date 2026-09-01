@@ -49,10 +49,10 @@ async def _retention_loop(stop: asyncio.Event) -> None:
     while not stop.is_set():
         try:
             from graphrag_ui.services.retention import sweep_all
+
             await sweep_all()
         except Exception:
-            logging.getLogger(__name__).warning(
-                "retention sweep failed", exc_info=True)
+            logging.getLogger(__name__).warning("retention sweep failed", exc_info=True)
         with suppress(TimeoutError):
             await asyncio.wait_for(stop.wait(), timeout=24 * 3600)
 
@@ -63,11 +63,11 @@ async def lifespan(app: FastAPI):
     async with get_session_factory()() as s:
         await bootstrap_admin(s)
     from graphrag_ui.services.runner_loop import run_loop
+
     app.state.runner_stop = asyncio.Event()
     app.state.runner_task = asyncio.create_task(run_loop(app.state.runner_stop))
     # Same stop event as the runner: setting it wakes both loops at shutdown.
-    app.state.retention_task = asyncio.create_task(
-        _retention_loop(app.state.runner_stop))
+    app.state.retention_task = asyncio.create_task(_retention_loop(app.state.runner_stop))
     yield
     app.state.runner_stop.set()
     # Cancel cleanly even if a sweep is mid-flight; the next daily pass
@@ -105,7 +105,10 @@ def _register_must_change_guard(app: FastAPI) -> None:
             async with get_session_factory()() as session:
                 user = await resolve_access_user(auth[7:], session)
             if user is not None and user.must_change_password:
-                return JSONResponse({"detail": "password change required", "code": "auth_must_change_password"}, status_code=403)
+                return JSONResponse(
+                    {"detail": "password change required", "code": "auth_must_change_password"},
+                    status_code=403,
+                )
         return await call_next(request)
 
 

@@ -106,7 +106,6 @@ async def preflight(session: AsyncSession, project: Project) -> dict:
         "last_run": last_run,
         "cache_bytes": await asyncio.to_thread(_tree_bytes, root / "cache"),
         "cache_quota_mb": settings.cache_quota_mb,
-        "disk_free_mb": (await asyncio.to_thread(shutil.disk_usage, ws_root)).free
-                        // (1024 * 1024),
+        "disk_free_mb": (await asyncio.to_thread(shutil.disk_usage, ws_root)).free // (1024 * 1024),
         "disk_watermark_mb": settings.disk_watermark_mb,
     }

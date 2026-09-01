@@ -1,5 +1,6 @@
 """ApiError envelope (i18n spec §4.1): additive code/params, legacy
 detail untouched, plain HTTPException renders without code."""
+
 from fastapi import HTTPException
 
 from graphrag_ui.api.errors import ApiError
@@ -8,8 +9,9 @@ from graphrag_ui.api.errors import ApiError
 async def test_api_error_renders_detail_code_and_params(client, app):
     @app.get("/api/__boom")
     async def boom():
-        raise ApiError(413, "file_too_large",
-                       "file exceeds the 50 MiB upload limit", {"max_mb": 50})
+        raise ApiError(
+            413, "file_too_large", "file exceeds the 50 MiB upload limit", {"max_mb": 50}
+        )
 
     r = await client.get("/api/__boom")
     assert r.status_code == 413

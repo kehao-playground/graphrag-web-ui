@@ -31,7 +31,8 @@ from graphrag_ui.main import create_app
 # attribute works); production keeps strict validation.
 
 email_validator.SPECIAL_USE_DOMAIN_NAMES = [
-    d for d in email_validator.SPECIAL_USE_DOMAIN_NAMES if d != "local"]
+    d for d in email_validator.SPECIAL_USE_DOMAIN_NAMES if d != "local"
+]
 
 
 @pytest.fixture(scope="session")
@@ -118,7 +119,7 @@ async def app(clean_db, monkeypatch, tmp_path):
     # their own MAX_CONCURRENT_JOBS override.
     monkeypatch.setenv("MAX_CONCURRENT_JOBS", "0")
     get_settings.cache_clear()
-    await reset_engine()          # env changed; the shared engine must be rebuilt
+    await reset_engine()  # env changed; the shared engine must be rebuilt
     auth_routes._LOGIN_FAILURES.clear()  # module-level rate limiting leaks across tests (same bucket accumulating -> 429)
     return create_app()
 

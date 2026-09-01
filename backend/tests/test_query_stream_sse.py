@@ -33,31 +33,47 @@ def _hash_id(n: int) -> str:
 # hash of the row (index/workflows/create_base_text_units.py:110) and
 # human_readable_id is the 0-based int (create_final_text_units.py:96) that
 # answer markers cite (model short_id reads human_readable_id).
-PARQUET_TEXT_UNITS = pd.DataFrame({
-    "id": [_hash_id(0), _hash_id(1), _hash_id(2)],
-    "human_readable_id": [0, 1, 2],
-    "text": ["unit zero", "unit one", "unit two"],
-})
-PARQUET_COMMUNITY_REPORTS = pd.DataFrame({
-    "id": [_hash_id(5), _hash_id(6)],
-    "human_readable_id": [5, 6],
-    "title": ["Report Five", "Report Six"],
-    "full_content": ["five body", "six body"],
-})
+PARQUET_TEXT_UNITS = pd.DataFrame(
+    {
+        "id": [_hash_id(0), _hash_id(1), _hash_id(2)],
+        "human_readable_id": [0, 1, 2],
+        "text": ["unit zero", "unit one", "unit two"],
+    }
+)
+PARQUET_COMMUNITY_REPORTS = pd.DataFrame(
+    {
+        "id": [_hash_id(5), _hash_id(6)],
+        "human_readable_id": [5, 6],
+        "title": ["Report Five", "Report Six"],
+        "full_content": ["five body", "six body"],
+    }
+)
 
 # Stream-path local-mode frames (adapters.frame_cache.TABLES["local"] keys).
 PARQUET_LOCAL_FRAMES = {
-    "entities": pd.DataFrame({
-        "id": [_hash_id(7)], "human_readable_id": [7], "name": ["Entity Seven"],
-    }),
-    "communities": pd.DataFrame({
-        "id": [_hash_id(8)], "human_readable_id": [8], "title": ["Comm Eight"],
-    }),
+    "entities": pd.DataFrame(
+        {
+            "id": [_hash_id(7)],
+            "human_readable_id": [7],
+            "name": ["Entity Seven"],
+        }
+    ),
+    "communities": pd.DataFrame(
+        {
+            "id": [_hash_id(8)],
+            "human_readable_id": [8],
+            "title": ["Comm Eight"],
+        }
+    ),
     "community_reports": PARQUET_COMMUNITY_REPORTS,
     "text_units": PARQUET_TEXT_UNITS,
-    "relationships": pd.DataFrame({
-        "id": [_hash_id(9)], "human_readable_id": [9], "description": ["rel nine"],
-    }),
+    "relationships": pd.DataFrame(
+        {
+            "id": [_hash_id(9)],
+            "human_readable_id": [9],
+            "description": ["rel nine"],
+        }
+    ),
 }
 
 
@@ -173,8 +189,7 @@ async def _add_viewer(client, alice, pid, email):
     users = (await client.get("/api/users", headers=alice)).json()
     vid = next(u["id"] for u in users if u["email"] == email)
     r = await client.put(
-        f"/api/projects/{pid}/members/{vid}", headers=alice,
-        json={"role_id": str(ROLE_ID_VIEWER)}
+        f"/api/projects/{pid}/members/{vid}", headers=alice, json={"role_id": str(ROLE_ID_VIEWER)}
     )
     assert r.status_code in (200, 201), r.text
 
@@ -276,8 +291,9 @@ async def test_token_must_change_member_403(client, app, fake_adapter, fake_cach
     assert r.status_code == 201, r.text
     viewer_id = r.json()["id"]
     r = await client.put(
-        f"/api/projects/{pid}/members/{viewer_id}", headers=alice,
-        json={"role_id": str(ROLE_ID_VIEWER)}
+        f"/api/projects/{pid}/members/{viewer_id}",
+        headers=alice,
+        json={"role_id": str(ROLE_ID_VIEWER)},
     )
     assert r.status_code in (200, 201), r.text
     r = await client.post(
@@ -360,9 +376,14 @@ def test_flatten_frames_resolves_parquet_shaped_ids_and_report_alias():
     assert texts["sources"] == {0: "unit zero", 1: "unit one", 2: "unit two"}
     assert texts["text_units"] == texts["units"] == texts["sources"]
     # community_reports is aliased under the graphrag context key "reports"
-    assert texts["reports"] == texts["community_reports"] == {
-        5: "Report Five", 6: "Report Six",
-    }
+    assert (
+        texts["reports"]
+        == texts["community_reports"]
+        == {
+            5: "Report Five",
+            6: "Report Six",
+        }
+    )
 
 
 async def test_stream_local_resolves_parquet_shaped_markers(client, app, monkeypatch):
@@ -378,8 +399,7 @@ async def test_stream_local_resolves_parquet_shaped_markers(client, app, monkeyp
     monkeypatch.setattr(query_service, "get_frame_cache", lambda: cache)
     pid, alice, _, _ = await _viewer_setup(client, app)
 
-    body, _ = await _stream(
-        client, _url(pid, method="local", query="What+is+it%3F"), alice)
+    body, _ = await _stream(client, _url(pid, method="local", query="What+is+it%3F"), alice)
     events = _events(body)
     citations = next(p for kind, p in events if kind == "citations")
     by_label = {c["label"]: c for c in citations}
@@ -387,5 +407,9 @@ async def test_stream_local_resolves_parquet_shaped_markers(client, app, monkeyp
     assert by_label["Reports"]["entries"] == [{"id": 6, "text": "Report Six"}]
     # local mode loaded the full five-table frame set for the join
     assert cache.tables == [
-        "entities", "communities", "community_reports", "text_units", "relationships",
+        "entities",
+        "communities",
+        "community_reports",
+        "text_units",
+        "relationships",
     ]

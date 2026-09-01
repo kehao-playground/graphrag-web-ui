@@ -100,7 +100,10 @@ def _frame_texts(df: pd.DataFrame) -> dict[int, str | None]:
 
 
 async def run_query(
-    project: Project, user: User, method: str, query: str,
+    project: Project,
+    user: User,
+    method: str,
+    query: str,
     response_type: str | None = None,
 ) -> dict:
     """Run one four-mode query; returns the API response body (never raises HTTP)."""
@@ -128,7 +131,10 @@ async def run_query(
     search_start = time.perf_counter()
     try:
         answer, context = await GraphragSearchAdapter().search(
-            method, config, frames, query,
+            method,
+            config,
+            frames,
+            query,
             response_type or DEFAULT_RESPONSE_TYPE,
         )
     except Exception as exc:
@@ -154,7 +160,10 @@ async def run_query(
 
 
 async def stream_query(
-    project: Project, user: User, method: str, query: str,
+    project: Project,
+    user: User,
+    method: str,
+    query: str,
     response_type: str | None = None,
 ):
     """Streaming variant of run_query: an async generator yielding
@@ -189,7 +198,11 @@ async def stream_query(
     frames_ms = (time.perf_counter() - frames_start) * 1000
 
     gen = GraphragSearchAdapter().stream(
-        method, config, frames, query, response_type or DEFAULT_RESPONSE_TYPE,
+        method,
+        config,
+        frames,
+        query,
+        response_type or DEFAULT_RESPONSE_TYPE,
     )
     search_start = time.perf_counter()
     answer_parts: list[str] = []
@@ -200,7 +213,9 @@ async def stream_query(
     except Exception as exc:
         logger.exception(
             "query stream failed (project %s, method %s, chunks=%d)",
-            project.id, method, len(answer_parts),
+            project.id,
+            method,
+            len(answer_parts),
         )
         if answer_parts:
             yield ("error", INTERRUPTED_DETAIL)
@@ -216,9 +231,12 @@ async def stream_query(
     citations_ms = (time.perf_counter() - citations_start) * 1000
 
     yield ("citations", citations)
-    yield ("done", {
-        "frames_ms": frames_ms,
-        "search_ms": search_ms,
-        "citations_ms": citations_ms,
-        "total_ms": (time.perf_counter() - total_start) * 1000,
-    })
+    yield (
+        "done",
+        {
+            "frames_ms": frames_ms,
+            "search_ms": search_ms,
+            "citations_ms": citations_ms,
+            "total_ms": (time.perf_counter() - total_start) * 1000,
+        },
+    )

@@ -11,6 +11,7 @@ here — modules share this exact pytestmark object rather than re-declaring
 it. DOCS is the query/explore micro-corpus; jobs keeps its own corpus in
 module scope because its incremental-update content is test-specific.
 """
+
 import os
 import shutil
 
@@ -27,8 +28,9 @@ from graphrag_ui.main import create_app
 # module binds this exact object (the guard test asserts equality).
 pytestmark = [
     pytest.mark.slow,
-    pytest.mark.skipif(not os.environ.get("GRAPHRAG_API_KEY"),
-                       reason="needs real LLM key (GRAPHRAG_API_KEY)"),
+    pytest.mark.skipif(
+        not os.environ.get("GRAPHRAG_API_KEY"), reason="needs real LLM key (GRAPHRAG_API_KEY)"
+    ),
 ]
 
 # Factual micro-corpus, 2-3 sentences per document: enough text for the
@@ -40,19 +42,22 @@ DOCS = {
         "Analytical Engine between 1834 and 1846. He was Lucasian Professor of "
         "Mathematics at Cambridge from 1828 to 1839. Babbage funded much of the "
         "Engine's development from his own fortune after the British government "
-        "withdrew its support."),
+        "withdrew its support."
+    ),
     "lovelace.txt": (
         "Ada Lovelace, daughter of the poet Lord Byron, translated Menabrea's "
         "memoir on the Analytical Engine from French and appended her Notes, "
         "published in 1843. Her Note G described an algorithm for computing "
         "Bernoulli numbers, often considered the first published computer "
-        "program. She worked closely with Charles Babbage on the Engine."),
+        "program. She worked closely with Charles Babbage on the Engine."
+    ),
     "engine.txt": (
         "The Analytical Engine was a proposed mechanical general-purpose "
         "computer designed around an arithmetic mill, a store for one thousand "
         "numbers, and punch-card control flow borrowed from the Jacquard loom. "
         "It was never completed during Babbage's lifetime, yet its architecture "
-        "anticipated the modern CPU."),
+        "anticipated the modern CPU."
+    ),
 }
 
 
@@ -76,7 +81,7 @@ async def real_corpus_app(clean_db, monkeypatch, ws_root):
     monkeypatch.setenv("JWT_SECRET", "test-jwt-secret-0123456789abcdef0123456789abcd")
     monkeypatch.setenv("MAX_CONCURRENT_JOBS", "1")
     get_settings.cache_clear()
-    await reset_engine()          # env changed → shared engine must be rebuilt
+    await reset_engine()  # env changed → shared engine must be rebuilt
     auth_routes._LOGIN_FAILURES.clear()
     return create_app()
 

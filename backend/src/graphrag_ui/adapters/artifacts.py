@@ -95,8 +95,7 @@ def list_rows(
     with duckdb.connect(":memory:") as con:
         total = con.execute(f"SELECT COUNT(*) {base_sql}", base_params).fetchone()[0]
         cur = con.execute(
-            f"SELECT {list_columns} {base_sql}"
-            " ORDER BY t.human_readable_id LIMIT ? OFFSET ?",
+            f"SELECT {list_columns} {base_sql} ORDER BY t.human_readable_id LIMIT ? OFFSET ?",
             [*base_params, limit, offset],
         )
         names = [d[0] for d in cur.description]
@@ -140,8 +139,7 @@ def graph(root: Path, level: int | None = None) -> dict[str, Any]:
         community_of = {
             eid: int(comm)
             for eid, comm in con.execute(
-                "SELECT UNNEST(entity_ids) AS eid, community FROM read_parquet(?)"
-                " WHERE level = ?",
+                "SELECT UNNEST(entity_ids) AS eid, community FROM read_parquet(?) WHERE level = ?",
                 [str(com_path), chosen],
             ).fetchall()
         }
@@ -155,8 +153,7 @@ def graph(root: Path, level: int | None = None) -> dict[str, Any]:
                 "community": community_of.get(eid),
             }
             for eid, hrid, title, type_, degree, frequency in con.execute(
-                "SELECT id, human_readable_id, title, type, degree, frequency"
-                " FROM read_parquet(?)",
+                "SELECT id, human_readable_id, title, type, degree, frequency FROM read_parquet(?)",
                 [str(ent_path)],
             ).fetchall()
         ]

@@ -1,4 +1,5 @@
 """Regenerate ../openapi.json (committed; CI diffs it — spec A5.2)."""
+
 import json
 from pathlib import Path
 

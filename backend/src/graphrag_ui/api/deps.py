@@ -22,11 +22,18 @@ _bearer = HTTPBearer(auto_error=False)
 # Full set of paths still reachable while must_change_password is true
 # (the password-change flow + endpoints that need no login). Single source:
 # main.py's global middleware and get_current_user share it; neither may drift.
-MUST_CHANGE_ALLOWED_PATHS = frozenset({
-    "/api/auth/login", "/api/auth/refresh", "/api/auth/logout",
-    "/api/auth/change-password", "/api/auth/me", "/api/auth/config",
-    "/api/health", "/api/ready",
-})
+MUST_CHANGE_ALLOWED_PATHS = frozenset(
+    {
+        "/api/auth/login",
+        "/api/auth/refresh",
+        "/api/auth/logout",
+        "/api/auth/change-password",
+        "/api/auth/me",
+        "/api/auth/config",
+        "/api/health",
+        "/api/ready",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -41,6 +48,7 @@ class Principal:
     that WRITES to the user row must go through `principal.user`
     (`auth_routes.change_password` is the one such site — see Step 10).
     """
+
     user: User
     global_perms: frozenset[str]
 
@@ -65,12 +73,18 @@ class Principal:
         return self.user.must_change_password
 
 
-async def load_global_perms(db: AsyncSession,
-                            user_id: uuid.UUID) -> frozenset[str]:
-    rows = (await db.execute(
-        select(Role.permissions)
-        .join(UserRole, UserRole.role_id == Role.id)
-        .where(UserRole.user_id == user_id))).scalars().all()
+async def load_global_perms(db: AsyncSession, user_id: uuid.UUID) -> frozenset[str]:
+    rows = (
+        (
+            await db.execute(
+                select(Role.permissions)
+                .join(UserRole, UserRole.role_id == Role.id)
+                .where(UserRole.user_id == user_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
     return frozenset().union(*rows) if rows else frozenset()
 
 
@@ -105,6 +119,7 @@ async def resolve_access_user(token: str, db: AsyncSession) -> User | None:
         return None
     return user
 
+
 # Proxy-mode header identity (spec §5.1). The exactly-one rule via getlist
 # is deliberate: different oauth2-proxy versions and ingress controllers
 # differ on append-vs-replace for injected headers, and a request whose
@@ -132,7 +147,9 @@ async def resolve_proxy_user(request: Request, db: AsyncSession) -> Principal:
     try:
         email = _email_adapter.validate_python(emails[0])
     except ValidationError:
-        raise ApiError(status.HTTP_401_UNAUTHORIZED, "auth_not_authenticated", "Not authenticated") from None
+        raise ApiError(
+            status.HTTP_401_UNAUTHORIZED, "auth_not_authenticated", "Not authenticated"
+        ) from None
     display = (request.headers.get("X-Forwarded-Preferred-Username") or "").strip()[:100]
     user = await get_or_provision_user(db, email, display or email.split("@")[0])
     if not user.is_active:
@@ -152,10 +169,14 @@ async def get_current_user(
         raise ApiError(status.HTTP_401_UNAUTHORIZED, "auth_not_authenticated", "Not authenticated")
     user = await resolve_access_user(creds.credentials, db)
     if user is None:
-        raise ApiError(status.HTTP_401_UNAUTHORIZED, "auth_invalid_token", "Invalid or expired token")
+        raise ApiError(
+            status.HTTP_401_UNAUTHORIZED, "auth_invalid_token", "Invalid or expired token"
+        )
     # The backend must also enforce the forced password change, not just the frontend modal
     if user.must_change_password and request.url.path not in MUST_CHANGE_ALLOWED_PATHS:
-        raise ApiError(status.HTTP_403_FORBIDDEN, "auth_must_change_password", "password change required")
+        raise ApiError(
+            status.HTTP_403_FORBIDDEN, "auth_must_change_password", "password change required"
+        )
     return await _principal(db, user)
 
 
@@ -169,11 +190,14 @@ def require_atom(atom: Atom):
     """Router-level dependency: the caller must hold `atom` globally.
     Keeps the historical `admin_only` error code (spec §7) — only the
     message is reworded toward the permission, away from 'admin'."""
+
     async def _dep(user: CurrentUser) -> Principal:
         if atom.value not in user.global_perms:
-            raise ApiError(status.HTTP_403_FORBIDDEN, "admin_only",
-                           "requires user management permission")
+            raise ApiError(
+                status.HTTP_403_FORBIDDEN, "admin_only", "requires user management permission"
+            )
         return user
+
     return _dep
 
 
@@ -203,11 +227,15 @@ async def sse_user_from_request(
     if token is not None:
         user = await resolve_access_user(token, db)
         if user is None:
-            raise ApiError(status.HTTP_401_UNAUTHORIZED, "auth_invalid_token", "Invalid or expired token")
+            raise ApiError(
+                status.HTTP_401_UNAUTHORIZED, "auth_invalid_token", "Invalid or expired token"
+            )
         # Mirror get_current_user's forced-change gate so the ?token= path is
         # not a bypass of that check.
         if user.must_change_password and request.url.path not in MUST_CHANGE_ALLOWED_PATHS:
-            raise ApiError(status.HTTP_403_FORBIDDEN, "auth_must_change_password", "password change required")
+            raise ApiError(
+                status.HTTP_403_FORBIDDEN, "auth_must_change_password", "password change required"
+            )
         return await _principal(db, user)
     # No query token: standard Bearer header semantics.
     return await get_current_user(request, creds, db)

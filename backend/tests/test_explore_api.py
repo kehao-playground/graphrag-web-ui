@@ -24,30 +24,46 @@ def _write_artifacts(pid: str) -> None:
     """Seed the project workspace with §13-shaped parquet (Task 2 fixture)."""
     out = ws_path(uuid.UUID(pid)) / "output"
     out.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame({
-        "id": ["e1", "e2", "e3"], "human_readable_id": [1, 2, 3],
-        "title": ["Alan Turing", "Analytical Engine", "Ada Lovelace"],
-        "type": ["PERSON", "ARTIFACT", "PERSON"],
-        "text_unit_ids": [["a"], ["b"], ["c"]],
-        "frequency": [3, 2, 2], "degree": [2, 1, 0],
-        "description": ["computed", "machine", "first programmer"],
-    }).to_parquet(out / "entities.parquet")
-    pd.DataFrame({
-        "id": ["r1", "r2"], "human_readable_id": [1, 2],
-        "source": ["Alan Turing", "Ada Lovelace"],
-        "target": ["Ada Lovelace", "Ghost Entity"],
-        "weight": [4.0, 1.0], "combined_degree": [2, 0],
-        "text_unit_ids": [["a"], []],
-        "description": ["correspondence", "dangling"],
-    }).to_parquet(out / "relationships.parquet")
-    pd.DataFrame({
-        "id": ["c1", "c2"], "human_readable_id": [0, 1], "community": [0, 1],
-        "level": [0, 1], "parent": [-1, 0], "children": [[1], []],
-        "title": ["C0", "C1"],
-        "entity_ids": [["e1", "e2"], ["e3"]],
-        "relationship_ids": [["r1"], []], "text_unit_ids": [[], []],
-        "period": ["2026-08-22"] * 2, "size": [2, 1],
-    }).to_parquet(out / "communities.parquet")
+    pd.DataFrame(
+        {
+            "id": ["e1", "e2", "e3"],
+            "human_readable_id": [1, 2, 3],
+            "title": ["Alan Turing", "Analytical Engine", "Ada Lovelace"],
+            "type": ["PERSON", "ARTIFACT", "PERSON"],
+            "text_unit_ids": [["a"], ["b"], ["c"]],
+            "frequency": [3, 2, 2],
+            "degree": [2, 1, 0],
+            "description": ["computed", "machine", "first programmer"],
+        }
+    ).to_parquet(out / "entities.parquet")
+    pd.DataFrame(
+        {
+            "id": ["r1", "r2"],
+            "human_readable_id": [1, 2],
+            "source": ["Alan Turing", "Ada Lovelace"],
+            "target": ["Ada Lovelace", "Ghost Entity"],
+            "weight": [4.0, 1.0],
+            "combined_degree": [2, 0],
+            "text_unit_ids": [["a"], []],
+            "description": ["correspondence", "dangling"],
+        }
+    ).to_parquet(out / "relationships.parquet")
+    pd.DataFrame(
+        {
+            "id": ["c1", "c2"],
+            "human_readable_id": [0, 1],
+            "community": [0, 1],
+            "level": [0, 1],
+            "parent": [-1, 0],
+            "children": [[1], []],
+            "title": ["C0", "C1"],
+            "entity_ids": [["e1", "e2"], ["e3"]],
+            "relationship_ids": [["r1"], []],
+            "text_unit_ids": [[], []],
+            "period": ["2026-08-22"] * 2,
+            "size": [2, 1],
+        }
+    ).to_parquet(out / "communities.parquet")
 
 
 async def _login(client, email, password):
@@ -76,7 +92,8 @@ async def _setup_users(client, app):
         ("carol@test.local", "carol-pass-1", "Carol"),
     ]:
         r = await client.post(
-            "/api/admin/users", headers=admin,
+            "/api/admin/users",
+            headers=admin,
             json={"email": email, "display_name": name, "password": pw},
         )
         assert r.status_code == 201, r.text
@@ -88,7 +105,8 @@ async def _setup_users(client, app):
 
 async def _project(client, alice, name="X3"):
     r = await client.post(
-        "/api/projects", headers=alice,
+        "/api/projects",
+        headers=alice,
         json={"name": name, "description": None, "input_file_type": "text"},
     )
     assert r.status_code == 201, r.text
@@ -99,8 +117,7 @@ async def _add_viewer(client, alice, pid, email):
     users = (await client.get("/api/users", headers=alice)).json()
     vid = next(u["id"] for u in users if u["email"] == email)
     r = await client.put(
-        f"/api/projects/{pid}/members/{vid}", headers=alice,
-        json={"role_id": str(ROLE_ID_VIEWER)}
+        f"/api/projects/{pid}/members/{vid}", headers=alice, json={"role_id": str(ROLE_ID_VIEWER)}
     )
     assert r.status_code in (200, 201), r.text
 
@@ -119,7 +136,10 @@ async def _seed_queued_job(client, pid, headers):
     me = (await client.get("/api/auth/me", headers=headers)).json()["id"]
     async with get_session_factory()() as s:
         await insert_job(
-            s, project_id=uuid.UUID(pid), type="index", method="fast",
+            s,
+            project_id=uuid.UUID(pid),
+            type="index",
+            method="fast",
             argv=["index", "--root", "/ws", "--method", "fast"],
             queued_by=uuid.UUID(me),
         )
@@ -136,7 +156,11 @@ async def test_list_envelope_projection_and_order(client, app):
     assert [row["human_readable_id"] for row in body["rows"]] == [1, 2, 3]
     # registry projection holds end-to-end: big columns never leave the server
     assert set(body["rows"][0]) == {
-        "human_readable_id", "title", "type", "frequency", "degree",
+        "human_readable_id",
+        "title",
+        "type",
+        "frequency",
+        "degree",
     }
 
 
@@ -173,7 +197,8 @@ async def test_unsupported_filter_422(client, app):
     pid, alice, _, _ = await _indexed_project(client, app)
     r = await client.get(
         f"/api/projects/{pid}/artifacts/relationships",
-        headers=alice, params={"type": "x"},
+        headers=alice,
+        params={"type": "x"},
     )
     assert r.status_code == 422
     body = r.json()
@@ -181,7 +206,8 @@ async def test_unsupported_filter_422(client, app):
     assert body["code"] == "explore_unsupported_filter"
     r = await client.get(
         f"/api/projects/{pid}/artifacts/documents",
-        headers=alice, params={"community": 0},
+        headers=alice,
+        params={"community": 0},
     )
     assert r.status_code == 422
     body = r.json()
@@ -193,7 +219,8 @@ async def test_limit_offset_returns_exactly_second_row(client, app):
     pid, alice, _, _ = await _indexed_project(client, app)
     r = await client.get(
         f"/api/projects/{pid}/artifacts/entities",
-        headers=alice, params={"limit": 1, "offset": 1},
+        headers=alice,
+        params={"limit": 1, "offset": 1},
     )
     assert r.status_code == 200, r.text
     body = r.json()
@@ -233,17 +260,13 @@ async def test_graph_route_precedence_and_shape(client, app):
     assert body["levels"] == [0, 1]
     assert body["level"] == 1  # default = deepest level present
     assert len(body["nodes"]) == 3
-    assert body["edges"] == [
-        {"source": "Alan Turing", "target": "Ada Lovelace", "weight": 4.0}
-    ]
+    assert body["edges"] == [{"source": "Alan Turing", "target": "Ada Lovelace", "weight": 4.0}]
     assert body["stale"] is False
 
 
 async def test_graph_explicit_level(client, app):
     pid, alice, _, _ = await _indexed_project(client, app)
-    r = await client.get(
-        f"/api/projects/{pid}/artifacts/graph", headers=alice, params={"level": 0}
-    )
+    r = await client.get(f"/api/projects/{pid}/artifacts/graph", headers=alice, params={"level": 0})
     assert r.status_code == 200, r.text
     assert r.json()["level"] == 0
 
@@ -301,14 +324,15 @@ async def test_must_change_password_token_403(client, app):
     app.dependency_overrides[get_initializer] = FakeInitializer
     admin = await _activate(client, "admin@test.local", "admin-pass-123", "admin-new-1")
     r = await client.post(
-        "/api/admin/users", headers=admin,
-        json={"email": "dave@test.local", "display_name": "Dave",
-              "password": "dave-pass-1"},
+        "/api/admin/users",
+        headers=admin,
+        json={"email": "dave@test.local", "display_name": "Dave", "password": "dave-pass-1"},
     )
     assert r.status_code == 201, r.text
     dave = await _login(client, "dave@test.local", "dave-pass-1")
-    r = await client.get("/api/projects/00000000-0000-0000-0000-000000000000"
-                         "/artifacts/entities", headers=dave)
+    r = await client.get(
+        "/api/projects/00000000-0000-0000-0000-000000000000/artifacts/entities", headers=dave
+    )
     assert r.status_code == 403
     body = r.json()
     assert body["detail"] == "password change required"

@@ -9,6 +9,7 @@ repo has no such case today and the zh-TW: escape covers it.
 Stdlib only. `python backend/tests/test_comment_language.py --list`
 prints violations (file:line: comment) — the authoritative sweep list.
 """
+
 import ast
 import io
 import re
@@ -24,11 +25,22 @@ ALLOWLIST_PATH = Path(__file__).resolve().parent / "comment_language_allowlist.t
 
 # Scan roots (repo-relative). Only these trees and files are swept.
 ROOTS = (
-    "backend/src", "backend/tests", "backend/migrations", "backend/scripts",
-    "backend/alembic.ini", "backend/Dockerfile", "backend/pyproject.toml",
-    "frontend/src", "frontend/vite.config.ts", "frontend/Dockerfile",
-    "frontend/index.html", "frontend/nginx.conf",
-    "deploy", ".github/workflows", "docker-compose.yml", ".env.example",
+    "backend/src",
+    "backend/tests",
+    "backend/migrations",
+    "backend/scripts",
+    "backend/alembic.ini",
+    "backend/Dockerfile",
+    "backend/pyproject.toml",
+    "frontend/src",
+    "frontend/vite.config.ts",
+    "frontend/Dockerfile",
+    "frontend/index.html",
+    "frontend/nginx.conf",
+    "deploy",
+    ".github/workflows",
+    "docker-compose.yml",
+    ".env.example",
 )
 # Generated artifacts and agent docs never count, even where the extension
 # would otherwise be whitelisted (types.generated.ts is real .ts content).
@@ -50,8 +62,7 @@ def python_comments(text: str) -> list[tuple[int, str]]:
 def python_docstrings(text: str) -> list[tuple[int, str]]:
     out = []
     for n in ast.walk(ast.parse(text)):
-        if isinstance(n, (ast.Module, ast.ClassDef, ast.FunctionDef,
-                          ast.AsyncFunctionDef)):
+        if isinstance(n, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
             doc = ast.get_docstring(n)
             if doc:
                 out.append((n.body[0].lineno, doc))
@@ -59,14 +70,14 @@ def python_docstrings(text: str) -> list[tuple[int, str]]:
 
 
 def marker_comments(text: str, marker: str) -> list[tuple[int, str]]:
-    return [(i, ln.split(marker, 1)[1])
-            for i, ln in enumerate(text.splitlines(), 1) if marker in ln]
+    return [
+        (i, ln.split(marker, 1)[1]) for i, ln in enumerate(text.splitlines(), 1) if marker in ln
+    ]
 
 
 def block_comments(text: str, start: str, end: str) -> list[tuple[int, str]]:
     pat = re.compile(re.escape(start) + r"(.*?)" + re.escape(end), re.DOTALL)
-    return [(text[:m.start()].count("\n") + 1, m.group(1))
-            for m in pat.finditer(text)]
+    return [(text[: m.start()].count("\n") + 1, m.group(1)) for m in pat.finditer(text)]
 
 
 def violates(comment_text: str) -> bool:
@@ -164,9 +175,7 @@ def iter_scan_files(repo: Path = REPO, roots=ROOTS):
 
 
 def file_violations(path: Path, text: str) -> list[tuple[int, str]]:
-    return [(lineno, comment)
-            for lineno, comment in comments_for(path, text)
-            if violates(comment)]
+    return [(lineno, comment) for lineno, comment in comments_for(path, text) if violates(comment)]
 
 
 def scan_repo(repo: Path = REPO, roots=ROOTS, allowlist=None):
@@ -209,7 +218,9 @@ def main(argv=None) -> int:
 
 TS_CJK_LINE = "const a = 1; // 這是註解\nconst b = 2; // plain\n"
 TS_ZH_TW_ESCAPE = "const a = 1; // zh-TW: 這是刻意保留的 UI 字串\n"
-TS_CJK_IN_STRING = 'const label = "中文標籤"; // english note\nconst s2 = "另一段"; // also english\n'
+TS_CJK_IN_STRING = (
+    'const label = "中文標籤"; // english note\nconst s2 = "另一段"; // also english\n'
+)
 PY_CJK_DOCSTRING = 'def f():\n    """中文說明"""\n    return 1\n'
 PY_STRING_ONLY = 'LABEL = "中文標籤"\n\ndef g():\n    """English doc."""\n    return LABEL\n'
 PY_ZH_TW_HASH = "# zh-TW: 刻意保留的舊介面字串\nX = 1\n"
@@ -260,8 +271,12 @@ def test_py_docstring_cjk_fails():
 
 
 def test_hash_comment_yaml_toml_style_fails():
-    assert [(n, c) for n, c in marker_comments(YAML_CJK_HASH, "#") if violates(c)] == [(1, " 副本數")]
-    assert [(n, c) for n, c in marker_comments(TOML_CJK_HASH, "#") if violates(c)] == [(1, " 逾時秒數")]
+    assert [(n, c) for n, c in marker_comments(YAML_CJK_HASH, "#") if violates(c)] == [
+        (1, " 副本數")
+    ]
+    assert [(n, c) for n, c in marker_comments(TOML_CJK_HASH, "#") if violates(c)] == [
+        (1, " 逾時秒數")
+    ]
 
 
 def test_python_hash_zh_tw_escape_passes():
@@ -288,7 +303,9 @@ def test_allowlisted_path_passes(tmp_path):
     allow.write_text("# header comment\nlegacy.py # kept for history\n", encoding="utf-8")
     assert load_allowlist(allow) == frozenset({"legacy.py"})
     # Control: without the allowlist entry the violation is reported.
-    assert [(rel, n) for rel, n, _ in scan_repo(tmp_path, ["legacy.py"], allowlist=frozenset())] == [("legacy.py", 2)]
+    assert [
+        (rel, n) for rel, n, _ in scan_repo(tmp_path, ["legacy.py"], allowlist=frozenset())
+    ] == [("legacy.py", 2)]
     # With it, the whole path passes.
     assert list(scan_repo(tmp_path, ["legacy.py"], allowlist=load_allowlist(allow))) == []
 
@@ -296,7 +313,9 @@ def test_allowlisted_path_passes(tmp_path):
 def test_missing_allowlist_file_tolerated(tmp_path):
     assert load_allowlist(tmp_path / "absent.txt") == frozenset()
     (tmp_path / "legacy.py").write_text(PY_CJK_DOCSTRING, encoding="utf-8")
-    hits = list(scan_repo(tmp_path, ["legacy.py"], allowlist=load_allowlist(tmp_path / "absent.txt")))
+    hits = list(
+        scan_repo(tmp_path, ["legacy.py"], allowlist=load_allowlist(tmp_path / "absent.txt"))
+    )
     assert [(rel, n) for rel, n, _ in hits] == [("legacy.py", 2)]
 
 

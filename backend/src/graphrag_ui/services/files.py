@@ -21,7 +21,9 @@ from graphrag_ui.services.projects import ws_path
 # Upload whitelist keyed by project.input_file_type (spec §6.5):
 # text → txt/md, csv → csv, json → json.
 ALLOWED_EXTENSIONS: dict[str, set[str]] = {
-    "text": {".txt", ".md"}, "csv": {".csv"}, "json": {".json"},
+    "text": {".txt", ".md"},
+    "csv": {".csv"},
+    "json": {".json"},
 }
 
 
@@ -29,8 +31,7 @@ class FileServiceError(Exception):
     """Invalid filename/extension — routes map to 400 (ApiError carries
     e.code/e.params so the client can localize)."""
 
-    def __init__(self, code: str, detail: str,
-                 params: dict[str, str] | None = None) -> None:
+    def __init__(self, code: str, detail: str, params: dict[str, str] | None = None) -> None:
         super().__init__(detail)
         self.code = code
         self.params = params
@@ -69,11 +70,11 @@ def _safe_name(project_input_file_type: str, filename: str) -> str:
     if len(filename) > 255:
         raise FileServiceError("file_name_too_long", "filename exceeds 255 characters")
     if "/" in filename or "\\" in filename or ".." in filename:
-        raise FileServiceError("file_name_unsafe",
-                               "filename must not contain path separators or '..'")
+        raise FileServiceError(
+            "file_name_unsafe", "filename must not contain path separators or '..'"
+        )
     if filename.startswith("."):
-        raise FileServiceError("file_name_leading_dot",
-                               "filename must not start with '.'")
+        raise FileServiceError("file_name_leading_dot", "filename must not start with '.'")
     allowed = ALLOWED_EXTENSIONS.get(project_input_file_type, set())
     # Compare lowercased: Windows clients commonly send .MD / .Txt. The
     # stored name keeps its original case (only the match is case-blind).
@@ -83,7 +84,8 @@ def _safe_name(project_input_file_type: str, filename: str) -> str:
             "file_ext_not_allowed",
             f"extension '{ext or '(none)'}' not allowed for "
             f"input_file_type '{project_input_file_type}'",
-            {"ext": ext or "(none)", "input_file_type": project_input_file_type})
+            {"ext": ext or "(none)", "input_file_type": project_input_file_type},
+        )
     return filename
 
 
@@ -114,8 +116,9 @@ async def usage_bytes(project: Project) -> int:
     return await asyncio.to_thread(_usage_bytes_sync, project)
 
 
-async def save_file(session: AsyncSession, project: Project, filename: str,
-                    source, actor_id: uuid.UUID | None) -> tuple[str, int]:
+async def save_file(
+    session: AsyncSession, project: Project, filename: str, source, actor_id: uuid.UUID | None
+) -> tuple[str, int]:
     """Stream `source` (any reader with `async read(n)`, e.g. UploadFile) to
     input/<name> in fixed chunks; returns (stored name, byte size).
 
@@ -154,8 +157,14 @@ async def save_file(session: AsyncSession, project: Project, filename: str,
         # audit row, so an over-quota upload leaves no trace.
         if base_usage + size > quota_bytes():
             raise QuotaExceededError(get_settings().project_quota_mb)
-        await audit(session, actor_id, "file.uploaded", "project",
-                    str(project.id), {"name": name, "size": size})
+        await audit(
+            session,
+            actor_id,
+            "file.uploaded",
+            "project",
+            str(project.id),
+            {"name": name, "size": size},
+        )
         await session.flush()
         os.replace(tmp, input_dir / name)
         await session.commit()
@@ -187,18 +196,20 @@ def _scan_input(input_dir: Path) -> list[dict]:
         if not p.is_file() or p.name.startswith("."):
             continue
         st = p.stat()
-        entries.append({
-            "name": p.name,
-            "size": st.st_size,
-            "modified_at": datetime.fromtimestamp(
-                st.st_mtime, tz=UTC).isoformat(),
-        })
+        entries.append(
+            {
+                "name": p.name,
+                "size": st.st_size,
+                "modified_at": datetime.fromtimestamp(st.st_mtime, tz=UTC).isoformat(),
+            }
+        )
     entries.sort(key=lambda e: e["name"])
     return entries
 
 
-async def delete_file(session: AsyncSession, project: Project, filename: str,
-                      actor_id: uuid.UUID | None) -> int:
+async def delete_file(
+    session: AsyncSession, project: Project, filename: str, actor_id: uuid.UUID | None
+) -> int:
     """Remove input/<name> AND audit it, one transaction (spec A1); returns
     the removed file's size.
 
@@ -211,8 +222,14 @@ async def delete_file(session: AsyncSession, project: Project, filename: str,
         raise FileNotFoundError(name)
     size = target.stat().st_size
     try:
-        await audit(session, actor_id, "file.deleted", "project",
-                    str(project.id), {"name": name, "size": size})
+        await audit(
+            session,
+            actor_id,
+            "file.deleted",
+            "project",
+            str(project.id),
+            {"name": name, "size": size},
+        )
         await session.flush()
         target.unlink()
         await session.commit()
