@@ -86,7 +86,9 @@ flowchart LR
    CI 固定使用 24)。
 2. **設定** — `cp .env.example .env`,接著設定三個 compose 強制變數:
 
-   - `JWT_SECRET` — 一段長的隨機字串(JWT 簽署金鑰;請勿沿用開發預設值)
+   - `JWT_SECRET` — JWT 簽署金鑰。`.env.example` 刻意留**空**:此值為必填、
+     至少 32 字元,且 API 在偵測到佔位值時會拒絕啟動 —— 因為持有此金鑰的人
+     可以為任何帳號簽出 token。請以 `openssl rand -hex 32` 產生
    - `BOOTSTRAP_ADMIN_EMAIL` — 必須使用可路由的網域,**不可**用 `.local`:
      登入驗證會拒絕特殊用途網域
    - `BOOTSTRAP_ADMIN_PASSWORD`

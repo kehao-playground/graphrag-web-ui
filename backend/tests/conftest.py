@@ -34,6 +34,13 @@ email_validator.SPECIAL_USE_DOMAIN_NAMES = [
     d for d in email_validator.SPECIAL_USE_DOMAIN_NAMES if d != "local"
 ]
 
+# AUTH_MODE=local refuses a weak JWT_SECRET at Settings() construction
+# (config.py). Set at import time, not in a fixture: the session-scoped
+# migrated_db fixture builds Settings via alembic's env.py before any
+# function-scoped fixture has run. setdefault, so an explicit env var or a
+# monkeypatch.setenv in a test still wins.
+os.environ.setdefault("JWT_SECRET", "test-jwt-secret-0123456789abcdef0123456789abcd")
+
 
 @pytest.fixture(scope="session")
 def db_url():

@@ -85,7 +85,10 @@ flowchart LR
    CI pins 24).
 2. **Configure** — `cp .env.example .env`, then set the three compose-enforced variables:
 
-   - `JWT_SECRET` — a long random string (the JWT signing key; don't keep the dev default)
+   - `JWT_SECRET` — the JWT signing key. `.env.example` ships it **empty**: it is
+     required, must be at least 32 characters, and the API refuses to start on a
+     placeholder, because anyone holding it can sign a token for any account.
+     Generate one with `openssl rand -hex 32`
    - `BOOTSTRAP_ADMIN_EMAIL` — must use a routable domain, **not** `.local`: login
      validation rejects special-use domains
    - `BOOTSTRAP_ADMIN_PASSWORD`

@@ -32,8 +32,11 @@ def test_proxy_mode_rejects_empty_secret():
 
 
 def test_local_mode_allows_empty_secret():
-    # Default deployments keep today's behavior: no secret needed (spec §4)
-    assert Settings(auth_mode="local", proxy_auth_secret="").auth_mode == "local"
+    # Default deployments keep today's behavior: no PROXY_AUTH_SECRET needed
+    # (spec §4). jwt_secret is passed explicitly because local mode has its
+    # own strength rule (test_config.py) that would otherwise fire here.
+    s = Settings(auth_mode="local", proxy_auth_secret="", jwt_secret="x" * 32)
+    assert s.auth_mode == "local"
 
 
 def test_proxy_mode_accepts_32_char_secret():
@@ -42,12 +45,12 @@ def test_proxy_mode_accepts_32_char_secret():
 
 
 def test_proxy_admin_set_lowercases_strips_and_dedupes():
-    s = Settings(proxy_admin_emails="A@Ex.COM, b@ex.com , ,")
+    s = Settings(proxy_admin_emails="A@Ex.COM, b@ex.com , ,", jwt_secret="x" * 32)
     assert s.proxy_admin_set == frozenset({"a@ex.com", "b@ex.com"})
 
 
 def test_proxy_admin_set_empty_default():
-    assert Settings().proxy_admin_set == frozenset()
+    assert Settings(jwt_secret="x" * 32).proxy_admin_set == frozenset()
 
 
 async def _grants(db_session, email) -> set[str]:
