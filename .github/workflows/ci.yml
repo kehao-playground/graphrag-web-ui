@@ -39,7 +39,10 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - run: npm run lint          # oxlint — the script existed long before this gate did
+      # oxlint existed as a script long before this gate did. --max-warnings
+      # (in package.json) ratchets the six pre-existing React warnings: a new
+      # one fails CI, fixing one keeps passing.
+      - run: npm run lint
       - run: npm test
       - run: npm run build
       # spec A5.2 contract gate: committed types.generated.ts must match openapi.json

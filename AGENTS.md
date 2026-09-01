@@ -53,18 +53,21 @@ briefs; their Global Constraints always apply.
 ```bash
 # backend (Python 3.12, uv; Docker required for testcontainers; duckdb
 # reads explore parquet artifacts read-only)
-cd backend && uv run pytest -v          # 242 tests with GRAPHRAG_API_KEY (237 fast); 5 slow tests fork the real graphrag CLI (3 need the key, skipped without it); fast only: uv run pytest -m "not slow"
+cd backend && uv run pytest -v          # 365 tests with GRAPHRAG_API_KEY (360 fast); 5 slow tests fork the real graphrag CLI (3 need the key, skipped without it); fast only: uv run pytest -m "not slow"
 cd backend && uv run ruff check
 cd backend && uv run ruff format --check   # formatting is CI-enforced; `ruff format` to fix
 cd backend && uv run mypy                  # src/ must stay clean; CI-enforced
 
 # frontend (Node 24; jsdom+undici need >=22; explore graph renders via
 # react-sigma + graphology, lazy-loaded as a separate build chunk)
-cd frontend && npm test                 # vitest run (61 tests)
+cd frontend && npm test                 # vitest run (101 tests)
+cd frontend && npm run lint             # oxlint, ratcheted at 6 warnings
 cd frontend && npx tsc -b --noEmit
 cd frontend && npm run build
 
-# deploy checks (compose needs .env for ${VAR:?}: cp .env.example .env)
+# deploy checks (compose needs .env for ${VAR:?}: cp .env.example .env, then
+# set JWT_SECRET — .env.example ships it empty and the api rejects a
+# placeholder at startup)
 docker compose config
 docker compose -f docker-compose.yml -f docker-compose.proxy-auth.yml config   # needs the proxy .env vars
 docker compose build                     # catches Dockerfile drift (e.g. .npmrc must ship with npm ci)

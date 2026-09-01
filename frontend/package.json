@@ -8,7 +8,7 @@
     "dev": "vite",
     "gen:types": "openapi-typescript ../openapi.json -o src/api/types.generated.ts",
     "build": "tsc -b && vite build",
-    "lint": "oxlint",
+    "lint": "oxlint --max-warnings=6",
     "preview": "vite preview",
     "test": "vitest run",
     "screenshots": "node scripts/capture-screens.mjs"

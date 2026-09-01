@@ -212,7 +212,7 @@ async function seed() {
   return { token, project, effectivePassword };
 }
 
-async function capture({ project, effectivePassword }, { locale, outDir, labels }) {
+async function capture({ effectivePassword }, { locale, outDir, labels }) {
   await mkdir(outDir, { recursive: true });
   const browser = await chromium.launch();
   const context = await browser.newContext({
