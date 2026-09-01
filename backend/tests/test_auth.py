@@ -1,3 +1,7 @@
+from graphrag_ui.api import auth_routes
+from graphrag_ui.domain.sliding_window import SlidingWindow
+
+
 async def test_bootstrap_admin_login_and_forced_change(client):
     r = await client.post(
         "/api/auth/login", json={"email": "admin@test.local", "password": "admin-pass-123"}
@@ -42,6 +46,41 @@ async def test_login_rate_limit_blocks_after_ten_failures_per_email(client):
         "/api/auth/login", json={"email": "other@test.local", "password": "nope"}
     )
     assert r2.status_code == 401
+
+
+async def test_login_bucket_is_released_and_reclaimed_after_the_window(client, monkeypatch):
+    """A 429'd client is let back in, and its bucket stops occupying memory.
+
+    The limiter map used to keep every (ip, email) it had ever seen: the
+    deque was drained but the key stayed. Both halves are request-supplied,
+    so failed logins with fresh emails grew the process forever.
+    """
+    clock = {"t": 1_000.0}
+    monkeypatch.setattr(auth_routes, "_now", lambda: clock["t"])
+
+    for _ in range(10):
+        await client.post("/api/auth/login", json={"email": "a@test.local", "password": "wrong"})
+    r = await client.post("/api/auth/login", json={"email": "a@test.local", "password": "wrong"})
+    assert r.status_code == 429
+    assert len(auth_routes._LOGIN_FAILURES) == 1
+
+    clock["t"] += auth_routes._LOGIN_WINDOW_SECONDS + 1
+    r = await client.post("/api/auth/login", json={"email": "a@test.local", "password": "wrong"})
+    assert r.status_code == 401  # window slid; the client is no longer blocked
+    # Counting an expired bucket drops it; this failure re-created one.
+    assert len(auth_routes._LOGIN_FAILURES) == 1
+
+
+def test_login_bucket_map_has_a_hard_ceiling():
+    # The flood case the API test cannot express in a reasonable runtime:
+    # unique keys arriving faster than the 1-minute window retires them.
+    window = SlidingWindow(
+        window_seconds=auth_routes._LOGIN_WINDOW_SECONDS,
+        max_keys=auth_routes._LOGIN_MAX_TRACKED_KEYS,
+    )
+    for i in range(auth_routes._LOGIN_MAX_TRACKED_KEYS * 2):
+        window.add(("10.0.0.1", f"flood-{i}@test.local"), 1_000.0)
+    assert len(window) <= auth_routes._LOGIN_MAX_TRACKED_KEYS
 
 
 async def test_successful_logins_do_not_count_toward_rate_limit(client):

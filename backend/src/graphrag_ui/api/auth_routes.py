@@ -1,5 +1,4 @@
-from collections import deque
-from datetime import UTC, datetime, timedelta
+import time
 
 from fastapi import APIRouter, Request, Response, status
 
@@ -17,6 +16,7 @@ from graphrag_ui.api.schemas import (
     user_out,
 )
 from graphrag_ui.config import get_settings
+from graphrag_ui.domain.sliding_window import SlidingWindow
 from graphrag_ui.services.auth import (
     authenticate,
     create_access_token,
@@ -34,35 +34,42 @@ from graphrag_ui.services.roles import roles_for_user
 # bucket (a team spike must not trip 429), and per-email buckets keep one
 # attacker flooding a single bucket from affecting others (module-level =
 # shared within a single worker).
-_LOGIN_FAILURES: dict[tuple[str, str], deque[datetime]] = {}
-_LOGIN_WINDOW = timedelta(minutes=1)
+#
+# Both halves of the key come from the request, so the key space is
+# attacker-chosen: unique emails, and — for anyone able to reach the api
+# past the reverse proxy — spoofed X-Forwarded-For values. SlidingWindow
+# caps the number of live buckets and drops expired ones, so a failed-login
+# flood costs bounded memory. Monotonic clock: a wall-clock jump must not
+# retire a window early (or freeze one open).
+_LOGIN_WINDOW_SECONDS = 60.0
 _LOGIN_MAX_ATTEMPTS = 10
+_LOGIN_MAX_TRACKED_KEYS = 10_000
+_LOGIN_FAILURES = SlidingWindow(
+    window_seconds=_LOGIN_WINDOW_SECONDS, max_keys=_LOGIN_MAX_TRACKED_KEYS
+)
+
+# Module-level clock so tests can drive the window deterministically.
+_now = time.monotonic
 
 
 def _login_rate_key(request: Request, email: str) -> tuple[str, str]:
     # In the deployment topology the api always sits behind the web nginx
-    # (nginx forwards X-Forwarded-For, uvicorn runs --proxy-headers), so
-    # request.client.host is the real client IP rather than the web
-    # container IP shared by the whole team
+    # (nginx forwards X-Forwarded-For, uvicorn runs --proxy-headers with a
+    # narrowed --forwarded-allow-ips), so request.client.host is the real
+    # client IP rather than the web container IP shared by the whole team
     ip = request.client.host if request.client else "unknown"
     return (ip, email.lower())
 
 
 def _check_login_rate_limit(request: Request, email: str) -> None:
-    attempts = _LOGIN_FAILURES.get(_login_rate_key(request, email))
-    if not attempts:
-        return
-    now = datetime.now(UTC)
-    while attempts and now - attempts[0] > _LOGIN_WINDOW:
-        attempts.popleft()
-    if len(attempts) >= _LOGIN_MAX_ATTEMPTS:
+    if _LOGIN_FAILURES.count(_login_rate_key(request, email), _now()) >= _LOGIN_MAX_ATTEMPTS:
         raise ApiError(
             status.HTTP_429_TOO_MANY_REQUESTS, "auth_too_many_attempts", "too many attempts"
         )
 
 
 def _record_login_failure(request: Request, email: str) -> None:
-    _LOGIN_FAILURES.setdefault(_login_rate_key(request, email), deque()).append(datetime.now(UTC))
+    _LOGIN_FAILURES.add(_login_rate_key(request, email), _now())
 
 
 def register_auth_routes(app):
