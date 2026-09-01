@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from starlette.routing import Match
 
 from graphrag_ui.adapters.db import get_session_factory
 from graphrag_ui.api.auth_routes import register_auth_routes
@@ -81,6 +82,15 @@ async def lifespan(app: FastAPI):
         await asyncio.wait_for(app.state.runner_task, timeout=5)
 
 
+def _has_mounted_route(app: FastAPI, request: Request) -> bool:
+    """Does any mounted route claim this request's path?
+
+    Match.PARTIAL counts: the path exists and only the method is wrong, so
+    the router answers with 405 and nothing about the route is leaked.
+    """
+    return any(route.matches(request.scope)[0] is not Match.NONE for route in app.router.routes)
+
+
 def _register_must_change_guard(app: FastAPI) -> None:
     """Global guard for the forced password change (spec: the backend must
     also enforce it, not just the frontend modal).
@@ -91,6 +101,12 @@ def _register_must_change_guard(app: FastAPI) -> None:
     get an early 403 here instead of a 404 that would leak the route.
     Invalid tokens are not intercepted here — the endpoint's get_current_user
     returns 401.
+
+    Which is exactly why the DB lookup below is gated on the path having no
+    route: for every real endpoint get_current_user reaches the identical
+    answer from the request's own session, so doing it here as well decoded
+    the JWT and opened a second session on every authenticated request just
+    to duplicate work. Route matching is an in-memory regex scan.
     """
 
     @app.middleware("http")
@@ -101,6 +117,7 @@ def _register_must_change_guard(app: FastAPI) -> None:
             path.startswith("/api")
             and path not in MUST_CHANGE_ALLOWED_PATHS
             and auth.startswith("Bearer ")
+            and not _has_mounted_route(app, request)
         ):
             async with get_session_factory()() as session:
                 user = await resolve_access_user(auth[7:], session)

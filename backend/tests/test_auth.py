@@ -1,3 +1,4 @@
+from graphrag_ui import main
 from graphrag_ui.api import auth_routes
 from graphrag_ui.domain.sliding_window import SlidingWindow
 
@@ -22,6 +23,19 @@ async def test_bootstrap_admin_login_and_forced_change(client):
         "/api/auth/login", json={"email": "admin@test.local", "password": "new-pass-456"}
     )
     assert r3.json()["user"]["must_change_password"] is False
+
+
+async def test_login_is_case_insensitive_on_the_email(client):
+    """Proxy-mode identity resolution has always lowercased both sides; local
+    login compared the raw column. An admin who created `Alice@test.local`
+    left a user who could never log in as `alice@test.local` — the error
+    being the indistinguishable "invalid email or password".
+    """
+    r = await client.post(
+        "/api/auth/login", json={"email": "ADMIN@test.local", "password": "admin-pass-123"}
+    )
+    assert r.status_code == 200
+    assert r.json()["user"]["email"] == "admin@test.local"
 
 
 async def test_login_wrong_password(client):
@@ -164,3 +178,49 @@ async def test_bootstrap_admin_warns_when_admin_already_exists(db_session, app, 
         await bootstrap_admin(db_session)  # second run: admin exists -> warn
     assert "BOOTSTRAP_ADMIN_PASSWORD" in caplog.text
     assert "admin@test.local" in caplog.text
+
+
+async def test_must_change_guard_skips_the_db_for_mounted_routes(client, monkeypatch):
+    """The guard exists to turn a 404 into a 403 on paths that have no route.
+
+    For everything that *does* have a route, get_current_user already runs
+    the identical check, so the guard was decoding the JWT and opening a
+    second session per request purely to reach the same answer — the auth
+    query, doubled on every authenticated call.
+
+    Patching main's name only affects the middleware: deps.get_current_user
+    resolves through its own module-level reference.
+    """
+    calls = []
+    real = main.resolve_access_user
+
+    async def counting(token, db):
+        calls.append(token)
+        return await real(token, db)
+
+    monkeypatch.setattr(main, "resolve_access_user", counting)
+    body = (
+        await client.post(
+            "/api/auth/login", json={"email": "admin@test.local", "password": "admin-pass-123"}
+        )
+    ).json()
+    hdr = {"Authorization": f"Bearer {body['access_token']}"}
+
+    assert (await client.get("/api/admin/users", headers=hdr)).status_code == 403
+    assert calls == []  # the mounted route's own dependency answered it
+
+    assert (await client.get("/api/no-such-route", headers=hdr)).status_code == 403
+    assert len(calls) == 1  # only the unrouted path pays for the lookup
+
+
+async def test_guard_still_403s_an_unrouted_path_with_a_wrong_method(client):
+    # A path that exists but rejects the method must not fall through to the
+    # guard's DB check either — 405 is the route's answer, not a leak.
+    body = (
+        await client.post(
+            "/api/auth/login", json={"email": "admin@test.local", "password": "admin-pass-123"}
+        )
+    ).json()
+    hdr = {"Authorization": f"Bearer {body['access_token']}"}
+    r = await client.delete("/api/admin/users", headers=hdr)
+    assert r.status_code in (403, 405)
