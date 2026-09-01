@@ -318,3 +318,54 @@ async def test_patch_user_duplicate_role_ids_collapse_to_one_grant(client, db_se
         await db_session.execute(select(func.count()).where(UserRole.user_id == uuid.UUID(uid)))
     ).scalar_one()
     assert grants == 1
+
+
+async def test_created_email_is_stored_lowercased(client, db_session):
+    """Writes normalize, so the (now case-insensitive) lookup can never find
+    two rows for one address."""
+    admin = await _admin_token(client)
+    r = await client.post(
+        "/api/admin/users",
+        headers=admin,
+        json={
+            "email": "MixedCase@Test.Local",
+            "display_name": "Mixed",
+            "password": "mixed-pass-1",
+            "role_ids": [],
+        },
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["email"] == "mixedcase@test.local"
+
+
+async def test_email_differing_only_in_case_is_rejected_as_registered(client):
+    admin = await _admin_token(client)
+    body = {
+        "email": "dup@test.local",
+        "display_name": "Dup",
+        "password": "dup-pass-1234",
+        "role_ids": [],
+    }
+    assert (await client.post("/api/admin/users", headers=admin, json=body)).status_code == 201
+    clash = {**body, "email": "DUP@Test.Local", "display_name": "Dup2"}
+    r = await client.post("/api/admin/users", headers=admin, json=clash)
+    assert r.status_code == 409
+    assert r.json()["code"] == "email_registered"
+
+
+async def test_a_lowercased_user_can_log_in(client):
+    admin = await _admin_token(client)
+    await client.post(
+        "/api/admin/users",
+        headers=admin,
+        json={
+            "email": "Casey@Test.Local",
+            "display_name": "Casey",
+            "password": "casey-pass-12",
+            "role_ids": [],
+        },
+    )
+    r = await client.post(
+        "/api/auth/login", json={"email": "casey@test.local", "password": "casey-pass-12"}
+    )
+    assert r.status_code == 200

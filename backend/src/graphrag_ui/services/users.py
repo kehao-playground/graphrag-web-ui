@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.adapters.models import Role, User, UserRole
 from graphrag_ui.services.audit import audit
-from graphrag_ui.services.auth import hash_password, revoke_all_for_user
+from graphrag_ui.services.auth import hash_password, normalize_email, revoke_all_for_user
 from graphrag_ui.services.roles import (
     LastUserManagerError,
     load_roles,
@@ -63,6 +63,9 @@ async def create_user(
 ) -> User:
     roles = await load_roles(session, role_ids or [])
     validate_global_roles(roles)
+    # Normalized on write so the users.email unique index (and the functional
+    # lower(email) index behind it) is what makes "one address, one row" true
+    email = normalize_email(email)
     user = User(
         email=email,
         display_name=display_name,

@@ -21,6 +21,16 @@ logger = logging.getLogger(__name__)
 _ph = PasswordHasher()
 
 
+def normalize_email(email: str) -> str:
+    """The stored/compared form of an address: stripped and lowercased.
+
+    Single source for every read and write. pydantic's EmailStr only
+    lowercases the domain, so without this the local part's case leaked into
+    the column and split one person across two rows.
+    """
+    return email.strip().lower()
+
+
 def hash_password(pw: str) -> str:
     return _ph.hash(pw)
 
@@ -50,7 +60,7 @@ async def get_or_provision_user(session: AsyncSession, email: str, display_name:
     row — the rollback is safe because identity resolution is the first
     thing touching this request's session.
     """
-    addr = email.strip().lower()
+    addr = normalize_email(email)
     settings = get_settings()
 
     async def _lookup() -> User | None:
@@ -186,7 +196,17 @@ _DUMMY_HASH = _ph.hash("dummy-for-constant-time")
 
 
 async def authenticate(session: AsyncSession, email: str, password: str) -> User | None:
-    user = (await session.execute(select(User).where(User.email == email))).scalar_one_or_none()
+    # Case-insensitive, matching proxy-mode identity resolution
+    # (get_or_provision_user) and normalize_email() on the write side. Email
+    # local parts are case-insensitive in practice for every mail provider
+    # this app talks to, and a raw column comparison meant an account created
+    # as `Alice@corp.com` simply could not be logged into as `alice@corp.com`
+    # — reported as "invalid email or password", which is unfixable from the
+    # UI. Safe as scalar_one_or_none because both the write path and the
+    # migration's functional unique index guarantee at most one match.
+    user = (
+        await session.execute(select(User).where(func.lower(User.email) == normalize_email(email)))
+    ).scalar_one_or_none()
     if user is None or not user.is_active:
         verify_password(
             password, _DUMMY_HASH
@@ -229,7 +249,7 @@ async def bootstrap_admin(session: AsyncSession) -> None:
         )
         return
     admin = User(
-        email=s.bootstrap_admin_email,
+        email=normalize_email(s.bootstrap_admin_email),
         password_hash=hash_password(s.bootstrap_admin_password),
         display_name="Administrator",
         is_active=True,
