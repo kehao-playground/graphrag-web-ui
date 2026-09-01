@@ -1,0 +1,29 @@
+version: 2
+updates:
+  # graphrag is pinned (==3.1.0) on purpose — AGENTS.md: bumping it means
+  # re-checking graphrag_input/input_config.py key names, because wrong keys
+  # are silently ignored (extra="allow"). Dependabot may still open the PR;
+  # it just must not be merged without that check.
+  - package-ecosystem: uv
+    directory: /backend
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    groups:
+      backend-minor:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    groups:
+      frontend-minor:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+
+  - package-ecosystem: docker
+    directories: [/backend, /frontend]
+    schedule: { interval: weekly }

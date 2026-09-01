@@ -1,0 +1,42 @@
+{{- if .Values.networkPolicy.enabled }}
+# Ingress allowlist for the api pod. Without it the api ClusterIP Service is
+# reachable by every pod in the cluster, which means anyone who lands a pod
+# there can (a) talk to the api bypassing the web nginx entirely and (b) set
+# their own X-Forwarded-For, minting a fresh login-rate-limit bucket per
+# attempt. Only the web nginx, the bundled oauth2-proxy and the ingress
+# controller have any business reaching it.
+#
+# ⚠ Requires a CNI that enforces NetworkPolicy (Calico/Cilium/Antrea…). On a
+# cluster without one this object is silently inert — the uvicorn
+# --forwarded-allow-ips gate is the reason that is not the only defence.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "graphrag-ui.fullname" . }}-api
+  labels:
+    {{- include "graphrag-ui.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "graphrag-ui.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "graphrag-ui.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: web
+        {{- if .Values.proxyAuth.enabled }}
+        - podSelector:
+            matchLabels:
+              {{- include "graphrag-ui.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: oauth2-proxy
+        {{- end }}
+        {{- with .Values.networkPolicy.extraIngressFrom }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      ports:
+        - { protocol: TCP, port: 8000 }
+{{- end }}

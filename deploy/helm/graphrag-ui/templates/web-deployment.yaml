@@ -17,15 +17,30 @@ spec:
         {{- include "graphrag-ui.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: web
     spec:
+      # nginx-unprivileged already runs as uid 101; asserting it here makes
+      # a swapped-in image that reverts to root fail to schedule instead of
+      # silently regressing.
+      securityContext:
+        {{- toYaml .Values.web.podSecurityContext | nindent 8 }}
       containers:
         - name: web
           image: "{{ .Values.web.image.repository | default "graphrag-ui-web" }}:{{ .Values.web.image.tag | default .Chart.AppVersion }}"
+          securityContext:
+            {{- toYaml .Values.web.containerSecurityContext | nindent 12 }}
           ports:
             - name: http
-              containerPort: 80
+              containerPort: 8080
           livenessProbe:
-            httpGet: { path: /, port: 80 }
+            httpGet: { path: /, port: 8080 }
             periodSeconds: 10
           readinessProbe:
-            httpGet: { path: /, port: 80 }
+            httpGet: { path: /, port: 8080 }
             periodSeconds: 10
+          volumeMounts:
+            # readOnlyRootFilesystem: nginx still needs writable scratch for
+            # its pid file and proxy temp paths.
+            - { name: nginx-cache, mountPath: /var/cache/nginx }
+            - { name: nginx-run, mountPath: /tmp }
+      volumes:
+        - { name: nginx-cache, emptyDir: {} }
+        - { name: nginx-run, emptyDir: {} }

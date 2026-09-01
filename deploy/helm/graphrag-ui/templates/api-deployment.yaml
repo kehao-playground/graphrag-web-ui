@@ -20,10 +20,16 @@ spec:
         app.kubernetes.io/component: api
     spec:
       terminationGracePeriodSeconds: {{ .Values.api.terminationGracePeriodSeconds }}
+      # fsGroup is what makes the RWO workspace PVC writable by the image's
+      # non-root uid — without it the first `graphrag init` fails on EACCES.
+      securityContext:
+        {{- toYaml .Values.api.podSecurityContext | nindent 8 }}
       # spec §8.2 also plans a preStop hook for job drain-back — deferred until the Phase 3 reconciler exposes a callable endpoint
       containers:
         - name: api
           image: "{{ .Values.api.image.repository | default "graphrag-ui-api" }}:{{ .Values.api.image.tag | default .Chart.AppVersion }}"
+          securityContext:
+            {{- toYaml .Values.api.containerSecurityContext | nindent 12 }}
           ports:
             - name: http
               containerPort: 8000
@@ -34,6 +40,13 @@ spec:
                 secretKeyRef: { name: {{ include "graphrag-ui.secretName" . }}, key: DATABASE_URL }
             - name: WORKSPACES_DIR
               value: /data/workspaces
+            # uvicorn --forwarded-allow-ips (not app config): the peer set
+            # allowed to set X-Forwarded-For. The NetworkPolicy below already
+            # restricts who can open a connection at all; this is the second
+            # gate, so a spoofed client IP cannot mint a fresh login-rate-limit
+            # bucket. Set it to the cluster pod CIDR to tighten further.
+            - name: FORWARDED_ALLOW_IPS
+              value: {{ .Values.api.forwardedAllowIps | quote }}
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef: { name: {{ include "graphrag-ui.secretName" . }}, key: JWT_SECRET }

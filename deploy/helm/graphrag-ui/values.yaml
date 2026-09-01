@@ -16,10 +16,46 @@ api:
   resources:
     requests: { cpu: 100m, memory: 1Gi }
     limits: { cpu: 500m, memory: 2Gi }
+  # uvicorn --forwarded-allow-ips: which peers may set X-Forwarded-For.
+  # Default is the RFC1918 space (portable across CNIs); narrow it to the
+  # cluster pod CIDR when you know it. Never "*" — see networkpolicy.yaml.
+  forwardedAllowIps: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+  # The image runs as uid 10001; fsGroup is what makes the RWO workspace
+  # PVC writable to it.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    fsGroup: 10001
+    seccompProfile: { type: RuntimeDefault }
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities: { drop: ["ALL"] }
+    # Left writable on purpose: the graphrag indexer and litellm write to
+    # temp/cache paths outside the mounted PVC. Flip to true only with the
+    # matching emptyDir mounts in place.
+    readOnlyRootFilesystem: false
 
 web:
   image: {}            # repository/tag, same as api.image
   replicas: 2
+  # nginx-unprivileged image: uid 101, listens on 8080 (the Service still
+  # publishes port 80 and re-targets it).
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 101
+    runAsGroup: 101
+    seccompProfile: { type: RuntimeDefault }
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities: { drop: ["ALL"] }
+    readOnlyRootFilesystem: true   # /var/cache/nginx and /tmp are emptyDir mounts
+
+networkPolicy:
+  enabled: true        # restricts who may reach the api pod; inert on a CNI
+                       # that does not enforce NetworkPolicy
+  extraIngressFrom: [] # e.g. the ingress-controller namespace:
+                       # - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: ingress-nginx } }
 
 ingress:
   enabled: false
@@ -47,7 +83,10 @@ postgresql:
 persistence:
   size: 50Gi           # workspace PVC (ReadWriteOnce), mounted at the api's /data/workspaces
 
-jwtSecret: ""          # via --set or existingSecret
+jwtSecret: ""          # REQUIRED via --set or existingSecret; >= 32 chars and not a
+                       # placeholder, validated by the api at startup (a pod that got
+                       # this wrong CrashLoopBackOffs with the reason in its log).
+                       # Generate: openssl rand -hex 32
 existingSecret: ""     # when non-empty, the chart creates no Secret of its own and references the existing one;
                        # that Secret must contain 4 keys: DATABASE_URL / JWT_SECRET / BOOTSTRAP_ADMIN_EMAIL / BOOTSTRAP_ADMIN_PASSWORD
 
