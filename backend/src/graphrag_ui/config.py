@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     disk_watermark_mb: int = 2048
     query_cache_mb: int = 1024
     query_rate_limit_per_hour: int = 30
+    graph_node_limit: int = 2000
     auth_mode: Literal["local", "proxy"] = "local"
     proxy_admin_emails: str = ""
     proxy_auth_secret: str = ""

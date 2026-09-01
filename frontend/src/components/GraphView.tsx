@@ -11,7 +11,9 @@ import type { GraphData, GraphEdge } from "../api/types";
 import { buildGraph } from "./graphBuilder";
 import { communityColor } from "./palette";
 
-const EMPTY_DATA: GraphData = { level: 0, levels: [], nodes: [], edges: [], stale: false };
+const EMPTY_DATA: GraphData = {
+  level: 0, levels: [], nodes: [], edges: [], stale: false, truncated: false, node_limit: null,
+};
 
 // Sigma-ready payload pushed into the long-lived graphology instance whenever
 // filters or search change (see GraphSync). Node key = title.
@@ -137,6 +139,13 @@ export default function GraphView({ projectId, canUse = true }: { projectId: str
   return (
     <Space orientation="vertical" size="large" style={{ width: "100%" }}>
       {graph.data?.stale && <Alert type="warning" showIcon message={t("explore.staleWarning")} />}
+      {graph.data?.truncated && (
+        <Alert
+          type="info"
+          showIcon
+          message={t("explore.truncatedWarning", { count: graph.data.node_limit ?? 0 })}
+        />
+      )}
       <Space wrap>
         <Select
           aria-label={t("explore.columns.level")}

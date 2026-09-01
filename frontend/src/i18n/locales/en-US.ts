@@ -288,6 +288,7 @@ const enUS = {
     tableCommunities: "Communities", tableCommunityReports: "Community reports",
     tableTextUnits: "Text units", tableDocuments: "Documents",
     staleWarning: "Indexing in progress — results may be incomplete",
+    truncatedWarning: "Showing the {{count}} most connected entities — the graph was capped for this response",
     modeGraph: "Graph", modeTable: "Table",
     search: "Search", searchPlaceholder: "Search keywords",
   },

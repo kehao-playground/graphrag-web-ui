@@ -30,6 +30,7 @@ services:
       DISK_WATERMARK_MB: ${DISK_WATERMARK_MB:-2048}   # min free MiB on workspaces volume; below → refuse
       QUERY_CACHE_MB: ${QUERY_CACHE_MB:-1024}      # LRU frame-cache budget for query parquet frames, MiB
       QUERY_RATE_LIMIT_PER_HOUR: ${QUERY_RATE_LIMIT_PER_HOUR:-30}  # max queries per (user, project) per hour → 429
+      GRAPH_NODE_LIMIT: ${GRAPH_NODE_LIMIT:-2000}  # max nodes per graph response (highest degree first)
     volumes: [workspaces:/data/workspaces]
     depends_on:
       postgres: { condition: service_healthy }

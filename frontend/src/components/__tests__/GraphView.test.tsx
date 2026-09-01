@@ -62,6 +62,8 @@ const GRAPH: GraphData = {
   level: 1,
   levels: [0, 1],
   stale: false,
+  truncated: false,
+  node_limit: null,
   nodes: [
     { hrid: 1, title: "Alan Turing", type: "PERSON", degree: 2, frequency: 3, community: 0 },
     { hrid: 2, title: "Ada Lovelace", type: "PERSON", degree: 1, frequency: 2, community: 1 },
@@ -125,6 +127,22 @@ test("stale=true renders the indexing alert above the graph", async () => {
     async () => new Response(JSON.stringify({ ...GRAPH, stale: true }), { status: 200 }));
   mount();
   expect(await screen.findByText("索引進行中,結果可能不完整")).toBeInTheDocument();
+});
+
+test("truncated=true tells the reader the graph was capped", async () => {
+  // A capped graph that says nothing is worse than a capped graph: the
+  // reader has no way to tell a sparse corpus from a cut-off one.
+  fetchMock.mockImplementationOnce(
+    async () =>
+      new Response(JSON.stringify({ ...GRAPH, truncated: true, node_limit: 2000 }), { status: 200 }));
+  mount();
+  expect(await screen.findByText(/2000/)).toBeInTheDocument();
+});
+
+test("truncated=false renders no cap notice", async () => {
+  mount();
+  await screen.findByTestId("sigma");
+  expect(screen.queryByText(/已被截斷/)).not.toBeInTheDocument();
 });
 
 test("level Select change refetches with level=0", async () => {

@@ -4,7 +4,7 @@
 # DATABASE_URL / WORKSPACES_DIR / JWT_SECRET / BOOTSTRAP_ADMIN_EMAIL / BOOTSTRAP_ADMIN_PASSWORD /
 # UPLOAD_MAX_FILE_MB / PROJECT_QUOTA_MB / MAX_CONCURRENT_JOBS / JOB_LOG_RETENTION_DAYS /
 # JOB_LOG_FAILED_RETENTION_DAYS / UPDATE_OUTPUT_KEEP_LATEST / CACHE_QUOTA_MB / DISK_WATERMARK_MB /
-# QUERY_CACHE_MB / QUERY_RATE_LIMIT_PER_HOUR
+# QUERY_CACHE_MB / QUERY_RATE_LIMIT_PER_HOUR / GRAPH_NODE_LIMIT
 
 api:
   image: {}            # repository/tag, e.g. { repository: registry.example.com/graphrag-ui/api, tag: "0.1.0" }; empty = default name for local testing
@@ -109,6 +109,8 @@ queryCacheMb: 1024     # QUERY_CACHE_MB — LRU budget for cached query parquet 
                        # 2026-08-22: 1 GiB fits within the shared 2 GiB pod limit; peak RSS measured
                        # 566/565 MiB while indexing, leaving headroom for query-time frames)
 queryRateLimitPerHour: 30  # QUERY_RATE_LIMIT_PER_HOUR — max queries per (user, project) per hour → 429
+graphNodeLimit: 2000   # GRAPH_NODE_LIMIT — max nodes one /artifacts/graph response carries
+                       # (highest degree first; envelope reports truncated=true when it bites)
 
 proxyAuth:
   enabled: false        # OAuth2-Proxy in front of the app (spec 2026-08-27 §7.2);

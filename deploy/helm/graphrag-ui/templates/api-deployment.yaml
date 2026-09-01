@@ -77,6 +77,8 @@ spec:
               value: {{ .Values.queryCacheMb | quote }}
             - name: QUERY_RATE_LIMIT_PER_HOUR
               value: {{ .Values.queryRateLimitPerHour | quote }}
+            - name: GRAPH_NODE_LIMIT
+              value: {{ .Values.graphNodeLimit | quote }}
             {{- if .Values.proxyAuth.enabled }}
             # Proxy-auth mode (spec §7.2): identity arrives via trusted headers injected by oauth2-proxy
             - name: AUTH_MODE

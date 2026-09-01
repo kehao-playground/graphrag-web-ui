@@ -63,6 +63,8 @@ const GRAPH: GraphData = {
   level: 1,
   levels: [0, 1],
   stale: false,
+  truncated: false,
+  node_limit: null,
   nodes: [
     { hrid: 1, title: "Alan Turing", type: "PERSON", degree: 2, frequency: 3, community: 0 },
     { hrid: 2, title: "Ada Lovelace", type: "PERSON", degree: 1, frequency: 2, community: 1 },

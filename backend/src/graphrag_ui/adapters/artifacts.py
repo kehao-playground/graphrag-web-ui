@@ -116,12 +116,21 @@ def get_row(root: Path, table: str, hrid: int) -> dict[str, Any] | None:
     return _clean(dict(zip(names, row))) if row is not None else None
 
 
-def graph(root: Path, level: int | None = None) -> dict[str, Any]:
-    """Knowledge graph: every entity is a node; edges only between known titles.
+def graph(root: Path, level: int | None = None, node_limit: int | None = None) -> dict[str, Any]:
+    """Knowledge graph: entities as nodes; edges only between known titles.
 
     Community coloring comes from communities.entity_ids at the chosen
     level (default: the deepest level present). Dangling relationship
     endpoints (a title missing from entities) are dropped.
+
+    At most ``node_limit`` nodes are returned, highest ``degree`` first, with
+    ``truncated`` saying whether anything was cut. The whole entities and
+    relationships tables used to be read into memory and serialized into one
+    response, which is fine on a demo corpus and a memory/latency cliff on a
+    real one — and the WebGL view cannot draw that many nodes legibly either.
+    Degree order is what makes a capped graph still worth looking at: the
+    hubs survive, and cutting the long tail of degree-0 entities first costs
+    the reader nothing. ``node_limit=None`` disables the cap.
     """
     ent_path, _ = _parquet(root, "entities")
     rel_path, _ = _parquet(root, "relationships")
@@ -162,13 +171,28 @@ def graph(root: Path, level: int | None = None) -> dict[str, Any]:
             [str(rel_path)],
         ).fetchall()
 
+    truncated = node_limit is not None and len(nodes) > node_limit
+    if truncated:
+        # Sort only when the cap bites; the common case stays O(n).
+        nodes.sort(key=lambda n: n["degree"], reverse=True)
+        nodes = nodes[:node_limit]
+
+    # Built from the surviving titles, so an edge whose endpoint was cut is
+    # dropped with it rather than dangling into a node the client never got.
     titles = {n["title"] for n in nodes}
     edges = [
         {"source": source, "target": target, "weight": float(weight)}
         for source, target, weight in edges_raw
         if source in titles and target in titles
     ]
-    return {"level": int(chosen), "levels": levels, "nodes": nodes, "edges": edges}
+    return {
+        "level": int(chosen),
+        "levels": levels,
+        "nodes": nodes,
+        "edges": edges,
+        "truncated": truncated,
+        "node_limit": node_limit,
+    }
 
 
 def _clean(value: Any) -> Any:

@@ -73,6 +73,9 @@ export interface GraphEdge { source: string; target: string; weight: number }
 // no backend response_model yet — hand-maintained (spec A5.2)
 export interface GraphData {
   level: number; levels: number[]; nodes: GraphNode[]; edges: GraphEdge[]; stale: boolean;
+  // GRAPH_NODE_LIMIT capped the response: the highest-degree nodes were kept
+  // and edges to cut nodes went with them. node_limit is null when uncapped.
+  truncated: boolean; node_limit: number | null;
 }
 
 // Error envelope (i18n spec §4.1): code/params are additive to the

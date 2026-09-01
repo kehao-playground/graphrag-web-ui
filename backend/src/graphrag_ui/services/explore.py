@@ -19,6 +19,7 @@ from graphrag_ui.adapters.artifacts import (
     list_rows,
 )
 from graphrag_ui.adapters.models import Project
+from graphrag_ui.config import get_settings
 from graphrag_ui.domain.artifacts import table_spec
 from graphrag_ui.services.errors import ServicePipelineError
 from graphrag_ui.services.jobs import active_job
@@ -124,8 +125,12 @@ async def knowledge_graph(
     level: int | None = None,
 ) -> dict:
     stale = await _stale(session, project)
+    # GRAPH_NODE_LIMIT caps what one response may carry; the adapter reports
+    # back whether it had to cut, so the UI can say so rather than quietly
+    # showing a partial graph as if it were the whole one.
+    node_limit = get_settings().graph_node_limit
     try:
-        data = await asyncio.to_thread(graph, ws_path(project.id), level)
+        data = await asyncio.to_thread(graph, ws_path(project.id), level, node_limit)
     except ArtifactsNotIndexedError:
         raise
     except Exception as exc:

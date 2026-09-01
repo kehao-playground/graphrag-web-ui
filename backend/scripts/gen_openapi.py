@@ -11,7 +11,8 @@ from pathlib import Path
 # still wins.
 os.environ.setdefault("JWT_SECRET", "openapi-generation-only-not-a-real-secret")
 
-from graphrag_ui.main import create_app  # noqa: E402  (must follow the env setup above)
+# Imported after the env setup above, on purpose: create_app() reads Settings.
+from graphrag_ui.main import create_app
 
 out = Path(__file__).resolve().parents[2] / "openapi.json"
 spec = create_app().openapi()

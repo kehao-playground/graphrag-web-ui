@@ -293,6 +293,7 @@ export default {
     tableCommunities: "社群", tableCommunityReports: "社群報告",
     tableTextUnits: "文本單元", tableDocuments: "文件",
     staleWarning: "索引進行中,結果可能不完整",
+    truncatedWarning: "僅顯示連結數最高的 {{count}} 個實體 —— 此回應的圖已被截斷",
     modeGraph: "圖譜", modeTable: "資料表",
     search: "搜尋", searchPlaceholder: "搜尋關鍵字",
   },

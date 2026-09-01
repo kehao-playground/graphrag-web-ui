@@ -100,3 +100,38 @@ def test_not_indexed(ws):
         list_rows(ws, "entities", limit=10, offset=0)
     with pytest.raises(ArtifactsNotIndexedError):
         graph(ws)
+
+
+def test_graph_is_not_truncated_below_the_limit(ws):
+    data = graph(ws, node_limit=10)
+    assert data["truncated"] is False
+    assert data["node_limit"] == 10
+    assert len(data["nodes"]) == 3
+
+
+def test_graph_caps_nodes_and_flags_truncation(ws):
+    """Every entity and relationship used to be read into memory and returned
+    in one response — fine on a demo corpus, a cliff on a real one."""
+    data = graph(ws, node_limit=2)
+    assert data["truncated"] is True
+    assert data["node_limit"] == 2
+    assert len(data["nodes"]) == 2
+
+
+def test_graph_keeps_the_highest_degree_nodes_when_capped(ws):
+    # Degree order is the useful order: the hubs are what a reader wants to
+    # see, and dropping them first would leave an unreadable dust cloud.
+    data = graph(ws, node_limit=2)
+    assert {n["title"] for n in data["nodes"]} == {"Alan Turing", "Analytical Engine"}
+
+
+def test_capped_graph_drops_edges_whose_endpoint_was_cut(ws):
+    # r1 is Alan Turing -> Ada Lovelace; Ada is cut at limit 2, so the edge
+    # must go with her rather than dangle into a node the client never got.
+    data = graph(ws, node_limit=2)
+    assert data["edges"] == []
+
+
+def test_graph_level_choice_is_unaffected_by_the_cap(ws):
+    data = graph(ws, level=0, node_limit=2)
+    assert data["level"] == 0 and data["levels"] == [0, 1]

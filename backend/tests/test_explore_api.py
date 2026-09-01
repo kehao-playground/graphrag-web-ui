@@ -1,3 +1,5 @@
+from graphrag_ui.config import get_settings
+
 """Task 3: GET /api/projects/{pid}/artifacts/* — browse, detail, graph.
 
 Integration tests against the real app + Postgres + the real duckdb
@@ -256,12 +258,30 @@ async def test_graph_route_precedence_and_shape(client, app):
     r = await client.get(f"/api/projects/{pid}/artifacts/graph", headers=alice)
     assert r.status_code == 200, r.text
     body = r.json()
-    assert set(body) == {"level", "levels", "nodes", "edges", "stale"}
+    assert set(body) == {"level", "levels", "nodes", "edges", "stale", "truncated", "node_limit"}
     assert body["levels"] == [0, 1]
     assert body["level"] == 1  # default = deepest level present
     assert len(body["nodes"]) == 3
     assert body["edges"] == [{"source": "Alan Turing", "target": "Ada Lovelace", "weight": 4.0}]
     assert body["stale"] is False
+    assert body["truncated"] is False
+    assert body["node_limit"] == 2000  # GRAPH_NODE_LIMIT default
+
+
+async def test_graph_is_capped_by_graph_node_limit(client, app, monkeypatch):
+    """A real corpus has far more entities than a browser can draw or a
+    single response should carry; the envelope says when it was cut."""
+    monkeypatch.setenv("GRAPH_NODE_LIMIT", "2")
+    get_settings.cache_clear()
+    try:
+        pid, alice, _, _ = await _indexed_project(client, app)
+        r = await client.get(f"/api/projects/{pid}/artifacts/graph", headers=alice)
+        body = r.json()
+        assert body["truncated"] is True
+        assert body["node_limit"] == 2
+        assert len(body["nodes"]) == 2
+    finally:
+        get_settings.cache_clear()
 
 
 async def test_graph_explicit_level(client, app):
