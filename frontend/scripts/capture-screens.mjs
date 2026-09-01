@@ -44,6 +44,9 @@ const LOCALES = [
       changeTitle: "首次登入請修改密碼", currentPassword: "目前密碼",
       newPassword: "新密碼", submit: "送出", filesTab: "檔案",
       settingsTab: "設定", adminUsers: "管理者 — 使用者",
+      adminRoles: "管理者 — 角色", newUser: "建立使用者",
+      createUserModal: "建立使用者", rolesPlaceholder: "選擇角色",
+      opsRole: "系統維運", cancel: "取消", closeModal: "關閉",
     },
   },
   {
@@ -53,7 +56,10 @@ const LOCALES = [
       changeTitle: "Change your password before continuing",
       currentPassword: "Current password", newPassword: "New password",
       submit: "Submit", filesTab: "Files", settingsTab: "Settings",
-      adminUsers: "Admin — Users",
+      adminUsers: "Admin — Users", adminRoles: "Admin — Roles",
+      newUser: "New user", createUserModal: "Create user",
+      rolesPlaceholder: "Select roles",
+      opsRole: "Ops", cancel: "Cancel", closeModal: "Close",
     },
   },
 ];
@@ -103,8 +109,10 @@ async function seed() {
   let login = await api("/auth/login", {
     method: "POST", body: { email: ADMIN_EMAIL, password: ADMIN_PASSWORD },
   });
+  let usedPassword = ADMIN_PASSWORD;
   if (login.status === 401) {
     // Most likely a password change survived an earlier run.
+    usedPassword = ADMIN_NEW_PASSWORD;
     login = await api("/auth/login", {
       method: "POST", body: { email: ADMIN_EMAIL, password: ADMIN_NEW_PASSWORD },
     });
@@ -113,8 +121,8 @@ async function seed() {
 
   let { access_token: token } = login.json;
   // If the first login flagged must_change_password, the browser step must
-  // log in with the NEW password afterwards.
-  const effectivePassword = login.json.user.must_change_password ? ADMIN_NEW_PASSWORD : ADMIN_PASSWORD;
+  // log in with the NEW password afterwards (seed changes it below).
+  const effectivePassword = login.json.user.must_change_password ? ADMIN_NEW_PASSWORD : usedPassword;
 
   if (login.json.user.must_change_password) {
     const r = await api("/auth/change-password", {
@@ -183,6 +191,24 @@ async function seed() {
     console.log("seed: demo analyst already exists");
   }
 
+  // A custom project role makes the AdminRoles screenshot representative
+  // (built-ins + one custom row). Idempotent: 409 = already exists.
+  const role = await api("/admin/roles", {
+    method: "POST", token,
+    body: {
+      scope: "project", name: "Auditor",
+      description: "Read-only auditor (docs demo)",
+      permissions: ["project:view"],
+    },
+  });
+  if (role.status === 201) {
+    console.log("seed: custom role Auditor created");
+  } else if (role.status === 409) {
+    console.log("seed: custom role Auditor already exists");
+  } else {
+    fail(`create Auditor role -> ${role.status}: ${JSON.stringify(role.json)}`);
+  }
+
   return { token, project, effectivePassword };
 }
 
@@ -241,12 +267,40 @@ async function capture({ project, effectivePassword }, { locale, outDir, labels 
   // The env table sits below the YAML editor: full page so it is not cut.
   await shot("project-settings", { fullPage: true });
   console.log(`capture: ${locale} project-settings.png`);
-
   await page.getByRole("menuitem", { name: labels.adminUsers }).click();
   await page.getByText(ANALYST.email).waitFor({ timeout: 15000 });
   await settle();
+  // Open the create modal so the shot shows the roles multi-select, not
+  // just the table (the new-model UI centerpiece). antd modal titles are
+  // plain text and the Select placeholder is a div — wait on the dialog
+  await page.getByRole("button", { name: labels.newUser }).click();
+  await page.getByRole("dialog").waitFor({ timeout: 15000 });
+  await page.getByText(labels.rolesPlaceholder, { exact: true }).waitFor({ timeout: 15000 });
+  // Open the roles multi-select so the shot shows the assignable built-in
+  // roles, not a closed placeholder.
+  // force: the dropdown portal this click opens lands under the cursor,
+  // which would otherwise trip Playwright's hit-target retry loop; the
+  // option wait below proves the dropdown really opened.
+  await page.getByText(labels.rolesPlaceholder, { exact: true }).click({ force: true });
+  // rc-select options expose the role UUID in their accessible name —
+  // match on the visible label text inside the dropdown instead.
+  await page.locator(".ant-select-dropdown").getByText(labels.opsRole, { exact: true }).waitFor({ timeout: 15000 });
+  await settle();
   await shot("admin-users");
   console.log(`capture: ${locale} admin-users.png`);
+  // The open dropdown renders in a body-level portal that overlays the
+  // modal footer (Cancel/Escape both get intercepted) — close via the X
+  // and wait for the modal AND the dropdown portal to unmount.
+  await page.getByRole("button", { name: labels.closeModal }).click();
+  await page.getByRole("dialog").waitFor({ state: "detached", timeout: 15000 });
+  await settle(300);
+
+  await page.getByRole("menuitem", { name: labels.adminRoles }).click();
+  await page.getByText("user_admin", { exact: true }).waitFor({ timeout: 15000 });
+  await page.getByText("Auditor", { exact: true }).waitFor({ timeout: 15000 });
+  await settle();
+  await shot("admin-roles");
+  console.log(`capture: ${locale} admin-roles.png`);
 
   await browser.close();
 }
