@@ -39,6 +39,12 @@ User decisions (2026-09-06, chat):
     writes join the job freeze (§6.3). File listings enumerate
     `input/` ∪ baseline so `removed` has a source (§6.1). Question
     `PATCH`/`DELETE` take the project lock (§5.3).
+12. **Review round 4**: `.env` mutations join the config freeze, since
+    graphrag substitutes `${...}` into `settings.yaml` from it (§6.3). A
+    successful `update` always advances the baseline row and pointer even
+    when entries carry forward unchanged (§5.2c). Citation identity for a
+    stored run is materialized at run time, because `human_readable_id` is
+    reassigned per build (§7.4).
 
 ## 1. Problem
 
@@ -207,10 +213,12 @@ projects
   + baseline_snapshot_id → index_snapshots.id (nullable)
 ```
 
-**Two rows per job, not one promoted row.** `unique (job_id, kind)` — the
-`start` row is written before the CLI spawns, the `baseline` row is
-written by the promotion. Keeping them separate means a failed job's
-`start` row survives as forensic evidence of what the indexer was handed.
+**Rows are per (job, kind), not two per job.** `unique (job_id, kind)` —
+every `index`/`update` job gets a `start` row before the CLI spawns; a
+`baseline` row exists only for jobs that met the promotion conditions
+(succeeded, and for `update` a previous baseline must already exist).
+Failed, cancelled and non-promoting jobs keep just their `start` row,
+which survives as forensic evidence of what the indexer was handed.
 
 **Lifecycle.** `start` is written in its own transaction before the
 subprocess spawns. `baseline` is written **in the same transaction that
@@ -308,7 +316,7 @@ the title recovery of §6.3.
 |---|---|
 | job type `index` | the `start` snapshot, **wholesale** — a full rebuild really does replace the index |
 | `update`, **no previous baseline** | **none written.** Nothing is learned: with no prior state, post-run attributability cannot say what *this* run ingested |
-| `update`, recovery `unavailable_*` | **unchanged.** Without title recovery an honest advancement is impossible; the overview asks for a full `index` |
+| `update`, recovery unavailable at either capture | **entries unchanged, row and pointer still advance** (see below) |
 | `update`, recovery available | per-name rule below |
 
 Both snapshot rows carry `attributable_titles` and `title_recovery`,
@@ -334,6 +342,21 @@ the UI said `modified` when the truth was `skipped`.
 
 Names in the previous baseline but absent from the `start` snapshot are
 kept — they are the `removed` files, still live in the index.
+
+**"Unchanged entries" never means "unchanged baseline row".** Advancement
+of *hashes* requires recovery available at **both** capture points: `pre`
+cannot be computed without it, so there is nothing to compare. But the
+run still happened and the artifacts still moved, so a successful
+`update` always writes a new `baseline` row and moves
+`projects.baseline_snapshot_id` — carrying the entries forward verbatim
+while recording the **new** `title_recovery` and `attributable_titles`.
+
+Leaving the pointer on the old row would be the subtle failure: index a
+project cleanly, later switch on `title_column`, run a successful
+`update`, and a stale pointer would keep reporting `available` with the
+*old* title set, so `skipped` would be computed against artifacts that no
+longer match it and the overview would never ask for the full index that
+would repair it.
 
 This is what makes it a mirror rather than a hedge:
 
@@ -377,7 +400,9 @@ test_runs
 test_results
   id, run_id → test_runs.id, question_id → questions.id,
   position, question_text,
-  answer (nullable), citations (json, nullable),
+  answer (nullable),
+  citations (json, nullable),  -- Sources entries carry source_name,
+                               -- resolved at run time (§7.4)
   timings (json, nullable), error (nullable),
   completed_at (nullable)
   unique (run_id, question_id)
@@ -488,6 +513,13 @@ delete removed.
 does not silently shrink. Quota usage stays filesystem-derived and is
 unaffected.
 
+**A `removed` row is not a file, and no file operation applies to it.**
+Preview, delete, tag/untag and bulk selection all exclude it — there is
+nothing on disk to read and no `project_files` row to attach metadata to,
+so those routes return 404 for such a name and the UI offers no
+affordance. The only action it carries is the one that resolves it: run a
+full `index`.
+
 ### 6.2 The four states that always hold
 
 A pure function in `domain/files.py`, no I/O:
@@ -591,15 +623,27 @@ when the check is available. The availability flag lives on the response,
 not on every file row: it is a property of the artifacts, and repeating it
 per file would invite the UI to render it per file.
 
-**Input configuration is frozen for the duration of a job.**
-`services/settings.py::write_settings` (`settings.py:60`) currently takes
+**Input configuration is frozen for the duration of a job — including
+`.env`.** `services/settings.py::write_settings` (`settings.py:60`) takes
 no project lock, so `settings.yaml` can be rewritten between the `start`
 capture, the CLI's own read, and promotion — three different
-configurations inside one run. `write_settings` joins the same
+configurations inside one run.
+
+Freezing `settings.yaml` alone is not enough. graphrag runs strict
+`string.Template` substitution over `settings.yaml` **before** parsing it,
+against `os.environ` overlaid by the workspace `.env`; the existing
+validator mirrors that order deliberately (`settings.py:84-90`). So
+`input.title_column: ${TITLE_COLUMN}` resolves through `.env`, and
+`services/env_file.py::set_env_key` / `remove_env_key` (`env_file.py:102`)
+take no lock either. An unfrozen `.env` moves the effective configuration
+just as a settings edit does, only invisibly.
+
+`write_settings`, `set_env_key` and `remove_env_key` all join the same
 project-row lock and the same freeze as file mutation (§5.2b), returning
 **409 `project_indexing`** while an `index`/`update` job is active. The
-settings editor disables saving with the reason shown, and the release
-note covers it alongside the upload freeze.
+settings editor and the env key editor disable saving with the reason
+shown, and the release note covers all three alongside the upload
+freeze.
 
 ## 7. Backend changes
 
@@ -726,18 +770,45 @@ unlinked rather than picking one arbitrarily.
 
 Resolution is best-effort throughout: a citation id absent from the frame
 (which `build_citations` already treats as normal), a title that maps to
-nothing, or `unavailable_title_column` all render unlinked. The endpoint
-returns **only the filename**; the client then calls
-`preview?text_unit_id=` with the id it already holds, and the backend
-resolves that id to its text and locates it in the file. The drawer opens
-at the passage rather than at byte zero — a 64 KiB head window frequently
-would not contain it.
+nothing, or `unavailable_title_column` all render unlinked.
 
-**The cited passage is never a URL parameter.** Passing the full text
-would put document contents into query strings, access logs and proxy
-buffers, and could exceed URL length limits outright. The client sends
-`text_unit_id`; the backend resolves that id to its text through the
-artifacts adapter it already uses, then scans the file server-side.
+**A citation id is only meaningful against the artifacts that produced
+it.** `human_readable_id` is assigned per build — `concat_dataframes`
+renumbers the delta from the previous maximum, and a full `index` restarts
+the sequence — so `Sources (7)` in a run from last week may name a
+different text unit today. Resolving a historic citation against current
+artifacts would not 404; it would open **the wrong document**, silently.
+That is the failure mode §5.3 exists to prevent, arriving through a
+different door.
+
+So identity is materialized at run time, where the answering artifacts are
+already loaded:
+
+- `services/test_runs.py` resolves each `Sources` entry as it writes the
+  result, storing `source_name` alongside the `id` and `text` that
+  `build_citations` already produces. `test_results.citations` is
+  therefore self-contained.
+- A **historic** citation links using its stored `source_name` and never
+  re-resolves. Its preview locator is
+  `preview?result_id=<uuid>&entry_id=<int>`: the backend reads the stored
+  text from that result row and locates it in the file.
+- An **ad-hoc** query is not persisted and its answer was produced against
+  the artifacts on disk right now, so it resolves live —
+  `GET .../citations/sources/{cid}/source` for the filename, then
+  `preview?text_unit_id=<int>`.
+- A stored `source_name` whose file has since been deleted renders as a
+  disabled link saying the document was removed, rather than a dead 404.
+
+Neither locator puts document text in a URL.
+
+**The preview locator is never document text in a URL.** This is a claim
+about the locator only, not about citations in general: the existing
+citations payload already carries `entries[].text`
+(`domain/citations.py:74`), and that does not change. What must not happen
+is putting that text into a query string, where it would land in access
+logs and proxy buffers and could exceed URL length limits. Both locator
+forms are ids; the backend resolves them to text server-side and scans
+the file there.
 
 ### 7.5 Health aggregates
 
@@ -790,13 +861,15 @@ omitted them would report that it was.
 
 | Route | Atom | Notes |
 |---|---|---|
-| `GET /api/projects/{id}/files` | `project:view` | + `index_state`, `tags`, `sha256`; response-level `ingest_check`. **Breaking**: rows are `input/` ∪ baseline, and `FileEntryOut.size`/`modified_at` widen to nullable for `removed` rows |
+| `GET /api/projects/{id}/files` | `project:view` | + `index_state`, `tags`, `sha256`; response-level `ingest_check`. **Breaking**: rows are `input/` ∪ baseline, and `size`, `modified_at` **and `sha256`** are all nullable on a `removed` row |
 | `POST /api/projects/{id}/files` | `project:edit_content` | **409 `project_indexing`** while an `index`/`update` job is active |
 | `DELETE /api/projects/{id}/files/{name}` | `project:edit_content` | same 409 |
 | `POST /api/projects/{id}/files:bulk-delete` | `project:edit_content` | same 409 |
 | `GET /api/projects/{id}/files/{name}/preview` | `project:view` | `?text_unit_id=` → window centered on the passage, `match` flag. Never carries document text |
 | `POST/DELETE /api/projects/{id}/files/{name}/tags` | `project:edit_content` | not frozen — tags are metadata, not input |
 | `PUT /api/projects/{id}/settings` | `project:edit_settings` | **409 `project_indexing`** while an `index`/`update` job is active (§6.3) |
+| `PUT/DELETE /api/projects/{id}/env/{key}` | `project:edit_settings` | same 409 — `.env` feeds `settings.yaml` substitution (§6.3) |
+| `GET .../files/{name}/preview?result_id=&entry_id=` | `project:view` | historic-run locator; window centered on the stored passage (§7.4) |
 | `GET /api/projects/{id}/tags` | `project:view` | catalog + counts |
 | `GET /api/projects/{id}/health` | `project:view` | §7.5 |
 | `GET /api/projects/health?ids=` | `project:view` | filtered to visible projects |
@@ -815,9 +888,10 @@ indexing, for the same reason.
 `GET /api/projects/{id}/jobs` gains an optional `type` filter so the jobs
 page can exclude `test_run` rows server-side.
 
-Two existing contracts change and both are called out in the release
-notes: `FileEntryOut` gains nullable `size`/`modified_at` (above), and
-`PUT .../settings` gains a 409 it never returned before.
+Existing contracts that change, all release-noted: `FileEntryOut` gains
+nullable `size`, `modified_at` and `sha256` (above), and
+`PUT .../settings`, `PUT .../env/{key}` and `DELETE .../env/{key}` each
+gain a 409 they never returned before.
 
 ## 9. Frontend
 
@@ -848,9 +922,13 @@ notes: `FileEntryOut` gains nullable `size`/`modified_at` (above), and
 - **Bulk actions**: delete and tag/untag over selected rows. Bulk delete
   confirms with count and total size — deleting 30 documents is not the
   same act as deleting one.
-- **Preview drawer**: props `{ name, textUnitId?: string }` — an id, not
-  the passage text, matching the endpoint contract in §7.4. Slice ① never
-  passes `textUnitId`; slice ③ does, when a citation opens it.
+- **Preview drawer**: props
+  `{ name, locator?: { textUnitId: number } | { resultId: string; entryId: number } }`
+  — an id, never the passage text (§7.4). `number` matches the existing
+  `Citation.ids: number[]` in `frontend/src/api/types.ts:40`; a string id
+  would have needed a conversion that exists nowhere else. Slice ① never
+  passes a locator; slice ③ does, and picks the variant by whether the
+  answer came from a stored run or an ad-hoc query.
 - **Upload**: `Upload.Dragger` unchanged, but a persistent "N documents
   not yet indexed" bar appears above the table linking to the jobs page.
 
@@ -919,10 +997,10 @@ in one action.
   apply but the card adds that silent-skip detection is off, so `skipped`
   is not evidence of health either way.
 - **Citation loop closes**: `AnswerView`'s `Sources` citations become
-  clickable, resolve to `{name}`, and open `FilePreviewDrawer` with
-  `textUnitId`, so the backend locates the passage and the drawer lands on
-  it. The passage text never travels through the client or a URL (§7.4).
-  Slice ①'s reserved prop is used here.
+  clickable and open `FilePreviewDrawer` with the locator for their
+  origin (§7.4): a stored `source_name` plus `{resultId, entryId}` for a
+  run, or a live lookup plus `{textUnitId}` for an ad-hoc query. Slice
+  ①'s reserved prop is used here.
 - **Project list** gains an index-health column fed by
   `GET /api/projects/health?ids=`.
 
@@ -963,10 +1041,16 @@ Backend:
   between `POST /test-runs` and the worker claiming the job changes
   neither the executed questions nor `progress.total`; a cancelled run
   leaves the remaining rows `completed_at = NULL`.
-- **Question edit race, with a barrier** — park a `PATCH` after its
-  reference check but before its write, let `POST /test-runs` commit a
-  manifest referencing that question, release the `PATCH`, and assert it
-  forks a new lineage row rather than editing in place.
+- **Question edit race, with a barrier** — the park point must be one a
+  *correct* implementation can reach. Parking a `PATCH` after its
+  reference check and letting `POST` commit describes the broken design:
+  under the lock protocol the check is already inside the lock, so `POST`
+  would block. The two legal interleavings:
+  - `POST` holds the lock with the manifest not yet committed; `PATCH`
+    blocks, then on release re-checks, finds the reference, and forks a
+    new lineage row.
+  - `PATCH` holds the lock with the edit not yet committed; `POST` blocks,
+    then on release materializes the manifest with the **new** text.
 - **Question-set delete** — a set referenced by a run archives instead of
   cascading, and its runs stay readable.
 - **Discovery** — an untracked file in `input/` gains a `project_files`
@@ -979,10 +1063,18 @@ Backend:
   emits no `skipped`, because listing reads the baseline row rather than
   today's `settings.yaml`; and `attributable_titles = []` with
   `title_recovery = 'available'` is distinguishable from unavailable.
-- **Settings freeze** — `PUT .../settings` returns 409 while an
-  `index`/`update` job is active, and the barrier case: a settings write
-  parked before its commit cannot land after enqueue captured the `start`
-  snapshot.
+- **Config freeze** — `PUT .../settings`, `PUT .../env/{key}` and
+  `DELETE .../env/{key}` each return 409 while an `index`/`update` job is
+  active, and the barrier case: a write parked before its commit cannot
+  land after enqueue captured the `start` snapshot. The `.env` case needs
+  its own test — a `settings.yaml` referencing `${TITLE_COLUMN}` changes
+  meaning through `.env` alone.
+- **Baseline row always advances on a successful `update`**, even when
+  recovery is unavailable and the entries carry forward verbatim: a new
+  `baseline` row exists, `projects.baseline_snapshot_id` moves, and the
+  stored `title_recovery` reflects the **new** configuration. The
+  regression this guards: index cleanly → enable `title_column` → update
+  → listing must stop reporting `available`.
 - **Removed rows** — after a normal delete the name still appears with
   `index_state = "removed"` and null `size`/`modified_at`/`sha256`;
   `files.total` counts it; it disappears after a full index.
@@ -1003,7 +1095,15 @@ Backend:
   `unavailable_not_indexed` fault surfacing as action card 2; `?ids=`
   filtered to visible projects and carrying `skipped`/`ingest_check`.
 - `preview_file` — a match beyond the first 64 KiB is still found and
-  centered; an unmatched passage returns the head with `match: false`.
+  centered; an unmatched passage returns the head with `match: false`;
+  both locator forms resolve; a `removed` name 404s.
+- **Historic citations never re-resolve** — run A cites `Sources (1)` →
+  `file-a`; rebuild so current `Sources (1)` → `file-b`; opening run A's
+  citation must still reach `file-a`, and must never reach `file-b`. This
+  is the negative test that catches a resolver quietly falling back to
+  current artifacts.
+- A stored `source_name` whose file was deleted renders disabled rather
+  than 404-ing the drawer open.
 - Route-level authz for every new endpoint against §8.
 
 Frontend:
@@ -1063,10 +1163,10 @@ Existing suites stay green: 365 backend, 101 frontend at time of writing.
 - `README.md` gains the knowledge-manager workflow; `docs/zh-TW/` mirror
   updated in the same PR.
 - Release notes cover four visible changes: the input freeze on
-  upload/delete, the new freeze on `PUT .../settings`, the nullable
-  `FileEntryOut.size`/`modified_at` with rows that have no file behind
-  them, and the requirement that a trustworthy baseline comes from a full
-  `index` rather than an `update`.
+  upload/delete, the new freeze on `PUT .../settings` and the two `.env`
+  endpoints, the nullable `FileEntryOut.size`/`modified_at`/`sha256` with
+  rows that have no file behind them, and the requirement that a
+  trustworthy baseline comes from a full `index` rather than an `update`.
 - `openapi.json` and `types.generated.ts` regenerated together.
 - No new environment variables, so `.env.example`, compose files, and the
   Helm chart are untouched.
