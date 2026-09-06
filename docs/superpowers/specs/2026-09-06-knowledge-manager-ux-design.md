@@ -70,6 +70,12 @@ User decisions (2026-09-06, chat):
     names** — `attributable_titles` is only ever used to decide `skipped`.
     `config_revision` becomes `workspace_config_revision` with a framed
     digest and a claim narrowed to the workspace files (§7.2).
+17. **Review round 9**: the generation guard also compares
+    `projects.artifact_epoch`, incremented in every `index`/`update`
+    enqueue transaction. The baseline pointer alone is an ABA hazard — a
+    failed job rewrites `output/` in place and promotes nothing, so both
+    guard reads see an unchanged pointer and no active job across changed
+    artifacts (§7.4).
 
 ## 1. Problem
 
@@ -176,7 +182,7 @@ atoms — no client-side role math.
 
 ## 5. Data model
 
-**Ten new tables, two columns on `jobs`, one on `projects`.** Naming follows
+**Ten new tables, two columns on `jobs`, two on `projects`.** Naming follows
 `adapters/models.py` conventions (plural snake_case tables, uuid PKs).
 
 ### 5.1 Document metadata
@@ -236,6 +242,9 @@ index_snapshot_entries
 
 projects
   + baseline_snapshot_id → index_snapshots.id (nullable)
+  + artifact_epoch (int, not null, default 0)
+      -- incremented in the enqueue transaction of every index/update
+      -- job, promoted or not; the generation guard's ABA defence (§7.4)
 ```
 
 **Rows are per (job, kind), not two per job.** `unique (job_id, kind)` —
@@ -937,22 +946,48 @@ attribute this answer's ids to the *new* build's documents.
 The normative sequence, for `_execute_query`, `stream_query` and
 `services/test_runs.py` alike:
 
-1. **G0** — fresh DB read of `projects.baseline_snapshot_id` **and**
-   whether an `index`/`update` job is `queued`/`running` for the project.
+1. **G0** — fresh DB read of `projects.baseline_snapshot_id`,
+   `projects.artifact_epoch`, **and** whether an `index`/`update` job is
+   `queued`/`running` for the project.
 2. Load frames (`_prepare_query`).
 3. Take cited `text_unit_id → document_id` from the loaded `text_units`
    frame.
 4. Read `documents.parquet` through the batched resolver and complete
    enrichment.
-5. **G1** — fresh DB read of the same two facts, **after** step 4.
-6. Emit `source_name` only if G0 and G1 report the **same** pointer and
-   **neither** reports an active `index`/`update`. Otherwise every
-   `source_name` is `null` and the UI renders the citations unlinked.
+5. **G1** — fresh DB read of the same three facts, **after** step 4.
+6. Emit `source_name` only if G0 and G1 report the **same** pointer, the
+   **same** epoch, and **neither** reports an active `index`/`update`.
+   Otherwise every `source_name` is `null` and the UI renders the
+   citations unlinked.
 
 Both reads must be fresh (their own session, no identity-map reuse), and
 G1 must follow the `documents` read rather than the frame load: a guard
 that closed at step 2 would still let an index start between step 2 and
 step 4, which is precisely the interval it exists to cover.
+
+**`artifact_epoch` exists because the pointer is not enough — it is an ABA
+hazard.** `IndexRunner` spawns graphrag with `cwd=root`
+(`index_runner.py:69`): there is no staging directory and no rollback, so
+a job rewrites `output/` in place and a non-zero exit only marks the row
+`failed` (`index_runner.py:114`). Failed and cancelled jobs promote
+nothing (§5.2), so the pointer does not move. That yields an interleaving
+both earlier checks accept:
+
+```
+G0   pointer = P, no active job
+     frames loaded from build P
+     index J starts, rewrites documents.parquet
+     J fails; terminal, no promotion
+     documents read → J's partial output
+G1   pointer = P, no active job          ← identical to G0, artifacts are not
+```
+
+`projects.artifact_epoch` is an integer incremented **in the same
+transaction that enqueues an `index`/`update` job** — which already takes
+the project lock (§5.2b), so no extra synchronization. It is monotonic and
+independent of success, so every attempt that could have touched `output/`
+moves it, whether it promotes or not. Comparing it across G0/G1 closes the
+ABA case that comparing the pointer cannot.
 
 The guard does not stop the race; it detects it and refuses to guess,
 which is the only honest option for a path that cannot hold the mutex. The
@@ -973,19 +1008,26 @@ contains a real `report.md`, the setting is later removed without a
 rebuild, and today's rule confidently attributes `data.csv`'s citation to
 `report.md`.
 
-**The candidate filenames are the baseline's entry names, not
-`attributable_titles`.** The two differ exactly where it matters.
-`attributable_titles` can only contain names that existed in `input/` when
-it was captured (§6.3); the baseline entries deliberately retain names
-whose files are gone, which is what makes `removed` representable. So:
-full-index `old.md`, delete it, run `update` — upstream keeps the old
-document and the baseline keeps its entry, but `attributable_titles`
-cannot list it. Matching against `attributable_titles` would leave a
-citation into that still-indexed document unresolved, contradicting the
-promise above that a deleted document renders as a **disabled** link.
+**The candidate filenames are the baseline's entry names.** An earlier
+draft justified this by saying `attributable_titles` cannot contain a
+deleted name; that reason no longer holds, because §6.3's recovery already
+matches against snapshot entry names, so `old.md` — deleted from `input/`
+but still in `documents` after an `update` — does land in
+`attributable_titles`.
 
-`attributable_titles` keeps exactly one job: deciding `skipped` (§6.3).
-Citation resolution uses `title_recovery` plus the entry names.
+The reason that does hold is that `attributable_titles` is a **result of
+applying the rule**, not an input to it. Feeding it back in as the
+candidate set would make citation resolution circular with the `skipped`
+computation that consumes it, and would couple resolution to whether that
+computation was available: the field is empty whenever `title_recovery` is
+unavailable, so resolution would silently inherit a narrowing it has no
+reason to. The entry names are the primary record and cannot narrow.
+
+Citation resolution therefore uses `title_recovery` plus the baseline's
+entry names, and **does not read `attributable_titles`**. That is the
+precise statement; `attributable_titles` is not single-purpose — the
+`start` row's copy is also `pre` in the `update` advancement rule
+(§5.2c).
 
 **Call-count contract**, so the test has a failing edge: at most **one**
 resolver call per completed question, and it queries only ids not already
@@ -1255,6 +1297,9 @@ Backend:
   boundaries: never indexed, empty baseline, `NULL` sha256 from the
   backfill path, and every `ingest_check` value (asserting `skipped` is
   unreachable when unavailable).
+- **`artifact_epoch`** — incremented by every `index`/`update` enqueue
+  including ones that later fail or are cancelled, never by a `test_run`,
+  and never decremented.
 - **Baseline advancement** — one case per row of the §5.2(c) mirror
   table, plus: `update` with no previous baseline writes **no** baseline;
   `update` under `unavailable_title_column` leaves the baseline
@@ -1369,6 +1414,11 @@ Backend:
   the guard existing. Second case, which a G1-at-frame-load
   implementation fails: start an `index` in that same interval without
   promoting a baseline — G1 must see the active job and withhold links.
+  **Third case, the ABA control, which pointer-and-active-job comparison
+  alone cannot catch**: in that same interval let an `index` run to
+  completion **and fail**, rewriting `documents.parquet` on its way; at G1
+  the pointer is unmoved and no job is active, yet every `source_name`
+  must still be `null` — only `artifact_epoch` distinguishes it.
 - **Citations into removed documents stay linkable** — full-index
   `old.md`, delete it, `update`, then cite the still-indexed document:
   `source_name` must be `old.md` and the UI must render it as a disabled
