@@ -45,6 +45,11 @@ User decisions (2026-09-06, chat):
     when entries carry forward unchanged (§5.2c). Citation identity for a
     stored run is materialized at run time, because `human_readable_id` is
     reassigned per build (§7.4).
+13. **Review round 5**: the `.env` freeze applies to the **existing**
+    `PATCH /{pid}/env` and `DELETE /{pid}/env/{key}` routes — no route
+    redesign. The historic preview locator verifies three bindings
+    (result→project, entry→result and Sources, `source_name`→path name),
+    404 on any mismatch (§7.4).
 
 ## 1. Problem
 
@@ -611,7 +616,11 @@ ingest_check: "available"
 
 `unavailable_not_indexed` is a cheap `stat` on `output/documents.parquet`,
 not a read — it is how the "baseline claims files are indexed but the
-output is gone" fault (§7.5, overview card 2) is detected.
+output is **gone**" fault (§7.5, overview card 2) is detected. A `stat`
+proves existence and nothing more: a present-but-corrupt parquet is
+outside what this detects, and the guarantee is worded as missing output,
+not healthy output. Corruption surfaces where it already does — the query
+path's `QueryError("search", ...)` on a failed frame load.
 
 When it is not `available`, **`skipped` is never emitted** and the UI says
 that silent-skip detection is off, and why. An earlier draft's "no parquet
@@ -634,16 +643,19 @@ Freezing `settings.yaml` alone is not enough. graphrag runs strict
 against `os.environ` overlaid by the workspace `.env`; the existing
 validator mirrors that order deliberately (`settings.py:84-90`). So
 `input.title_column: ${TITLE_COLUMN}` resolves through `.env`, and
-`services/env_file.py::set_env_key` / `remove_env_key` (`env_file.py:102`)
-take no lock either. An unfrozen `.env` moves the effective configuration
+`services/env_file.py::set_env_key` (`env_file.py:102`) and
+`delete_env_key` (`env_file.py:124`) take no lock either. An unfrozen `.env` moves the effective configuration
 just as a settings edit does, only invisibly.
 
-`write_settings`, `set_env_key` and `remove_env_key` all join the same
+`write_settings`, `set_env_key` and `delete_env_key` all join the same
 project-row lock and the same freeze as file mutation (§5.2b), returning
-**409 `project_indexing`** while an `index`/`update` job is active. The
-settings editor and the env key editor disable saving with the reason
-shown, and the release note covers all three alongside the upload
-freeze.
+**409 `project_indexing`** while an `index`/`update` job is active. This
+adds a status code to the **existing** routes — `PATCH /{pid}/env` with a
+`{key, value}` body (`api/env_routes.py:81`) and
+`DELETE /{pid}/env/{key}` (`env_routes.py:100`) — and redesigns nothing;
+`SettingsPanel.tsx:135` keeps its `PATCH`. The settings editor and the env
+key editor disable saving with the reason shown, and the release note
+covers all three alongside the upload freeze.
 
 ## 7. Backend changes
 
@@ -781,8 +793,8 @@ artifacts would not 404; it would open **the wrong document**, silently.
 That is the failure mode §5.3 exists to prevent, arriving through a
 different door.
 
-So identity is materialized at run time, where the answering artifacts are
-already loaded:
+So identity is materialized at run time, while the answering artifacts are
+still the current ones:
 
 - `services/test_runs.py` resolves each `Sources` entry as it writes the
   result, storing `source_name` alongside the `id` and `text` that
@@ -798,6 +810,42 @@ already loaded:
   `preview?text_unit_id=<int>`.
 - A stored `source_name` whose file has since been deleted renders as a
   disabled link saying the document was removed, rather than a dead 404.
+
+**Resolution is not free, and needs its own adapter call.** The query path
+loads only the frames in `FrameCache.TABLES` (`frame_cache.py:12`), which
+never include `documents`; and `adapters/artifacts.py` reads one
+registered table at a time (`artifacts.py:108`), so nothing existing joins
+`text_units.document_id` to `documents.title`. The adapter gains a
+**batched** resolver — a set of text-unit ids in, `{id: filename}` out, one
+duckdb query joining the two parquet files — and `services/test_runs.py`
+memoizes it per run. A 200-question run must issue a bounded number of
+these, not one parquet read per citation.
+
+**The historic locator carries an authorization boundary, and it is not
+the path project.** `result_id` is a client-supplied identifier for a row
+in another table; checking `project:view` on the path project says nothing
+about which project *that row* belongs to, and a UUID being hard to guess
+is not access control. Left unbound, a stored passage becomes a
+cross-project read: hold rights on project A, pass a `result_id` from
+project B, and the response is B's document text.
+
+The endpoint therefore verifies three bindings, and **any mismatch is a
+404** — never a 403, which would confirm the row exists:
+
+1. `test_results.run_id → test_runs.project_id` equals the path project.
+2. `entry_id` names an entry of a **`Sources`** citation on that result.
+3. That entry's stored `source_name` equals the path `{name}`.
+
+Binding 3 is what stops the confused deputy: without it a caller with
+legitimate rights could pair a real `result_id` with any filename and have
+the server search a different document for the stored passage.
+
+**Locator combinations are exhaustive, not permissive.** No locator → the
+head window. `text_unit_id` alone → live resolution. `result_id` **and**
+`entry_id` → historic. Anything else — one half of the historic pair, or
+`text_unit_id` mixed with either — is **422**; a partially specified
+locator is a caller bug, and guessing an interpretation is how the
+bindings above get bypassed by accident.
 
 Neither locator puts document text in a URL.
 
@@ -827,8 +875,9 @@ GET /api/projects/{id}/health
 `ingest_check` and `has_baseline` are reported together because their
 combination carries a fault neither shows alone:
 `ingest_check == "unavailable_not_indexed"` **while `has_baseline` is
-true** means the project once had output and no longer does — deleted,
-corrupt, or on a volume that did not come back. Its files still report
+true** means the project once had output and the file is no longer there —
+deleted, or on a volume that did not come back. A file that exists but is
+corrupt is not covered (§6.3). Its files still report
 `indexed` from the baseline, which is why the overview must call it out
 (action card 2, §9.3) instead of scoring the project healthy.
 
@@ -868,8 +917,8 @@ omitted them would report that it was.
 | `GET /api/projects/{id}/files/{name}/preview` | `project:view` | `?text_unit_id=` → window centered on the passage, `match` flag. Never carries document text |
 | `POST/DELETE /api/projects/{id}/files/{name}/tags` | `project:edit_content` | not frozen — tags are metadata, not input |
 | `PUT /api/projects/{id}/settings` | `project:edit_settings` | **409 `project_indexing`** while an `index`/`update` job is active (§6.3) |
-| `PUT/DELETE /api/projects/{id}/env/{key}` | `project:edit_settings` | same 409 — `.env` feeds `settings.yaml` substitution (§6.3) |
-| `GET .../files/{name}/preview?result_id=&entry_id=` | `project:view` | historic-run locator; window centered on the stored passage (§7.4) |
+| `PATCH /api/projects/{id}/env`, `DELETE /api/projects/{id}/env/{key}` | `project:edit_settings` | existing routes, unchanged shape; same 409 — `.env` feeds `settings.yaml` substitution (§6.3) |
+| `GET .../files/{name}/preview?result_id=&entry_id=` | `project:view` | historic-run locator; three bindings verified, any mismatch 404; partial locator 422 (§7.4) |
 | `GET /api/projects/{id}/tags` | `project:view` | catalog + counts |
 | `GET /api/projects/{id}/health` | `project:view` | §7.5 |
 | `GET /api/projects/health?ids=` | `project:view` | filtered to visible projects |
@@ -890,8 +939,8 @@ page can exclude `test_run` rows server-side.
 
 Existing contracts that change, all release-noted: `FileEntryOut` gains
 nullable `size`, `modified_at` and `sha256` (above), and
-`PUT .../settings`, `PUT .../env/{key}` and `DELETE .../env/{key}` each
-gain a 409 they never returned before.
+`PUT .../settings`, `PATCH .../env` and `DELETE .../env/{key}` each gain
+a 409 they never returned before. No route shape changes.
 
 ## 9. Frontend
 
@@ -1023,7 +1072,10 @@ Backend:
 - **Baseline advancement** — one case per row of the §5.2(c) mirror
   table, plus: `update` with no previous baseline writes **no** baseline;
   `update` under `unavailable_title_column` leaves the baseline
-  unchanged; a `start` row is written for every job while a `baseline`
+  **entries** unchanged while still writing a new `baseline` row,
+  advancing `projects.baseline_snapshot_id`, and recording the new
+  recovery provenance; a `start` row is written for every job while a
+  `baseline`
   row and the `projects.baseline_snapshot_id` move happen only on
   `succeeded`, in one transaction; `failed`/`cancelled` promote nothing.
 - **Input freeze** — upload/delete/bulk-delete return 409 while an
@@ -1102,6 +1154,16 @@ Backend:
   citation must still reach `file-a`, and must never reach `file-b`. This
   is the negative test that catches a resolver quietly falling back to
   current artifacts.
+- **Historic locator bindings** — each returns 404, never 403 or content:
+  a caller with rights on project A passing a `result_id` from project B;
+  a valid `result_id` paired with a `{name}` other than the entry's stored
+  `source_name`; an `entry_id` belonging to a different result or to a
+  non-`Sources` citation.
+- **Locator combinations** — no locator → head; `text_unit_id` alone →
+  live; `result_id` + `entry_id` → historic; every other combination,
+  including half a historic pair, → 422.
+- **Batched source resolution** — a run's citations issue a bounded number
+  of resolver calls rather than one per citation.
 - A stored `source_name` whose file was deleted renders disabled rather
   than 404-ing the drawer open.
 - Route-level authz for every new endpoint against §8.
@@ -1131,16 +1193,17 @@ Existing suites stay green: 365 backend, 101 frontend at time of writing.
   is scoped to `index`/`update`: a `test_run` reads `output/` only, so it
   does not block document work, and the release note says so rather than
   leaving users to infer it from a job type they cannot see.
-- **`PUT .../settings` gains a 409** while an `index`/`update` job runs.
+- **`PUT .../settings`, `PATCH .../env` and `DELETE .../env/{key}` gain a
+  409** while an `index`/`update` job runs.
   Editing configuration mid-run produced artifacts whose provenance no
   single configuration described; the freeze is what makes §6.3's stored
   recovery flag meaningful. Visible change, release-noted.
-- **`FileEntryOut.size`/`modified_at` become nullable**, and listings can
-  contain names with no file behind them. Clients that assumed a file per
+- **`FileEntryOut.size`, `modified_at` and `sha256` become nullable**, and
+  listings can contain names with no file behind them. Clients that assumed a file per
   row need the `index_state` check; the generated types make this a
   compile error rather than a runtime surprise.
 - **The project-row lock is on the hot path** for uploads, deletes,
-  settings writes, question edits and job enqueue. It is held only across the committing transaction (never across
+  settings writes, `.env` edits, question edits and job enqueue. It is held only across the committing transaction (never across
   the upload stream, §7.1), and contention is per project, so concurrent
   work on different projects is unaffected. Two users uploading to the
   same project serialize at the rename, which is the correctness they are
@@ -1163,8 +1226,8 @@ Existing suites stay green: 365 backend, 101 frontend at time of writing.
 - `README.md` gains the knowledge-manager workflow; `docs/zh-TW/` mirror
   updated in the same PR.
 - Release notes cover four visible changes: the input freeze on
-  upload/delete, the new freeze on `PUT .../settings` and the two `.env`
-  endpoints, the nullable `FileEntryOut.size`/`modified_at`/`sha256` with
+  upload/delete, the new freeze on `PUT .../settings`, `PATCH .../env`
+  and `DELETE .../env/{key}`, the nullable `FileEntryOut.size`/`modified_at`/`sha256` with
   rows that have no file behind them, and the requirement that a
   trustworthy baseline comes from a full `index` rather than an `update`.
 - `openapi.json` and `types.generated.ts` regenerated together.
