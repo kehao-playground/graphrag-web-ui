@@ -64,6 +64,12 @@ User decisions (2026-09-06, chat):
     `input/` but still indexed stay linkable (§6.3, §7.4).
     `test_runs.config_revision` digests `settings.yaml` **and** `.env`,
     captured atomically with the config load (§7.2).
+16. **Review round 8**: the generation guard is stated normatively in
+    §7.4 as a G0/G1 sequence with G1 **after** the `documents` read, and
+    citation resolution matches titles against the baseline's **entry
+    names** — `attributable_titles` is only ever used to decide `skipped`.
+    `config_revision` becomes `workspace_config_revision` with a framed
+    digest and a claim narrowed to the workspace files (§7.2).
 
 ## 1. Problem
 
@@ -414,8 +420,9 @@ questions
 test_runs
   id, project_id → projects.id, set_id → question_sets.id,
   job_id → jobs.id, index_job_id → jobs.id (nullable), method,
-  config_revision (nullable),   -- digest of settings.yaml + .env,
-                                -- captured with the config load (§7.2)
+  workspace_config_revision (nullable),  -- framed digest of
+                                -- settings.yaml + .env, captured with
+                                -- the config load (§7.2)
   started_at (nullable), finished_at (nullable)
 
 test_results
@@ -780,13 +787,28 @@ and `load_config(root)` (`graphrag_search.py:67`) are two independent
 reads, so a naive capture can load configuration A and then record the
 hash of configuration B.
 
-So `test_runs.config_revision` is a digest over **both** files'
-bytes, and the capture is atomic with the load: the worker takes the
-project row lock (§5.2b) **briefly** at start, reads `settings.yaml` and
-`.env`, computes the digest, calls `load_config`, and releases. The lock
-is not held for the run — only for the read pair. The digest is a sha256
-of file bytes, so it identifies a configuration without exposing any
-value in it.
+So `test_runs.workspace_config_revision` digests **both** files, and the
+capture is atomic with the load: the worker takes the project row lock
+(§5.2b) **briefly** at start, reads `settings.yaml` and `.env`, computes
+the digest, calls `load_config`, and releases. The lock is not held for
+the run — only for the read pair.
+
+The digest is a sha256 over a canonical framing, not a concatenation of
+two byte strings: for each file in the fixed order `settings.yaml`, `.env`
+it absorbs `name || b"\n" || length || b"\n" || bytes`, where a **missing**
+file has length `-1` and an **empty** file length `0`. Framing matters —
+without a length delimiter, moving a line from the end of `settings.yaml`
+to the start of `.env` would produce the same digest, and a deleted `.env`
+would be indistinguishable from an empty one.
+
+**The name is `workspace_config_revision`, not `config_revision`, because
+it identifies the workspace files and nothing more.** graphrag also
+resolves `${...}` against the process `os.environ` (§6.3), which this
+digest cannot see and the console does not manage; it changes only on
+redeploy or restart. Claiming the field identifies the *effective*
+configuration would be claiming more than it can carry. Being a sha256 of
+file bytes, it identifies a configuration without exposing any value in
+it.
 
 `services/runner_loop.py::_execute` currently hard-codes
 `IndexRunner().run(argv=...)`. It grows a dispatch on `job.type`:
@@ -882,8 +904,8 @@ interleaving.
 `POST /api/projects/{id}/files/{name}/preview` takes either
 `{"result_id", "entry_id"}` (historic — the server reads the stored
 passage) or `{"passage"}` (ad-hoc — the client already holds
-`entries[].text` from the citations payload). A body keeps document text
-out of URLs, access logs and proxy buffers and off the URL length limit.
+`entries[].text` from the citations payload). What a body buys is stated
+precisely below — it is narrower than "keeps document text private".
 `GET .../preview` remains, and returns the head window only.
 
 The ad-hoc form lets a caller search a document for arbitrary text, but
@@ -893,26 +915,77 @@ it grants no reach they did not have.
 **Resolution is not free, and needs its own adapter call.** The query path
 loads only the frames in `FrameCache.TABLES` (`frame_cache.py:12`), which
 never include `documents`; and `adapters/artifacts.py` reads one
-registered table at a time (`artifacts.py:108`), so nothing existing joins
-`text_units.document_id` to `documents.title`. The adapter gains a
-**batched** resolver: a set of text-unit ids in, `{id: title}` out, one
-duckdb query joining the two parquet files.
+registered table at a time (`artifacts.py:108`), so nothing existing maps
+a `document_id` to a `documents.title`. The adapter gains a **batched**
+resolver: a set of document ids in, `{document_id: title}` out, one duckdb
+read of `documents.parquet`.
+
+**Only `documents` is read fresh.** `text_unit_id → document_id` comes
+from the `text_units` frame that answered the query, not from a second
+read — `text_units` is loaded for every method that can produce `Sources`
+citations (`basic`, `local`, `drift`; `global` loads no text units and so
+cites no sources). This is why the resolver takes document ids rather than
+text-unit ids.
+
+**The `documents` read is bracketed by a generation guard, because it
+cannot be prevented from crossing a rebuild.** Attaching `source_name`
+while the answer is produced shortens the window but does not close it:
+ad-hoc queries hold no job mutex (§7.3), so a full `index` can land
+between the frame load and the `documents` read, and the resolver would
+attribute this answer's ids to the *new* build's documents.
+
+The normative sequence, for `_execute_query`, `stream_query` and
+`services/test_runs.py` alike:
+
+1. **G0** — fresh DB read of `projects.baseline_snapshot_id` **and**
+   whether an `index`/`update` job is `queued`/`running` for the project.
+2. Load frames (`_prepare_query`).
+3. Take cited `text_unit_id → document_id` from the loaded `text_units`
+   frame.
+4. Read `documents.parquet` through the batched resolver and complete
+   enrichment.
+5. **G1** — fresh DB read of the same two facts, **after** step 4.
+6. Emit `source_name` only if G0 and G1 report the **same** pointer and
+   **neither** reports an active `index`/`update`. Otherwise every
+   `source_name` is `null` and the UI renders the citations unlinked.
+
+Both reads must be fresh (their own session, no identity-map reuse), and
+G1 must follow the `documents` read rather than the frame load: a guard
+that closed at step 2 would still let an index start between step 2 and
+step 4, which is precisely the interval it exists to cover.
+
+The guard does not stop the race; it detects it and refuses to guess,
+which is the only honest option for a path that cannot hold the mutex. The
+answer text is always returned — only the links are withheld.
 
 **The resolver returns titles; filenames come from the baseline.** The
-adapter does the join and stops there. Turning a title into a filename is
-§6.3's rule, and §6.3's whole point is that the rule must be the one that
-held when the artifacts were built — so the caller applies the **baseline
-snapshot's** `title_recovery` and `attributable_titles`, never today's
-`settings.yaml`. When the baseline says `unavailable_title_column`, or
-there is no trustworthy baseline, entries stay **unlinked**; the resolver
-never falls back to inspecting current configuration or guessing from
-`input/`.
+adapter reads `documents` and stops there. Turning a title into a filename
+is §6.3's rule, and §6.3's whole point is that the rule must be the one
+that held when the artifacts were built — so the caller applies the
+**baseline snapshot's `title_recovery`**, never today's `settings.yaml`.
+When the baseline says `unavailable_title_column`, or there is no
+trustworthy baseline, entries stay **unlinked**; the resolver never falls
+back to inspecting current configuration or guessing from `input/`.
 
 Without that rule the failure is silent and specific: `data.csv` indexed
 under `title_column` emits the title `report.md`, the project also
 contains a real `report.md`, the setting is later removed without a
 rebuild, and today's rule confidently attributes `data.csv`'s citation to
 `report.md`.
+
+**The candidate filenames are the baseline's entry names, not
+`attributable_titles`.** The two differ exactly where it matters.
+`attributable_titles` can only contain names that existed in `input/` when
+it was captured (§6.3); the baseline entries deliberately retain names
+whose files are gone, which is what makes `removed` representable. So:
+full-index `old.md`, delete it, run `update` — upstream keeps the old
+document and the baseline keeps its entry, but `attributable_titles`
+cannot list it. Matching against `attributable_titles` would leave a
+citation into that still-indexed document unresolved, contradicting the
+promise above that a deleted document renders as a **disabled** link.
+
+`attributable_titles` keeps exactly one job: deciding `skipped` (§6.3).
+Citation resolution uses `title_recovery` plus the entry names.
 
 **Call-count contract**, so the test has a failing edge: at most **one**
 resolver call per completed question, and it queries only ids not already
@@ -954,9 +1027,12 @@ general are unaffected either way — the payload has always carried
 `entries[].text` (`domain/citations.py:74`).
 
 The ad-hoc body is bounded: `passage` must be non-empty and at most
-`PASSAGE_MAX_BYTES = 4096`, since it drives a full-file scan. The request
-model uses pydantic `extra="forbid"`, so a mixed or unknown-field body is
-a 422 rather than a silently ignored key.
+`PASSAGE_MAX_BYTES = 4096`, since it drives a full-file scan. The bound is
+on **`len(passage.encode("utf-8"))`**, validated explicitly — pydantic's
+string `max_length` counts characters, so a CJK passage would pass a
+character check at three times the byte budget. The request model uses
+pydantic `extra="forbid"`, so a mixed or unknown-field body is a 422
+rather than a silently ignored key.
 
 ### 7.5 Health aggregates
 
@@ -1272,6 +1348,9 @@ Backend:
 - **Locator forms** — `GET` → head; `POST {result_id, entry_id}` →
   historic; `POST {passage}` → ad-hoc; every other body shape, including
   half a historic pair, → 422.
+- **Passage bound is bytes** — 4096 ASCII bytes accepted, 4097 rejected,
+  and a multi-byte UTF-8 passage under 4096 *characters* but over 4096
+  *bytes* rejected.
 - **Batched source resolution** — at most one resolver call per completed
   question, querying only ids absent from the run's memo: 200 questions
   citing the same five text units issue exactly one call.
@@ -1287,18 +1366,22 @@ Backend:
   frame load and its `documents` read, promote a new baseline, release:
   the answer must still be returned and every `source_name` must be
   `null`. A test that only rebuilds *after* the response passes without
-  the guard existing.
+  the guard existing. Second case, which a G1-at-frame-load
+  implementation fails: start an `index` in that same interval without
+  promoting a baseline — G1 must see the active job and withhold links.
 - **Citations into removed documents stay linkable** — full-index
   `old.md`, delete it, `update`, then cite the still-indexed document:
   `source_name` must be `old.md` and the UI must render it as a disabled
   "document removed" link, not as an unresolved citation.
 - **Config revision capture** — editing `settings.yaml` **or** `.env`
   between the worker's config load and its provenance write cannot make
-  `config_revision` describe a configuration the run did not use.
+  `workspace_config_revision` describe a configuration the run did not
+  use; and the framing distinguishes a missing `.env` from an empty one,
+  and a line moved between the two files from one that was not.
 - **One configuration per run** — editing `settings.yaml` or `.env`
   between two questions of a running batch does not change which
-  configuration the later questions use, and `test_runs.config_revision`
-  records the one that was loaded.
+  configuration the later questions use, and
+  `test_runs.workspace_config_revision` records the one that was loaded.
 - A stored `source_name` whose file was deleted renders disabled rather
   than 404-ing the drawer open.
 - Route-level authz for every new endpoint against §8.
