@@ -1,7 +1,17 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -82,6 +92,20 @@ class Project(Base):
     owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
     input_file_type: Mapped[str] = mapped_column(String(10))  # text|csv|json
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    baseline_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        # use_alter breaks the projects <-> index_snapshots FK cycle for
+        # metadata sorting; without it Base.metadata.sorted_tables raises
+        # CircularDependencyError and conftest's TRUNCATE fixture dies.
+        ForeignKey(
+            "index_snapshots.id",
+            ondelete="SET NULL",
+            use_alter=True,
+            name="fk_projects_baseline_snapshot",
+        ),
+        nullable=True,
+    )
+    artifact_epoch: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
 class ProjectMember(Base):
@@ -144,3 +168,71 @@ class Job(Base):
     queued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ProjectFile(Base):
+    """Metadata for one file in input/. NOT the source of truth for
+    existence - input/ on disk is (spec 5.1); a delete removes the row with
+    the file, and an untracked file is discovered into a row on first list."""
+
+    __tablename__ = "project_files"
+    __table_args__ = (UniqueConstraint("project_id", "name", name="uq_project_files_project_name"),)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(255))
+    sha256: Mapped[str] = mapped_column(String(64))
+    size: Mapped[int] = mapped_column(BigInteger)
+    uploaded_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
+    )
+    uploaded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    discovered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class FileTag(Base):
+    __tablename__ = "file_tags"
+    __table_args__ = (UniqueConstraint("project_id", "name", name="uq_file_tags_project_name"),)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(String(50))
+
+
+class FileTagLink(Base):
+    __tablename__ = "file_tag_links"
+    file_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("project_files.id", ondelete="CASCADE"), primary_key=True
+    )
+    tag_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("file_tags.id", ondelete="CASCADE"), primary_key=True
+    )
+
+
+class IndexSnapshot(Base):
+    """What the indexer was handed (kind='start'), or what it produced
+    (kind='baseline'). One row per (job, kind): every index/update job gets a
+    start row before the CLI spawns; only a promoting job gets a baseline
+    row (spec 5.2)."""
+
+    __tablename__ = "index_snapshots"
+    __table_args__ = (UniqueConstraint("job_id", "kind", name="uq_index_snapshots_job_kind"),)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    job_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"))
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    kind: Mapped[str] = mapped_column(String(10))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    attributable_titles: Mapped[list] = mapped_column(JSONB, default=list)
+    title_recovery: Mapped[str] = mapped_column(String(32))
+    artifact_epoch: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class IndexSnapshotEntry(Base):
+    __tablename__ = "index_snapshot_entries"
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("index_snapshots.id", ondelete="CASCADE"), primary_key=True
+    )
+    name: Mapped[str] = mapped_column(String(255), primary_key=True)
+    sha256: Mapped[str] = mapped_column(String(64))
