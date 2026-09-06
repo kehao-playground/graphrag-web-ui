@@ -50,6 +50,13 @@ User decisions (2026-09-06, chat):
     redesign. The historic preview locator verifies three bindings
     (result→project, entry→result and Sources, `source_name`→path name),
     404 on any mismatch (§7.4).
+14. **Review round 6**: `_prepare_query` + `_execute_query` share the
+    preamble and tail; SSE keeps `stream_query` — the streaming and
+    non-streaming searches are not one function (§7.2). `source_name` is
+    resolved with every answer, so no endpoint resolves a citation id
+    after the fact, and the preview locator moves into a `POST` body
+    (§7.4). The adapter resolver returns titles; filenames come from the
+    baseline's provenance (§7.4). A run loads configuration once (§7.2).
 
 ## 1. Problem
 
@@ -400,6 +407,7 @@ questions
 test_runs
   id, project_id → projects.id, set_id → question_sets.id,
   job_id → jobs.id, index_job_id → jobs.id (nullable), method,
+  settings_sha256 (nullable),   -- config the whole run used (§7.2)
   started_at (nullable), finished_at (nullable)
 
 test_results
@@ -704,22 +712,53 @@ transaction orchestration, which AGENTS.md places in `services/`.
 - graphrag is reached only through the existing env-shielded
   `adapters/graphrag_search.py`; no new graphrag import site.
 
-**A shared query core is required, not optional.** `services/query.py`
-`run_query` applies the rate limiter on its first line (`query.py:110`),
-before any I/O. A batch that must bypass the limiter yet produce identical
-frames, citations and timings cannot call it. So:
+**A shared query core is required, but it is not one path for every
+answer.** An earlier draft claimed it was; that claim was wrong. There are
+two answer-producing implementations and they cannot merge:
+
+- `run_query` (`query.py:102`) → `GraphragSearchAdapter.search`
+  (`graphrag_search.py:100`), returning a body plus `context_data`, which
+  is what its citations join against. Served by
+  `POST /{pid}/query` (`query_routes.py:85`).
+- `stream_query` (`query.py:162`) → `GraphragSearchAdapter.stream`
+  (`graphrag_search.py:130`), an async generator; streaming returns no
+  `context_data`, so its citations join against the very frames handed to
+  the adapter. Served by the SSE route (`query_routes.py:106`) — **the
+  path the UI actually uses**.
+
+What they genuinely share is the preamble and the tail, and that is what
+gets extracted:
 
 ```python
-async def _execute_query(project, method, query, response_type) -> dict
-    # config load → frames → search → citations → timings. No limiter.
+async def _prepare_query(project, method, *, config=None) -> Prepared
+    # config load (or reuse a caller-supplied one) → frames → frames_ms.
+    # No limiter, no user.
 
-async def run_query(project, user, method, query, response_type) -> dict
-    get_rate_limiter().check(str(user.id), str(project.id))
-    return await _execute_query(...)
+async def _execute_query(prepared, method, query, response_type) -> dict
+    # search → citations → timings. No limiter.
+
+async def run_query(project, user, ...)      # limiter + prepare + execute
+async def stream_query(project, user, ...)   # limiter + prepare + stream + tail
 ```
 
-Interactive queries keep their exact behavior; the batch service calls
-`_execute_query`. One code path produces every answer in the product.
+`run_query` and `stream_query` keep their exact behavior and their
+distinct adapter calls. The batch service calls `_prepare_query` +
+`_execute_query`, so it shares configuration loading, frame loading,
+citation enrichment and timing assembly with the interactive paths — and
+nothing pretends the streaming and non-streaming searches are one
+function.
+
+**A run loads its configuration once.** `_prepare_query` accepts a
+caller-supplied `config` precisely so `services/test_runs.py` can load it
+at worker start and reuse it for every question. `settings.yaml` and
+`.env` are frozen only during `index`/`update` (§6.3), so a 200-question
+batch that re-read configuration per question could answer its first
+questions under one model or prompt and its last under another while
+presenting them as one run. Loading once makes the run internally
+consistent without extending the freeze to test runs and taking that
+product cost. `test_runs` records `settings_sha256` (the hash
+`read_settings` already computes) so a run says which configuration
+produced it.
 
 `services/runner_loop.py::_execute` currently hard-codes
 `IndexRunner().run(argv=...)`. It grows a dispatch on `job.type`:
@@ -776,7 +815,7 @@ constant, not an env var) bounds a single run.
 Only **`Sources`** citations resolve. `domain/artifacts.py` registers
 `text_units` with a singular `document_id`, so one text unit maps to one
 document, and `documents.title` maps back to a filename through §6.3's
-rule. `Entities`, `Reports`, `Relationships` and `Communities` each
+rule **as recorded on the baseline** (see below). `Entities`, `Reports`, `Relationships` and `Communities` each
 summarize many text units spanning many documents; the UI renders them
 unlinked rather than picking one arbitrarily.
 
@@ -793,33 +832,64 @@ artifacts would not 404; it would open **the wrong document**, silently.
 That is the failure mode §5.3 exists to prevent, arriving through a
 different door.
 
-So identity is materialized at run time, while the answering artifacts are
-still the current ones:
+**So `source_name` is resolved while the answer is produced — for every
+answer, not only stored runs.** Deferring it to a click has the same bug
+in a shorter window: an ad-hoc query answers `Sources (1)` → `file-a`, a
+full index lands, the user clicks, and a later lookup opens `file-b`. Ad-hoc
+queries are not covered by the job mutex, so nothing prevents that
+interleaving.
 
-- `services/test_runs.py` resolves each `Sources` entry as it writes the
-  result, storing `source_name` alongside the `id` and `text` that
-  `build_citations` already produces. `test_results.citations` is
-  therefore self-contained.
-- A **historic** citation links using its stored `source_name` and never
-  re-resolves. Its preview locator is
-  `preview?result_id=<uuid>&entry_id=<int>`: the backend reads the stored
-  text from that result row and locates it in the file.
-- An **ad-hoc** query is not persisted and its answer was produced against
-  the artifacts on disk right now, so it resolves live —
-  `GET .../citations/sources/{cid}/source` for the filename, then
-  `preview?text_unit_id=<int>`.
-- A stored `source_name` whose file has since been deleted renders as a
-  disabled link saying the document was removed, rather than a dead 404.
+- `_execute_query` and `stream_query` both attach `source_name` to each
+  `Sources` entry as they build citations, against the frames that
+  produced the answer. It ships in the `POST /query` body and in the SSE
+  `citations` event. There is **no** endpoint that resolves a citation id
+  to a filename after the fact — such an endpoint could only ever consult
+  current artifacts, which is the bug.
+- `services/test_runs.py` gets it for free from the same helper and
+  persists it, so `test_results.citations` is self-contained.
+- A `source_name` whose file has since been deleted renders as a disabled
+  link saying the document was removed, rather than a dead 404.
+
+**The preview locator travels in a request body, not a query string.**
+`POST /api/projects/{id}/files/{name}/preview` takes either
+`{"result_id", "entry_id"}` (historic — the server reads the stored
+passage) or `{"passage"}` (ad-hoc — the client already holds
+`entries[].text` from the citations payload). A body keeps document text
+out of URLs, access logs and proxy buffers and off the URL length limit.
+`GET .../preview` remains, and returns the head window only.
+
+The ad-hoc form lets a caller search a document for arbitrary text, but
+only a document they may already read in full through paged windows, so
+it grants no reach they did not have.
 
 **Resolution is not free, and needs its own adapter call.** The query path
 loads only the frames in `FrameCache.TABLES` (`frame_cache.py:12`), which
 never include `documents`; and `adapters/artifacts.py` reads one
 registered table at a time (`artifacts.py:108`), so nothing existing joins
 `text_units.document_id` to `documents.title`. The adapter gains a
-**batched** resolver — a set of text-unit ids in, `{id: filename}` out, one
-duckdb query joining the two parquet files — and `services/test_runs.py`
-memoizes it per run. A 200-question run must issue a bounded number of
-these, not one parquet read per citation.
+**batched** resolver: a set of text-unit ids in, `{id: title}` out, one
+duckdb query joining the two parquet files.
+
+**The resolver returns titles; filenames come from the baseline.** The
+adapter does the join and stops there. Turning a title into a filename is
+§6.3's rule, and §6.3's whole point is that the rule must be the one that
+held when the artifacts were built — so the caller applies the **baseline
+snapshot's** `title_recovery` and `attributable_titles`, never today's
+`settings.yaml`. When the baseline says `unavailable_title_column`, or
+there is no trustworthy baseline, entries stay **unlinked**; the resolver
+never falls back to inspecting current configuration or guessing from
+`input/`.
+
+Without that rule the failure is silent and specific: `data.csv` indexed
+under `title_column` emits the title `report.md`, the project also
+contains a real `report.md`, the setting is later removed without a
+rebuild, and today's rule confidently attributes `data.csv`'s citation to
+`report.md`.
+
+**Call-count contract**, so the test has a failing edge: at most **one**
+resolver call per completed question, and it queries only ids not already
+in the run's memo. A 200-question run where every question cites the same
+five text units issues one call, not 200.
 
 **The historic locator carries an authorization boundary, and it is not
 the path project.** `result_id` is a client-supplied identifier for a row
@@ -840,14 +910,12 @@ Binding 3 is what stops the confused deputy: without it a caller with
 legitimate rights could pair a real `result_id` with any filename and have
 the server search a different document for the stored passage.
 
-**Locator combinations are exhaustive, not permissive.** No locator → the
-head window. `text_unit_id` alone → live resolution. `result_id` **and**
-`entry_id` → historic. Anything else — one half of the historic pair, or
-`text_unit_id` mixed with either — is **422**; a partially specified
-locator is a caller bug, and guessing an interpretation is how the
-bindings above get bypassed by accident.
-
-Neither locator puts document text in a URL.
+**Locator forms are exhaustive, not permissive.** `GET` (no body) → the
+head window. `POST {"result_id", "entry_id"}` → historic. `POST
+{"passage"}` → ad-hoc. Anything else — one half of the historic pair, or
+`passage` mixed with either — is **422**; a partially specified locator is
+a caller bug, and guessing an interpretation is how the bindings above get
+bypassed by accident.
 
 **The preview locator is never document text in a URL.** This is a claim
 about the locator only, not about citations in general: the existing
@@ -914,11 +982,12 @@ omitted them would report that it was.
 | `POST /api/projects/{id}/files` | `project:edit_content` | **409 `project_indexing`** while an `index`/`update` job is active |
 | `DELETE /api/projects/{id}/files/{name}` | `project:edit_content` | same 409 |
 | `POST /api/projects/{id}/files:bulk-delete` | `project:edit_content` | same 409 |
-| `GET /api/projects/{id}/files/{name}/preview` | `project:view` | `?text_unit_id=` → window centered on the passage, `match` flag. Never carries document text |
+| `GET /api/projects/{id}/files/{name}/preview` | `project:view` | head window only |
+| `POST /api/projects/{id}/files/{name}/preview` | `project:view` | body `{result_id, entry_id}` or `{passage}` → window centered on the passage, `match` flag; other shapes 422 (§7.4) |
 | `POST/DELETE /api/projects/{id}/files/{name}/tags` | `project:edit_content` | not frozen — tags are metadata, not input |
 | `PUT /api/projects/{id}/settings` | `project:edit_settings` | **409 `project_indexing`** while an `index`/`update` job is active (§6.3) |
 | `PATCH /api/projects/{id}/env`, `DELETE /api/projects/{id}/env/{key}` | `project:edit_settings` | existing routes, unchanged shape; same 409 — `.env` feeds `settings.yaml` substitution (§6.3) |
-| `GET .../files/{name}/preview?result_id=&entry_id=` | `project:view` | historic-run locator; three bindings verified, any mismatch 404; partial locator 422 (§7.4) |
+| (historic locator) | `project:view` | three bindings verified on the `POST` form, any mismatch 404 (§7.4) |
 | `GET /api/projects/{id}/tags` | `project:view` | catalog + counts |
 | `GET /api/projects/{id}/health` | `project:view` | §7.5 |
 | `GET /api/projects/health?ids=` | `project:view` | filtered to visible projects |
@@ -927,7 +996,7 @@ omitted them would report that it was.
 | `POST /api/projects/{id}/test-runs` | `project:run_jobs` | enqueues the job + manifest in one transaction; **409 `job_conflict`** while any job holds the project |
 | `GET /api/test-runs/{rid}/results` | `project:view` | includes `question_text` |
 | `PUT /api/test-results/{id}/rating` | `project:edit_content` | upsert |
-| `GET /api/projects/{id}/citations/sources/{cid}/source` | `project:view` | → `{name}` or 404; Sources only. No document text in the response |
+| `POST /api/projects/{id}/query`, SSE `citations` event | `project:view` | `Sources` entries gain `source_name`, resolved with the answer (§7.4). No after-the-fact resolution endpoint exists |
 
 Atom choice follows the existing model: reading is `project:view`,
 curating content (tags, question sets, ratings) is `project:edit_content`,
@@ -972,12 +1041,12 @@ a 409 they never returned before. No route shape changes.
   confirms with count and total size — deleting 30 documents is not the
   same act as deleting one.
 - **Preview drawer**: props
-  `{ name, locator?: { textUnitId: number } | { resultId: string; entryId: number } }`
-  — an id, never the passage text (§7.4). `number` matches the existing
-  `Citation.ids: number[]` in `frontend/src/api/types.ts:40`; a string id
-  would have needed a conversion that exists nowhere else. Slice ① never
-  passes a locator; slice ③ does, and picks the variant by whether the
-  answer came from a stored run or an ad-hoc query.
+  `{ name, locator?: { resultId: string; entryId: number } | { passage: string } }`,
+  sent as a `POST` body (§7.4). `entryId` is a `number`, matching the
+  existing `Citation.ids: number[]` in `frontend/src/api/types.ts:40`; a
+  string id would have needed a conversion that exists nowhere else.
+  Slice ① never passes a locator; slice ③ does, and picks the variant by
+  whether the answer came from a stored run or an ad-hoc query.
 - **Upload**: `Upload.Dragger` unchanged, but a persistent "N documents
   not yet indexed" bar appears above the table linking to the jobs page.
 
@@ -989,11 +1058,14 @@ query** mode. Two execution paths, deliberately different:
 - ad-hoc → existing SSE stream (interactive, token-by-token)
 - batch → `test_run` job (long, cancellable, survives navigation)
 
-Both render through one `AnswerView` (answer + citations + timings), and
-after §7.2 both are produced by one `_execute_query`. If the same answer
-rendered differently in two places, users would reasonably suspect they
-had gotten different results. An ad-hoc answer saves into a question set
-in one action.
+Both render through one `AnswerView` (answer + citations + timings). They
+do **not** share a search call — SSE keeps `stream_query`, the batch uses
+`_execute_query` — but after §7.2 they share configuration loading, frame
+loading, citation enrichment (including `source_name`) and timing
+assembly, which is what makes the two renderings comparable. If the same
+answer rendered differently in two places, users would reasonably suspect
+they had gotten different results. An ad-hoc answer saves into a question
+set in one action.
 
 - **Matrix**: rows = question **lineages**, columns = the most recent runs
   (default 5). No virtualization — hundreds of rows × 5 columns is well
@@ -1046,10 +1118,10 @@ in one action.
   apply but the card adds that silent-skip detection is off, so `skipped`
   is not evidence of health either way.
 - **Citation loop closes**: `AnswerView`'s `Sources` citations become
-  clickable and open `FilePreviewDrawer` with the locator for their
-  origin (§7.4): a stored `source_name` plus `{resultId, entryId}` for a
-  run, or a live lookup plus `{textUnitId}` for an ad-hoc query. Slice
-  ①'s reserved prop is used here.
+  clickable — using the `source_name` that arrived **with the answer**,
+  never a later lookup — and open `FilePreviewDrawer` with the locator for
+  their origin (§7.4): `{resultId, entryId}` for a stored run,
+  `{passage}` for an ad-hoc query. Slice ①'s reserved prop is used here.
 - **Project list** gains an index-health column fed by
   `GET /api/projects/health?ids=`.
 
@@ -1115,7 +1187,7 @@ Backend:
   emits no `skipped`, because listing reads the baseline row rather than
   today's `settings.yaml`; and `attributable_titles = []` with
   `title_recovery = 'available'` is distinguishable from unavailable.
-- **Config freeze** — `PUT .../settings`, `PUT .../env/{key}` and
+- **Config freeze** — `PUT .../settings`, `PATCH .../env` and
   `DELETE .../env/{key}` each return 409 while an `index`/`update` job is
   active, and the barrier case: a write parked before its commit cannot
   land after enqueue captured the `start` snapshot. The `.env` case needs
@@ -1159,11 +1231,24 @@ Backend:
   a valid `result_id` paired with a `{name}` other than the entry's stored
   `source_name`; an `entry_id` belonging to a different result or to a
   non-`Sources` citation.
-- **Locator combinations** — no locator → head; `text_unit_id` alone →
-  live; `result_id` + `entry_id` → historic; every other combination,
-  including half a historic pair, → 422.
-- **Batched source resolution** — a run's citations issue a bounded number
-  of resolver calls rather than one per citation.
+- **Locator forms** — `GET` → head; `POST {result_id, entry_id}` →
+  historic; `POST {passage}` → ad-hoc; every other body shape, including
+  half a historic pair, → 422.
+- **Batched source resolution** — at most one resolver call per completed
+  question, querying only ids absent from the run's memo: 200 questions
+  citing the same five text units issue exactly one call.
+- **Resolver provenance** — `data.csv` indexed under `title_column`
+  emitting the title `report.md`, alongside a real `report.md`, with the
+  setting later removed: the citation must render **unlinked**, never
+  attributed to `report.md`.
+- **Ad-hoc citations do not re-resolve either** — answer an ad-hoc query
+  citing `Sources (1)` → `file-a`, rebuild so current `Sources (1)` →
+  `file-b`, then open the citation from the still-rendered answer: it must
+  reach `file-a`. Same shape as the stored-run test, different door.
+- **One configuration per run** — editing `settings.yaml` between two
+  questions of a running batch does not change which configuration the
+  later questions use, and `test_runs.settings_sha256` records the one
+  that was loaded.
 - A stored `source_name` whose file was deleted renders disabled rather
   than 404-ing the drawer open.
 - Route-level authz for every new endpoint against §8.
