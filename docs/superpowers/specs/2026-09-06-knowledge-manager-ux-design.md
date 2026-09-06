@@ -76,6 +76,13 @@ User decisions (2026-09-06, chat):
     failed job rewrites `output/` in place and promotes nothing, so both
     guard reads see an unchanged pointer and no active job across changed
     artifacts (§7.4).
+18. **Review round 10**: the guard's decisive condition is
+    `projects.artifact_epoch == baseline.artifact_epoch`, not the G0/G1
+    comparison — a failed attempt's damage outlives the guarded interval,
+    so every later query would otherwise pass. The epoch increments at CLI
+    spawn rather than at enqueue, so a job cancelled while queued does not
+    darken links, and `artifacts_stale` makes the withheld links legible
+    (§7.4, §7.5, §9.3).
 
 ## 1. Problem
 
@@ -233,7 +240,9 @@ index_snapshots
   kind ('start' | 'baseline'), created_at,
   attributable_titles (json),  -- filenames recovered from
                                -- documents.parquet at capture time
-  title_recovery ('available' | 'unavailable_title_column')
+  title_recovery ('available' | 'unavailable_title_column'),
+  artifact_epoch (int)         -- projects.artifact_epoch at promotion;
+                               -- the guard asserts equality (§7.4)
   unique (job_id, kind)
 
 index_snapshot_entries
@@ -243,8 +252,8 @@ index_snapshot_entries
 projects
   + baseline_snapshot_id → index_snapshots.id (nullable)
   + artifact_epoch (int, not null, default 0)
-      -- incremented in the enqueue transaction of every index/update
-      -- job, promoted or not; the generation guard's ABA defence (§7.4)
+      -- incremented by the runner immediately before each index/update
+      -- CLI spawn, promoted or not; the guard's ABA defence (§7.4)
 ```
 
 **Rows are per (job, kind), not two per job.** `unique (job_id, kind)` —
@@ -955,10 +964,11 @@ The normative sequence, for `_execute_query`, `stream_query` and
 4. Read `documents.parquet` through the batched resolver and complete
    enrichment.
 5. **G1** — fresh DB read of the same three facts, **after** step 4.
-6. Emit `source_name` only if G0 and G1 report the **same** pointer, the
-   **same** epoch, and **neither** reports an active `index`/`update`.
-   Otherwise every `source_name` is `null` and the UI renders the
-   citations unlinked.
+6. Emit `source_name` only if **all** of: G0 and G1 report the same
+   pointer; G0 and G1 report the same epoch; neither reports an active
+   `index`/`update`; **and that epoch equals the `artifact_epoch` recorded
+   on the baseline snapshot the pointer names**. Otherwise every
+   `source_name` is `null` and the UI renders the citations unlinked.
 
 Both reads must be fresh (their own session, no identity-map reuse), and
 G1 must follow the `documents` read rather than the frame load: a guard
@@ -982,12 +992,50 @@ G0   pointer = P, no active job
 G1   pointer = P, no active job          ← identical to G0, artifacts are not
 ```
 
-`projects.artifact_epoch` is an integer incremented **in the same
-transaction that enqueues an `index`/`update` job** — which already takes
-the project lock (§5.2b), so no extra synchronization. It is monotonic and
-independent of success, so every attempt that could have touched `output/`
-moves it, whether it promotes or not. Comparing it across G0/G1 closes the
-ABA case that comparing the pointer cannot.
+`projects.artifact_epoch` is a monotonic integer incremented **by the
+runner, in its own transaction, immediately before the CLI is spawned**.
+Every attempt that can write `output/` moves it, whether it promotes or
+not.
+
+**Comparing it across G0/G1 is necessary but not sufficient.** That
+comparison detects an attempt *inside* the guarded interval; it says
+nothing about whether the artifacts already on disk at G0 came from the
+baseline. A failed job's damage is permanent until the next successful
+promotion, so the very next query would see a stable epoch at both ends
+and happily emit links against the wreckage:
+
+```
+     baseline P promoted at epoch 1
+     index J spawns → epoch 2; rewrites documents.parquet; fails
+     (no promotion; pointer still P)
+G0   pointer = P, epoch = 2, no active job     ← a brand new query
+     documents read → J's leftovers
+G1   pointer = P, epoch = 2, no active job     ← G0 == G1, and both wrong
+```
+
+So the baseline snapshot records the `artifact_epoch` at promotion, and
+the guard's fourth condition — `projects.artifact_epoch ==
+baseline.artifact_epoch` — is what actually asserts "the artifacts on disk
+are the ones this baseline describes". The G0/G1 comparison then covers
+the remaining case, an attempt that starts and finishes entirely between
+the two reads.
+
+**Why the increment is at spawn, not at enqueue.** Enqueue-time
+incrementing would count a job that was queued and then cancelled before
+it ever ran — an attempt that touched nothing — and, because the mismatch
+is permanent, would darken every citation link in the project until
+someone ran a full index. Incrementing immediately before the spawn moves
+the epoch for exactly the attempts that could write. The gap this leaves,
+between enqueue and spawn, is already covered: the job is `queued` then,
+and the active-job condition withholds links.
+
+**The conservatism is deliberate and must be visible.** After a failed or
+interrupted index, links stay off until a successful index promotes a new
+baseline — the console cannot tell a half-written `output/` from a whole
+one, and guessing is what this whole section exists to avoid. `/health`
+reports `artifacts_stale` for this state and overview card 2 names it
+(§7.5, §9.3), so the user sees *why* links vanished and what fixes it,
+rather than meeting a silent degradation.
 
 The guard does not stop the race; it detects it and refuses to guess,
 which is the only honest option for a path that cannot hold the mutex. The
@@ -1083,12 +1131,18 @@ GET /api/projects/{id}/health
   files: {new, modified, indexed, skipped, removed, total}
   ingest_check: <as §6.3>
   has_baseline: bool
+  artifacts_stale: bool         -- projects.artifact_epoch !=
+                                -- baseline.artifact_epoch (§7.4)
   last_index: {job_id, type, finished_at} | null
   active_job: {id, type} | null
   latest_run: {run_id, set_id, method, index_job_id,
                ratings: {good, fair, poor, unrated},
                regressions: int} | null
 ```
+
+`artifacts_stale` is reported for the same reason `ingest_check` is: it
+is the state where files still read `indexed` from the baseline while
+`output/` holds a failed attempt's leftovers (§7.4).
 
 `ingest_check` and `has_baseline` are reported together because their
 combination carries a fault neither shows alone:
@@ -1111,8 +1165,8 @@ GET /api/projects/health?ids=<uuid,uuid,...>
 
 returns the compact subset the project list needs — `files.new`,
 `files.modified`, `files.removed`, **`files.skipped`**, **`ingest_check`**,
-`has_baseline`, `last_index.finished_at` — one round trip for the whole
-list, filtered to projects the caller can see. Without it the list would
+`artifacts_stale`, `has_baseline`, `last_index.finished_at` — one round
+trip for the whole list, filtered to projects the caller can see. Without it the list would
 issue one request per project.
 
 `skipped` and `ingest_check` are in that subset deliberately: a project
@@ -1248,11 +1302,14 @@ set in one action.
   applied**:
 
   1. `active_job` → a job is running; link to its log.
-  2. `has_baseline` **and** `ingest_check == "unavailable_not_indexed"` →
-     the indexed output is gone while the baseline still claims files are
-     indexed; run a **full index**. This outranks everything below it
-     because every state under it is being read off output that no longer
-     exists.
+  2. `has_baseline` **and** (`ingest_check == "unavailable_not_indexed"`
+     **or** `artifacts_stale`) → the indexed output is gone, or was left
+     behind by an attempt that failed part-way, while the baseline still
+     claims files are indexed; run a **full index**. This outranks
+     everything below it because every state under it is being read off
+     output that is missing or untrustworthy. The card also explains that
+     citation links are switched off until this is repaired (§7.4), so the
+     absence is legible rather than mysterious.
   3. no `has_baseline` → run a **full index** to establish a trustworthy
      baseline (an update will not do it — §5.2).
   4. `removed > 0` → deleted documents are still answering queries; only
@@ -1297,9 +1354,11 @@ Backend:
   boundaries: never indexed, empty baseline, `NULL` sha256 from the
   backfill path, and every `ingest_check` value (asserting `skipped` is
   unreachable when unavailable).
-- **`artifact_epoch`** — incremented by every `index`/`update` enqueue
-  including ones that later fail or are cancelled, never by a `test_run`,
-  and never decremented.
+- **`artifact_epoch`** — incremented immediately before every
+  `index`/`update` CLI spawn including attempts that later fail or are
+  cancelled; **not** incremented by a job cancelled while still `queued`,
+  never by a `test_run`, and never decremented. Promotion records the
+  current value on the baseline snapshot.
 - **Baseline advancement** — one case per row of the §5.2(c) mirror
   table, plus: `update` with no previous baseline writes **no** baseline;
   `update` under `unavailable_title_column` leaves the baseline
@@ -1419,6 +1478,12 @@ Backend:
   completion **and fail**, rewriting `documents.parquet` on its way; at G1
   the pointer is unmoved and no job is active, yet every `source_name`
   must still be `null` — only `artifact_epoch` distinguishes it.
+  **Fourth case, which a G0/G1-only epoch comparison cannot catch**: let
+  that same failed index finish completely, *then* start a brand-new
+  query. G0 and G1 agree on pointer and epoch and neither sees an active
+  job, yet links must still be withheld — only
+  `projects.artifact_epoch == baseline.artifact_epoch` rejects it. A
+  successful full index must restore links in both cases.
 - **Citations into removed documents stay linkable** — full-index
   `old.md`, delete it, `update`, then cite the still-indexed document:
   `source_name` must be `old.md` and the UI must render it as a disabled
