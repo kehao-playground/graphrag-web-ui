@@ -25,13 +25,20 @@ User decisions (2026-09-06, chat):
 8. **Delivery**: three vertical slices, each independently shippable.
 9. **Review round 1**: `documents.title` is recovered to a filename **by
    rule**, with a response-level availability flag when the rule cannot
-   hold (§6.2). CSV/JSON projects keep full capability.
+   hold (§6.3). CSV/JSON projects keep full capability.
 10. **Review round 2**: the input freeze is serialized by a project-row
     lock, not a bare check (§5.2b), and is scoped to `index`/`update`
     jobs only — a `test_run` reads `output/` and does not block document
     work. Baseline advancement is driven by attributable document titles,
     not filenames (§5.2c). A run's question manifest is materialized at
     enqueue (§5.3).
+11. **Review round 3**: baseline advancement for a known name is
+    conditioned on `N ∉ pre` alone (§5.2c). Title recovery is evaluated
+    when artifacts are produced and stored on the baseline snapshot, so
+    listing never reads today's `settings.yaml`, and `settings.yaml`
+    writes join the job freeze (§6.3). File listings enumerate
+    `input/` ∪ baseline so `removed` has a source (§6.1). Question
+    `PATCH`/`DELETE` take the project lock (§5.3).
 
 ## 1. Problem
 
@@ -138,7 +145,7 @@ atoms — no client-side role math.
 
 ## 5. Data model
 
-**Ten new tables plus two columns on `jobs`.** Naming follows
+**Ten new tables, two columns on `jobs`, one on `projects`.** Naming follows
 `adapters/models.py` conventions (plural snake_case tables, uuid PKs).
 
 ### 5.1 Document metadata
@@ -160,10 +167,11 @@ file_tag_links
 ```
 
 **`project_files` is metadata, not the source of truth.** `input/` on
-disk remains authoritative for existence. `list_files` performs an FS scan
-left-joined against `project_files`; a DB row with no file on disk is
-reported as `removed` and its metadata pruned when a full index next makes
-the removal real.
+disk remains authoritative for existence, and a delete removes the row
+along with the file. What is listed is therefore **not** the FS scan
+alone: the enumeration set is `input/` ∪ the baseline's filenames (§6.1),
+because after a normal delete the baseline is the only record that the
+name ever existed — and `removed` is precisely that case.
 
 `sha256` is computed during the existing streaming write in
 `services/files.py::save_file` — the bytes already pass through that loop,
@@ -186,8 +194,9 @@ is idempotent and runs under the same project lock as any other
 index_snapshots
   id, job_id → jobs.id, project_id → projects.id,
   kind ('start' | 'baseline'), created_at,
-  attributable_titles (json)   -- filenames recoverable from
+  attributable_titles (json),  -- filenames recovered from
                                -- documents.parquet at capture time
+  title_recovery ('available' | 'unavailable_title_column')
   unique (job_id, kind)
 
 index_snapshot_entries
@@ -208,8 +217,17 @@ subprocess spawns. `baseline` is written **in the same transaction that
 marks the job `succeeded`** and moves `projects.baseline_snapshot_id`, so
 a crash between the two cannot leave a project pointing at a baseline for
 a job that never finished. `failed`, `failed(interrupted)` and `cancelled`
-jobs promote nothing; their `start` rows are pruned by the existing job
-log retention sweep.
+jobs promote nothing.
+
+Their `start` rows are pruned by the retention sweep, which is a **new
+responsibility** for it, not existing behavior:
+`services/retention.py:1-3` states "DB rows are never deleted — history
+and the error tail in `jobs.error` survive; only files are reclaimed."
+That invariant protects job *history*, and a snapshot of superseded input
+hashes makes no historical claim, but the sweep's contract and docstring
+change and the change needs its own transactional test. The snapshot
+referenced by `projects.baseline_snapshot_id` and the `start` row of the
+job that produced it are never pruned.
 
 `projects.baseline_snapshot_id` makes "the current baseline" one lookup
 instead of a max-by-timestamp query, and makes the promotion a single
@@ -284,7 +302,7 @@ from starting during a test run, so (a) is unaffected.
 **(c) Baseline advancement**, on success only. Advancement is *not* a
 function of filenames alone: GraphRAG compares `documents.title`, so
 whether a file was actually ingested this run is only knowable through
-the title recovery of §6.2.
+the title recovery of §6.3.
 
 | Precondition | New baseline |
 |---|---|
@@ -293,17 +311,26 @@ the title recovery of §6.2.
 | `update`, recovery `unavailable_*` | **unchanged.** Without title recovery an honest advancement is impossible; the overview asks for a full `index` |
 | `update`, recovery available | per-name rule below |
 
-Both snapshot rows carry `attributable_titles`, read from
-`documents.parquet` at the moment they are written: the `start` row holds
-the pre-run set, the `baseline` row the post-run set. So for `update`
-with a previous baseline and available recovery, let `pre` = the `start`
-row's set and `post` = the set read during promotion. For each name `N`
-with hash `H` in the `start` snapshot:
+Both snapshot rows carry `attributable_titles` and `title_recovery`,
+evaluated against `documents.parquet` and `settings.yaml` at the moment
+they are written: the `start` row holds the pre-run set, the `baseline`
+row the post-run set that every later listing reads (§6.3). So for
+`update` with a previous baseline and available recovery, let `pre` = the
+`start` row's set. For each name `N` with hash `H` in the `start`
+snapshot:
 
-- `N` **not in** the previous baseline → add `N → H`. It was offered to
-  the indexer this run; whether it landed is then judged by `skipped`.
-- `N` **in** the previous baseline → advance to `H` **only if**
-  `N ∈ post` and `N ∉ pre`. Otherwise keep the old hash.
+- `N` **not in** the previous baseline → add `N → H`.
+- `N` **in** the previous baseline → advance to `H` **iff `N ∉ pre`**.
+  Otherwise keep the old hash.
+
+The condition is `N ∉ pre` alone. `pre` says whether upstream already
+knew this title and therefore skipped it; `post` says whether the
+attempt succeeded, which is what decides `indexed` versus `skipped` — it
+is not part of deciding whether the hash advances. Requiring
+`N ∈ post` as well would strand a document that was offered and dropped
+**again**: content repaired, upstream retried it (its title was still
+unknown), dropped it once more, and the baseline kept the stale hash so
+the UI said `modified` when the truth was `skipped`.
 
 Names in the previous baseline but absent from the `start` snapshot are
 kept — they are the `removed` files, still live in the index.
@@ -314,18 +341,22 @@ This is what makes it a mirror rather than a hedge:
 |---|---|---|---|
 | content changed, same name | not re-ingested (title already known) | old hash kept | `modified` ✓ |
 | deleted | still in the index (`deleted_inputs` discarded) | entry kept | `removed` ✓ |
-| previously `skipped`, now fixed | title was unknown → **ingested** | advances (`∉pre`, `∈post`) | `indexed` ✓ |
+| previously `skipped`, now fixed | title was unknown → **ingested** | advances (`∉ pre`) | `indexed` ✓ |
+| previously `skipped`, edited, dropped again | retried (title still unknown), dropped | advances (`∉ pre`) | `skipped` ✓ |
+| previously `skipped`, untouched | retried, dropped | advances (no-op) | `skipped` ✓ |
 | brand new, ingested | ingested | added | `indexed` ✓ |
 | brand new, silently dropped | not ingested | added | `skipped` ✓ |
 
-The third row is the one a filename-only rule got wrong: it would have
-pinned a repaired document at `modified` forever.
+Rows three and four are the ones earlier rules got wrong: a filename-only
+condition pinned a repaired document at `modified` forever, and adding
+`N ∈ post` to the condition did the same to a document that was retried
+and dropped again.
 
 **Baseline bootstrap.** Projects indexed before this ships have no
 baseline, so every file reads `new` until a **full `index`** — and per the
 table above an `update` will not create one, so the requirement is
 enforced by the rule rather than merely documented. Stated in the release
-notes and surfaced by overview action card (2).
+notes and surfaced by overview action card 3 (§9.3).
 
 ### 5.3 Question sets, runs, ratings
 
@@ -341,12 +372,14 @@ questions
 test_runs
   id, project_id → projects.id, set_id → question_sets.id,
   job_id → jobs.id, index_job_id → jobs.id (nullable), method,
-  started_at, finished_at
+  started_at (nullable), finished_at (nullable)
 
 test_results
   id, run_id → test_runs.id, question_id → questions.id,
-  position, question_text, answer, citations (json),
-  timings (json), error (nullable), completed_at (nullable)
+  position, question_text,
+  answer (nullable), citations (json, nullable),
+  timings (json, nullable), error (nullable),
+  completed_at (nullable)
   unique (run_id, question_id)
 
 result_ratings
@@ -391,6 +424,21 @@ manifest: ordered, immutable, and already the thing the worker fills in.
 remainder with `completed_at = NULL`, which the matrix renders as not run
 rather than as an empty answer.
 
+Everything the worker fills in is therefore **nullable by construction** —
+`answer`, `citations`, `timings`, `error`, `completed_at`, and
+`test_runs.started_at`/`finished_at`. A placeholder row must be insertable
+honestly; a non-null sentinel (empty string, `{}`) would be
+indistinguishable from a question that genuinely returned nothing.
+
+**Question edits take the same project lock.** The "immutable once
+referenced" rule is a check-then-act just like the input freeze: a `PATCH`
+could find a question unreferenced, pause, let `POST /test-runs` commit a
+manifest referencing it, and then edit it in place — the exact violation
+the rule exists to prevent. `PATCH` and `DELETE` on a question or question
+set take `SELECT projects ... FOR UPDATE`, re-check references inside the
+lock, and commit there. This gets the same barrier test as the freeze
+(§10).
+
 `index_job_id` is the last successful index/update job at run start; it
 labels a matrix column ("#12 · 09/02") and is what makes runs comparable.
 It is nullable for a project queried before any index job row exists.
@@ -417,7 +465,30 @@ existing audit log (`test.rated`), not by row versioning.
 
 ## 6. Per-file index state
 
-### 6.1 The four states that always hold
+### 6.1 The enumeration set
+
+**The rows are `input/` filenames ∪ baseline filenames**, not the `input/`
+scan alone. A deleted file is exactly the case where the filesystem has
+nothing and `project_files` has nothing (§7.1 removes the row with the
+file), so an FS-driven listing could never produce a `removed` row and
+the state, the health count and overview card 4 would all be unreachable.
+The baseline is the only thing that still remembers the name, so it must
+be part of the enumeration.
+
+A `removed` row therefore has no file behind it. `size`, `modified_at`
+and `sha256` are **null** for it, and the existing `FileEntryOut`
+(`api/files_routes.py:35`, currently `size: int`, `modified_at: str`)
+widens to nullable — a contract change to an existing response, listed in
+§8. Nulls are the honest encoding: inventing a zero size or the deletion
+timestamp would let the UI sort and total them as if they were files.
+Tags are likewise empty; they lived on the `project_files` row that the
+delete removed.
+
+`files.total` counts the union, so a project with three deleted documents
+does not silently shrink. Quota usage stays filesystem-derived and is
+unaffected.
+
+### 6.2 The four states that always hold
 
 A pure function in `domain/files.py`, no I/O:
 
@@ -426,7 +497,7 @@ def index_state(
     name: str,
     current_sha: str | None,          # None when the file is gone from input/
     baseline: Mapping[str, str],      # name -> sha256, the current baseline
-    ingested: IngestCheck,            # available(titles) | unavailable(reason)
+    attributable: AttributableTitles, # available(filenames) | unavailable(reason)
 ) -> FileIndexState
 ```
 
@@ -439,11 +510,11 @@ def index_state(
 
 These four need only the baseline. They are always computable.
 
-### 6.2 `skipped` is a refinement, and it is optional
+### 6.3 `skipped` is a refinement, and it is optional
 
-`skipped` — in the baseline with a matching hash, yet **absent from
-`documents.parquet`** — means graphrag was handed the file and did not
-ingest it. It is the only state that points the user at the job log,
+`skipped` — in the baseline with a matching hash, yet **not among the
+filenames attributable to the indexed artifacts** — means graphrag was
+handed the file and did not ingest it. It is the only state that points the user at the job log,
 because a silently dropped document is otherwise invisible.
 
 It requires mapping a `documents.title` back to a filename, and review
@@ -473,25 +544,62 @@ sets only `input.type` and `input.file_pattern` — but `SettingsPanel`
 lets a user hand-edit `settings.yaml`, so rule 1 is reachable and must be
 detected rather than assumed away.
 
-**Availability is reported, not guessed.** `GET .../files` returns
+**Recovery is evaluated when the artifacts are produced, never at read
+time.** Reading `documents.parquet` and `settings.yaml` during a listing
+binds the answer to *today's* configuration while the titles were written
+under yesterday's. Index a project with `title_column`, then remove the
+setting without rebuilding: rule 1 no longer fires, the arbitrary row
+titles match no filename, and every baseline file reports `skipped` — a
+screen of false alarms produced entirely by a config edit.
+
+So the **baseline snapshot** carries both halves of the answer, captured
+at promotion:
+
+```
+index_snapshots.attributable_titles  -- filenames recovered, or []
+index_snapshots.title_recovery       -- 'available' | 'unavailable_title_column'
+```
+
+`title_recovery` exists precisely so an empty list cannot mean two things:
+"the rule ran and matched nothing" and "the rule could not run" are
+different facts and are stored as different fields.
+
+Listing therefore **does not read `documents.parquet` at all** — it reads
+the baseline row. That removes a duckdb read from every file listing as
+well as the coupling.
+
+`GET .../files` returns
 
 ```
 ingest_check: "available"
-            | "unavailable_not_indexed"   // no documents.parquet yet
-            | "unavailable_title_column"  // settings.yaml sets title_column
+            | "unavailable_no_baseline"    // nothing indexed yet
+            | "unavailable_not_indexed"    // baseline exists, output/ is gone
+            | "unavailable_title_column"   // artifacts built under title_column
 ```
 
-When it is not `available`, **`skipped` is never emitted** and the UI says
-that silent-skip detection is off, and why. The first design's "no parquet
-→ empty title set" would have marked every baseline file `skipped` on a
-project whose output was missing — turning a diagnostic into a screen of
-false alarms.
+`unavailable_not_indexed` is a cheap `stat` on `output/documents.parquet`,
+not a read — it is how the "baseline claims files are indexed but the
+output is gone" fault (§7.5, overview card 2) is detected.
 
-`skipped` therefore is the fifth value of the state field, emitted
-only when the check is available. The availability flag lives on the
-response, not on every file row: it is a property of the project's
-configuration, and repeating it per file would invite the UI to render it
-per file.
+When it is not `available`, **`skipped` is never emitted** and the UI says
+that silent-skip detection is off, and why. An earlier draft's "no parquet
+→ empty title set" would have marked every baseline file `skipped` on a
+project whose output was missing — turning a diagnostic into noise.
+
+`skipped` is therefore the fifth value of the state field, emitted only
+when the check is available. The availability flag lives on the response,
+not on every file row: it is a property of the artifacts, and repeating it
+per file would invite the UI to render it per file.
+
+**Input configuration is frozen for the duration of a job.**
+`services/settings.py::write_settings` (`settings.py:60`) currently takes
+no project lock, so `settings.yaml` can be rewritten between the `start`
+capture, the CLI's own read, and promotion — three different
+configurations inside one run. `write_settings` joins the same
+project-row lock and the same freeze as file mutation (§5.2b), returning
+**409 `project_indexing`** while an `index`/`update` job is active. The
+settings editor disables saving with the reason shown, and the release
+note covers it alongside the upload freeze.
 
 ## 7. Backend changes
 
@@ -509,10 +617,13 @@ per file.
   re-check, audit row, `project_files` removal and `unlink`.
 - Untracked files found by `list_files` are **discovered** into
   `project_files` under the same lock (§5.1).
-- `list_files` returns `index_state`, `tags`, and `sha256` per entry plus
-  the response-level `ingest_check`. A missing `documents.parquet`
-  (`ArtifactsNotIndexedError`) yields `unavailable_not_indexed`, never an
-  empty title set.
+- `list_files` enumerates `input/` ∪ the baseline's filenames (§6.1),
+  left-joins `project_files`, and returns `index_state`, `tags` and
+  `sha256` per entry plus the response-level `ingest_check`. It reads the
+  **baseline snapshot row**, not `documents.parquet` (§6.3); the only
+  artifact touch is a `stat` on `output/documents.parquet` to distinguish
+  `unavailable_not_indexed`. `removed` rows carry null `size`,
+  `modified_at` and `sha256`.
 - New: `add_tags`, `remove_tags`, `list_tags`, `bulk_delete`.
 - New: `preview_file(name, *, around=None)` — returns at most
   `PREVIEW_WINDOW_BYTES = 64 * 1024`, decoded UTF-8 with
@@ -586,10 +697,11 @@ reload parquet files mid-write. It does **not** substitute for the
 project-row lock of §5.2(b) — that lock serializes job enqueue against
 filesystem mutation, which a `jobs`-table index cannot do. The costs are
 real and must appear in the product:
-`POST /test-runs` returns **409 `job_conflict`** while an index runs, and
-the workbench shows "indexing in progress — the run will be available
-when it finishes" rather than a dead button. The same applies in reverse
-on the jobs page.
+`POST /test-runs` returns **409 `job_conflict`** while *any* job holds the
+project — an index, an update, **or another test run**, since the mutex
+has no type predicate. The workbench names which job is running rather
+than showing a dead button or implying only indexing can block it. The
+same applies in reverse on the jobs page.
 
 Batch execution deliberately does **not** pass through
 `services/rate_limit.py`. That limiter guards interactive queries per
@@ -607,7 +719,7 @@ constant, not an env var) bounds a single run.
 
 Only **`Sources`** citations resolve. `domain/artifacts.py` registers
 `text_units` with a singular `document_id`, so one text unit maps to one
-document, and `documents.title` maps back to a filename through §6.2's
+document, and `documents.title` maps back to a filename through §6.3's
 rule. `Entities`, `Reports`, `Relationships` and `Communities` each
 summarize many text units spanning many documents; the UI renders them
 unlinked rather than picking one arbitrarily.
@@ -615,10 +727,11 @@ unlinked rather than picking one arbitrarily.
 Resolution is best-effort throughout: a citation id absent from the frame
 (which `build_citations` already treats as normal), a title that maps to
 nothing, or `unavailable_title_column` all render unlinked. The endpoint
-returns the filename **and the cited text-unit text**, which the UI passes
-to the preview as `text_unit_id` so the drawer opens at the passage
-instead of at byte zero — a 64 KiB head window frequently would not
-contain it.
+returns **only the filename**; the client then calls
+`preview?text_unit_id=` with the id it already holds, and the backend
+resolves that id to its text and locates it in the file. The drawer opens
+at the passage rather than at byte zero — a 64 KiB head window frequently
+would not contain it.
 
 **The cited passage is never a URL parameter.** Passing the full text
 would put document contents into query strings, access logs and proxy
@@ -631,7 +744,7 @@ artifacts adapter it already uses, then scans the file server-side.
 ```
 GET /api/projects/{id}/health
   files: {new, modified, indexed, skipped, removed, total}
-  ingest_check: <as §6.2>
+  ingest_check: <as §6.3>
   has_baseline: bool
   last_index: {job_id, type, finished_at} | null
   active_job: {id, type} | null
@@ -646,7 +759,7 @@ combination carries a fault neither shows alone:
 true** means the project once had output and no longer does — deleted,
 corrupt, or on a volume that did not come back. Its files still report
 `indexed` from the baseline, which is why the overview must call it out
-(action card 3) instead of scoring the project healthy.
+(action card 2, §9.3) instead of scoring the project healthy.
 
 `regressions` is computed server-side (count of lineages whose newest
 rating is worse than the previous run's) because the overview must state
@@ -677,21 +790,22 @@ omitted them would report that it was.
 
 | Route | Atom | Notes |
 |---|---|---|
-| `GET /api/projects/{id}/files` | `project:view` | + `index_state`, `tags`, `sha256`; response-level `ingest_check` |
+| `GET /api/projects/{id}/files` | `project:view` | + `index_state`, `tags`, `sha256`; response-level `ingest_check`. **Breaking**: rows are `input/` ∪ baseline, and `FileEntryOut.size`/`modified_at` widen to nullable for `removed` rows |
 | `POST /api/projects/{id}/files` | `project:edit_content` | **409 `project_indexing`** while an `index`/`update` job is active |
 | `DELETE /api/projects/{id}/files/{name}` | `project:edit_content` | same 409 |
 | `POST /api/projects/{id}/files:bulk-delete` | `project:edit_content` | same 409 |
 | `GET /api/projects/{id}/files/{name}/preview` | `project:view` | `?text_unit_id=` → window centered on the passage, `match` flag. Never carries document text |
 | `POST/DELETE /api/projects/{id}/files/{name}/tags` | `project:edit_content` | not frozen — tags are metadata, not input |
+| `PUT /api/projects/{id}/settings` | `project:edit_settings` | **409 `project_indexing`** while an `index`/`update` job is active (§6.3) |
 | `GET /api/projects/{id}/tags` | `project:view` | catalog + counts |
 | `GET /api/projects/{id}/health` | `project:view` | §7.5 |
 | `GET /api/projects/health?ids=` | `project:view` | filtered to visible projects |
 | `GET/POST/PATCH/DELETE /api/projects/{id}/question-sets[/{sid}]` | view / `project:edit_content` | questions nested; PATCH follows §5.3 immutability |
 | `GET /api/projects/{id}/test-runs` | `project:view` | matrix source; rows keyed by lineage |
-| `POST /api/projects/{id}/test-runs` | `project:run_jobs` | enqueues the job; **409 `job_conflict`** while indexing |
+| `POST /api/projects/{id}/test-runs` | `project:run_jobs` | enqueues the job + manifest in one transaction; **409 `job_conflict`** while any job holds the project |
 | `GET /api/test-runs/{rid}/results` | `project:view` | includes `question_text` |
 | `PUT /api/test-results/{id}/rating` | `project:edit_content` | upsert |
-| `GET /api/projects/{id}/citations/sources/{cid}/source` | `project:view` | → `{name, text}` or 404; Sources only |
+| `GET /api/projects/{id}/citations/sources/{cid}/source` | `project:view` | → `{name}` or 404; Sources only. No document text in the response |
 
 Atom choice follows the existing model: reading is `project:view`,
 curating content (tags, question sets, ratings) is `project:edit_content`,
@@ -700,6 +814,10 @@ indexing, for the same reason.
 
 `GET /api/projects/{id}/jobs` gains an optional `type` filter so the jobs
 page can exclude `test_run` rows server-side.
+
+Two existing contracts change and both are called out in the release
+notes: `FileEntryOut` gains nullable `size`/`modified_at` (above), and
+`PUT .../settings` gains a 409 it never returned before.
 
 ## 9. Frontend
 
@@ -730,8 +848,9 @@ page can exclude `test_run` rows server-side.
 - **Bulk actions**: delete and tag/untag over selected rows. Bulk delete
   confirms with count and total size — deleting 30 documents is not the
   same act as deleting one.
-- **Preview drawer**: props `{ name, find?: string }`. Slice ① never
-  passes `find`; slice ③ does, when a citation opens it.
+- **Preview drawer**: props `{ name, textUnitId?: string }` — an id, not
+  the passage text, matching the endpoint contract in §7.4. Slice ① never
+  passes `textUnitId`; slice ③ does, when a citation opens it.
 - **Upload**: `Upload.Dragger` unchanged, but a persistent "N documents
   not yet indexed" bar appears above the table linking to the jobs page.
 
@@ -800,9 +919,10 @@ in one action.
   apply but the card adds that silent-skip detection is off, so `skipped`
   is not evidence of health either way.
 - **Citation loop closes**: `AnswerView`'s `Sources` citations become
-  clickable, resolve to `{name, text}`, and open `FilePreviewDrawer` with
-  `find` set to the cited text so the drawer lands on the passage. Slice
-  ①'s reserved prop is used here.
+  clickable, resolve to `{name}`, and open `FilePreviewDrawer` with
+  `textUnitId`, so the backend locates the passage and the drawer lands on
+  it. The passage text never travels through the client or a URL (§7.4).
+  Slice ①'s reserved prop is used here.
 - **Project list** gains an index-health column fed by
   `GET /api/projects/health?ids=`.
 
@@ -843,6 +963,10 @@ Backend:
   between `POST /test-runs` and the worker claiming the job changes
   neither the executed questions nor `progress.total`; a cancelled run
   leaves the remaining rows `completed_at = NULL`.
+- **Question edit race, with a barrier** — park a `PATCH` after its
+  reference check but before its write, let `POST /test-runs` commit a
+  manifest referencing that question, release the `PATCH`, and assert it
+  forks a new lineage row rather than editing in place.
 - **Question-set delete** — a set referenced by a run archives instead of
   cascading, and its runs stay readable.
 - **Discovery** — an untracked file in `input/` gains a `project_files`
@@ -850,9 +974,21 @@ Backend:
 - **Title recovery** — exact-match precedence over ` (N)` stripping
   (a single-row `report (1).csv` must not become `report`), and
   `title_column` forcing `unavailable_title_column`.
+- **Recovery provenance** — a project indexed under `title_column` whose
+  setting is later removed still reports `unavailable_title_column` and
+  emits no `skipped`, because listing reads the baseline row rather than
+  today's `settings.yaml`; and `attributable_titles = []` with
+  `title_recovery = 'available'` is distinguishable from unavailable.
+- **Settings freeze** — `PUT .../settings` returns 409 while an
+  `index`/`update` job is active, and the barrier case: a settings write
+  parked before its commit cannot land after enqueue captured the `start`
+  snapshot.
+- **Removed rows** — after a normal delete the name still appears with
+  `index_state = "removed"` and null `size`/`modified_at`/`sha256`;
+  `files.total` counts it; it disappears after a full index.
 - A **slow test** against a real indexed workspace covering `text`,
   multi-row CSV, multi-row JSON, and a `title_column` project — the rule
-  in §6.2 is read off upstream source and must be pinned against upstream
+  in §6.3 is read off upstream source and must be pinned against upstream
   behavior, not trusted.
 - `runner_loop` dispatch — `test_run` reaches the service and never
   `IndexRunner`; `build_argv("test_run", ...)` raises.
@@ -886,8 +1022,8 @@ Existing suites stay green: 365 backend, 101 frontend at time of writing.
 - **Migration is additive.** No existing column changes type or meaning;
   `jobs.params` and `jobs.progress` are nullable. Existing projects have
   no baseline, so every file reads `new` until a **full index** — accurate,
-  briefly noisy, self-correcting, and surfaced as action card (2) rather
-  than left for the user to infer.
+  briefly noisy, self-correcting, and surfaced as action card 3 (§9.3)
+  rather than left for the user to infer.
 - **The input freeze is a behavior change** for existing endpoints:
   uploads and deletes during an `index`/`update` job used to succeed and
   now 409. That is the point — they were silently corrupting the index
@@ -895,8 +1031,16 @@ Existing suites stay green: 365 backend, 101 frontend at time of writing.
   is scoped to `index`/`update`: a `test_run` reads `output/` only, so it
   does not block document work, and the release note says so rather than
   leaving users to infer it from a job type they cannot see.
-- **The project-row lock is on the hot path** for uploads, deletes and job
-  enqueue. It is held only across the committing transaction (never across
+- **`PUT .../settings` gains a 409** while an `index`/`update` job runs.
+  Editing configuration mid-run produced artifacts whose provenance no
+  single configuration described; the freeze is what makes §6.3's stored
+  recovery flag meaningful. Visible change, release-noted.
+- **`FileEntryOut.size`/`modified_at` become nullable**, and listings can
+  contain names with no file behind them. Clients that assumed a file per
+  row need the `index_state` check; the generated types make this a
+  compile error rather than a runtime surprise.
+- **The project-row lock is on the hot path** for uploads, deletes,
+  settings writes, question edits and job enqueue. It is held only across the committing transaction (never across
   the upload stream, §7.1), and contention is per project, so concurrent
   work on different projects is unaffected. Two users uploading to the
   same project serialize at the rename, which is the correctness they are
@@ -918,8 +1062,11 @@ Existing suites stay green: 365 backend, 101 frontend at time of writing.
 
 - `README.md` gains the knowledge-manager workflow; `docs/zh-TW/` mirror
   updated in the same PR.
-- Release notes cover the input freeze and the full-index baseline
-  requirement.
+- Release notes cover four visible changes: the input freeze on
+  upload/delete, the new freeze on `PUT .../settings`, the nullable
+  `FileEntryOut.size`/`modified_at` with rows that have no file behind
+  them, and the requirement that a trustworthy baseline comes from a full
+  `index` rather than an `update`.
 - `openapi.json` and `types.generated.ts` regenerated together.
 - No new environment variables, so `.env.example`, compose files, and the
   Helm chart are untouched.
