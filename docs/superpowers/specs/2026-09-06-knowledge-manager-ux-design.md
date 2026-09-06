@@ -57,6 +57,13 @@ User decisions (2026-09-06, chat):
     after the fact, and the preview locator moves into a `POST` body
     (§7.4). The adapter resolver returns titles; filenames come from the
     baseline's provenance (§7.4). A run loads configuration once (§7.2).
+15. **Review round 7**: citation enrichment is bracketed by a generation
+    guard, since the `documents` read cannot be prevented from crossing a
+    rebuild on the ad-hoc path (§7.4). Title matching uses the baseline's
+    **entry names**, not `attributable_titles`, so documents deleted from
+    `input/` but still indexed stay linkable (§6.3, §7.4).
+    `test_runs.config_revision` digests `settings.yaml` **and** `.env`,
+    captured atomically with the config load (§7.2).
 
 ## 1. Problem
 
@@ -407,7 +414,8 @@ questions
 test_runs
   id, project_id → projects.id, set_id → question_sets.id,
   job_id → jobs.id, index_job_id → jobs.id (nullable), method,
-  settings_sha256 (nullable),   -- config the whole run used (§7.2)
+  config_revision (nullable),   -- digest of settings.yaml + .env,
+                                -- captured with the config load (§7.2)
   started_at (nullable), finished_at (nullable)
 
 test_results
@@ -577,17 +585,24 @@ So for CSV/JSON the title is `report.csv (0)`, or arbitrary row data.
 
 1. If `input.title_column` is set in `settings.yaml` → the refinement is
    **unavailable**; no title can be attributed to a file.
-2. A title matching an existing `input/` filename exactly wins. This is
+2. A title matching a **candidate filename** exactly wins. This is
    checked first, so a single-row `report (1).csv` is not mangled by
    rule 3.
 3. Otherwise strip a trailing ` (N)` and accept the result only if it
-   matches an existing filename.
+   matches a candidate filename.
 4. Otherwise the title maps to nothing.
 
 We never write `title_column` ourselves — `adapters/workspace.py:103-105`
 sets only `input.type` and `input.file_pattern` — but `SettingsPanel`
 lets a user hand-edit `settings.yaml`, so rule 1 is reachable and must be
 detected rather than assumed away.
+
+The **candidate filenames** are the snapshot's own entry names — at
+`start` capture, the previous baseline's entries ∪ the `start` snapshot's
+names — not a live `input/` listing. A live listing would drop names whose
+files are gone, and those are exactly the documents that stay in the index
+after a delete (§5.2c); a citation into one of them must still resolve to
+its filename so the UI can say the document was removed (§7.4).
 
 **Recovery is evaluated when the artifacts are produced, never at read
 time.** Reading `documents.parquet` and `settings.yaml` during a listing
@@ -754,11 +769,24 @@ at worker start and reuse it for every question. `settings.yaml` and
 `.env` are frozen only during `index`/`update` (§6.3), so a 200-question
 batch that re-read configuration per question could answer its first
 questions under one model or prompt and its last under another while
-presenting them as one run. Loading once makes the run internally
-consistent without extending the freeze to test runs and taking that
-product cost. `test_runs` records `settings_sha256` (the hash
-`read_settings` already computes) so a run says which configuration
-produced it.
+presenting them as one run. Loading once makes the run internally consistent without extending the
+freeze to test runs and taking that product cost.
+
+**Recording that configuration honestly takes more than the settings
+hash.** `read_settings` (`settings.py:54`) hashes `settings.yaml` bytes
+only, but the effective configuration also depends on `.env` — which is
+the very reason §6.3 freezes `.env` during indexing. And `read_settings`
+and `load_config(root)` (`graphrag_search.py:67`) are two independent
+reads, so a naive capture can load configuration A and then record the
+hash of configuration B.
+
+So `test_runs.config_revision` is a digest over **both** files'
+bytes, and the capture is atomic with the load: the worker takes the
+project row lock (§5.2b) **briefly** at start, reads `settings.yaml` and
+`.env`, computes the digest, calls `load_config`, and releases. The lock
+is not held for the run — only for the read pair. The digest is a sha256
+of file bytes, so it identifies a configuration without exposing any
+value in it.
 
 `services/runner_loop.py::_execute` currently hard-codes
 `IndexRunner().run(argv=...)`. It grows a dispatch on `job.type`:
@@ -917,14 +945,18 @@ head window. `POST {"result_id", "entry_id"}` → historic. `POST
 a caller bug, and guessing an interpretation is how the bindings above get
 bypassed by accident.
 
-**The preview locator is never document text in a URL.** This is a claim
-about the locator only, not about citations in general: the existing
-citations payload already carries `entries[].text`
-(`domain/citations.py:74`), and that does not change. What must not happen
-is putting that text into a query string, where it would land in access
-logs and proxy buffers and could exceed URL length limits. Both locator
-forms are ids; the backend resolves them to text server-side and scans
-the file there.
+**The preview locator never travels in a URL.** That is the entire claim,
+and it is narrower than an earlier draft's: the historic form is a pair of
+ids, but the **ad-hoc form is the passage text itself**, and a request
+body can still be buffered by an intermediary. What a body avoids is query
+strings, ordinary access logs and the URL length limit. Citations in
+general are unaffected either way — the payload has always carried
+`entries[].text` (`domain/citations.py:74`).
+
+The ad-hoc body is bounded: `passage` must be non-empty and at most
+`PASSAGE_MAX_BYTES = 4096`, since it drives a full-file scan. The request
+model uses pydantic `extra="forbid"`, so a mixed or unknown-field body is
+a 422 rather than a silently ignored key.
 
 ### 7.5 Health aggregates
 
@@ -983,7 +1015,7 @@ omitted them would report that it was.
 | `DELETE /api/projects/{id}/files/{name}` | `project:edit_content` | same 409 |
 | `POST /api/projects/{id}/files:bulk-delete` | `project:edit_content` | same 409 |
 | `GET /api/projects/{id}/files/{name}/preview` | `project:view` | head window only |
-| `POST /api/projects/{id}/files/{name}/preview` | `project:view` | body `{result_id, entry_id}` or `{passage}` → window centered on the passage, `match` flag; other shapes 422 (§7.4) |
+| `POST /api/projects/{id}/files/{name}/preview` | `project:view` | body `{result_id, entry_id}` or `{passage}` (non-empty, ≤ 4 KiB, `extra="forbid"`) → window centered on the passage, `match` flag; other shapes 422 (§7.4) |
 | `POST/DELETE /api/projects/{id}/files/{name}/tags` | `project:edit_content` | not frozen — tags are metadata, not input |
 | `PUT /api/projects/{id}/settings` | `project:edit_settings` | **409 `project_indexing`** while an `index`/`update` job is active (§6.3) |
 | `PATCH /api/projects/{id}/env`, `DELETE /api/projects/{id}/env/{key}` | `project:edit_settings` | existing routes, unchanged shape; same 409 — `.env` feeds `settings.yaml` substitution (§6.3) |
@@ -996,7 +1028,7 @@ omitted them would report that it was.
 | `POST /api/projects/{id}/test-runs` | `project:run_jobs` | enqueues the job + manifest in one transaction; **409 `job_conflict`** while any job holds the project |
 | `GET /api/test-runs/{rid}/results` | `project:view` | includes `question_text` |
 | `PUT /api/test-results/{id}/rating` | `project:edit_content` | upsert |
-| `POST /api/projects/{id}/query`, SSE `citations` event | `project:view` | `Sources` entries gain `source_name`, resolved with the answer (§7.4). No after-the-fact resolution endpoint exists |
+| `POST /api/projects/{id}/query`, SSE `citations` event | `project:view` | `Sources` entries gain `source_name`, resolved with the answer (§7.4); null when the generation guard withholds links. No after-the-fact resolution endpoint exists |
 
 Atom choice follows the existing model: reading is `project:view`,
 curating content (tags, question sets, ratings) is `project:edit_content`,
@@ -1083,6 +1115,12 @@ set in one action.
   that determines whether it gets used.
 - **Editing a question that has runs** warns that it starts a new version
   and that past runs keep the old wording (§5.3).
+- **`Citation` is hand-maintained**, not generated: it lives in
+  `frontend/src/api/types.ts:34` because the SSE contract has no backend
+  `response_model`. It gains `entries[].source_name: string | null`, and
+  `null` — the generation guard, an unrecoverable title, or a non-`Sources`
+  label — is what renders unlinked. `npm run gen:types` will not do this
+  one; it has to be edited by hand alongside the schema change.
 
 ### 9.3 Slice ③ — Wiring
 
@@ -1245,10 +1283,22 @@ Backend:
   citing `Sources (1)` → `file-a`, rebuild so current `Sources (1)` →
   `file-b`, then open the citation from the still-rendered answer: it must
   reach `file-a`. Same shape as the stored-run test, different door.
-- **One configuration per run** — editing `settings.yaml` between two
-  questions of a running batch does not change which configuration the
-  later questions use, and `test_runs.settings_sha256` records the one
-  that was loaded.
+- **Generation guard, with a barrier** — park an ad-hoc query between its
+  frame load and its `documents` read, promote a new baseline, release:
+  the answer must still be returned and every `source_name` must be
+  `null`. A test that only rebuilds *after* the response passes without
+  the guard existing.
+- **Citations into removed documents stay linkable** — full-index
+  `old.md`, delete it, `update`, then cite the still-indexed document:
+  `source_name` must be `old.md` and the UI must render it as a disabled
+  "document removed" link, not as an unresolved citation.
+- **Config revision capture** — editing `settings.yaml` **or** `.env`
+  between the worker's config load and its provenance write cannot make
+  `config_revision` describe a configuration the run did not use.
+- **One configuration per run** — editing `settings.yaml` or `.env`
+  between two questions of a running batch does not change which
+  configuration the later questions use, and `test_runs.config_revision`
+  records the one that was loaded.
 - A stored `source_name` whose file was deleted renders disabled rather
   than 404-ing the drawer open.
 - Route-level authz for every new endpoint against §8.
