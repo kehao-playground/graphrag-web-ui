@@ -294,7 +294,11 @@ async def list_files(session: AsyncSession, project: Project) -> dict:
             .where(FileTag.project_id == project.id)
         )
     ).all():
-        tags[name_of[file_id]].append(tag_name)
+        # Links cascade with their file row at the FK level, so a link whose
+        # file is not among this project's loaded rows should not exist; the
+        # guard keeps a stray one from failing the whole listing.
+        if file_id in name_of:
+            tags[file_id].append(tag_name)
     for file_tags in tags.values():
         file_tags.sort()
 

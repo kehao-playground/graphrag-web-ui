@@ -393,11 +393,25 @@ async def _seed_baseline(
     )
     db_session.add(snap)
     await db_session.flush()
+    start = IndexSnapshot(
+        job_id=job.id,
+        project_id=project.id,
+        kind="start",
+        attributable_titles=attributable,
+        title_recovery=recovery,
+    )
+    db_session.add(start)
+    await db_session.flush()
     db_session.add_all(
         IndexSnapshotEntry(snapshot_id=snap.id, name=name, sha256=sha)
         for name, sha in entries.items()
     )
+    db_session.add_all(
+        IndexSnapshotEntry(snapshot_id=start.id, name=name, sha256=sha)
+        for name, sha in entries.items()
+    )
     project.baseline_snapshot_id = snap.id
+    project.artifact_epoch = 1
     await db_session.commit()
 
 
