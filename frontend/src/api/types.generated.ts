@@ -438,6 +438,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{pid}/files/{filename}/tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add Tags */
+        post: operations["add_tags_api_projects__pid__files__filename__tags_post"];
+        /** Remove Tags */
+        delete: operations["remove_tags_api_projects__pid__files__filename__tags_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{pid}/files:bulk-delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Bulk Delete Files */
+        post: operations["bulk_delete_files_api_projects__pid__files_bulk_delete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{pid}/jobs": {
         parameters: {
             query?: never;
@@ -551,6 +586,23 @@ export interface paths {
         };
         /** Get Settings Version */
         get: operations["get_settings_version_api_projects__pid__settings_versions__vid__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{pid}/tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Tags */
+        get: operations["list_tags_api_projects__pid__tags_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -725,6 +777,18 @@ export interface components {
         Body_upload_file_api_projects__pid__files_post: {
             /** File */
             file: string;
+        };
+        /** BulkDeleteIn */
+        BulkDeleteIn: {
+            /** Names */
+            names: string[];
+        };
+        /** BulkDeleteOut */
+        BulkDeleteOut: {
+            /** Bytes */
+            bytes: number;
+            /** Deleted */
+            deleted: number;
         };
         /** ChangePasswordIn */
         ChangePasswordIn: {
@@ -1060,6 +1124,23 @@ export interface components {
         SettingsWriteOut: {
             /** Content Hash */
             content_hash: string;
+        };
+        /** TagCatalogOut */
+        TagCatalogOut: {
+            /** Tags */
+            tags: components["schemas"]["TagOut"][];
+        };
+        /** TagOut */
+        TagOut: {
+            /** Count */
+            count: number;
+            /** Name */
+            name: string;
+        };
+        /** TagsIn */
+        TagsIn: {
+            /** Tags */
+            tags: string[];
         };
         /**
          * UserBriefOut
@@ -2111,6 +2192,109 @@ export interface operations {
             };
         };
     };
+    add_tags_api_projects__pid__files__filename__tags_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+                filename: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TagsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_tags_api_projects__pid__files__filename__tags_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+                filename: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TagsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    bulk_delete_files_api_projects__pid__files_bulk_delete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkDeleteIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkDeleteOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_jobs_api_projects__pid__jobs_get: {
         parameters: {
             query?: never;
@@ -2395,6 +2579,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VersionDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_tags_api_projects__pid__tags_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TagCatalogOut"];
                 };
             };
             /** @description Validation Error */

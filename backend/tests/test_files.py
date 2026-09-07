@@ -24,7 +24,7 @@ from graphrag_ui.config import get_settings
 from graphrag_ui.domain.role_catalog import ROLE_ID_VIEWER
 from graphrag_ui.services import files as files_service
 from graphrag_ui.services.projects import ws_path
-from tests.test_projects import _activate, _setup_two_users
+from tests.test_projects import _activate, _login, _setup_two_users
 
 
 async def _alice(client):
@@ -597,3 +597,116 @@ async def test_empty_attributable_set_with_available_recovery_yields_skipped(
     body = await _list(client, alice, pid)
     assert body["ingest_check"] == "available"
     assert {f["index_state"] for f in body["files"]} == {"skipped"}
+
+
+# --- tags and bulk delete (spec 8: tags are metadata, bulk delete is input) ---
+
+
+@pytest.fixture
+async def indexed_project_with_viewer(client, indexed_project):
+    """indexed_project plus bob in the viewer role: the authz matrix needs a
+    member whose role grants project:view and nothing more. Seeded the same
+    way test_viewer_is_read_only seeds membership — the owner PUTs the role,
+    admin's user list supplies bob's id (admin's password was already
+    rotated by _setup_two_users, hence the plain re-login)."""
+    alice, pid = indexed_project
+    admin = await _login(client, "admin@test.local", "admin-new-1")
+    users = (await client.get("/api/admin/users", headers=admin)).json()
+    bob_id = next(u["id"] for u in users if u["email"] == "bob@test.local")
+    await client.put(
+        f"/api/projects/{pid}/members/{bob_id}",
+        headers=alice,
+        json={"role_id": str(ROLE_ID_VIEWER)},
+    )
+    bob = await _activate(client, "bob@test.local", "bob-pass-1234", "bob-pass-5678")
+    return bob, pid
+
+
+async def test_tags_round_trip_and_catalog_counts(client, indexed_project):
+    alice, pid = indexed_project
+    r = await client.post(
+        f"/api/projects/{pid}/files/a.md/tags", headers=alice, json={"tags": ["policy", "q3"]}
+    )
+    assert r.status_code == 204
+    await client.post(
+        f"/api/projects/{pid}/files/b.md/tags", headers=alice, json={"tags": ["policy"]}
+    )
+
+    body = await _list(client, alice, pid)
+    assert sorted(next(f for f in body["files"] if f["name"] == "a.md")["tags"]) == [
+        "policy",
+        "q3",
+    ]
+
+    catalog = (await client.get(f"/api/projects/{pid}/tags", headers=alice)).json()
+    assert {t["name"]: t["count"] for t in catalog["tags"]} == {"policy": 2, "q3": 1}
+
+    r = await client.request(
+        "DELETE", f"/api/projects/{pid}/files/a.md/tags", headers=alice, json={"tags": ["q3"]}
+    )
+    assert r.status_code == 204
+    body = await _list(client, alice, pid)
+    assert next(f for f in body["files"] if f["name"] == "a.md")["tags"] == ["policy"]
+
+
+async def test_tagging_a_removed_row_is_404(client, indexed_project):
+    alice, pid = indexed_project
+    await client.delete(f"/api/projects/{pid}/files/a.md", headers=alice)
+    r = await client.post(
+        f"/api/projects/{pid}/files/a.md/tags", headers=alice, json={"tags": ["x"]}
+    )
+    assert r.status_code == 404
+
+
+async def test_bulk_delete_removes_files_rows_and_audits_each(client, db_session, indexed_project):
+    alice, pid = indexed_project
+    r = await client.post(
+        f"/api/projects/{pid}/files:bulk-delete", headers=alice, json={"names": ["a.md", "b.md"]}
+    )
+    assert r.status_code == 200 and r.json()["deleted"] == 2
+
+    actions = (
+        (
+            await db_session.execute(
+                select(AuditLog.action).where(
+                    AuditLog.target_id == pid, AuditLog.action == "file.deleted"
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(actions) == 2
+
+
+async def test_bulk_delete_is_all_or_nothing_on_an_unknown_name(client, indexed_project):
+    alice, pid = indexed_project
+    r = await client.post(
+        f"/api/projects/{pid}/files:bulk-delete",
+        headers=alice,
+        json={"names": ["a.md", "ghost.md"]},
+    )
+    assert r.status_code == 404
+    body = await _list(client, alice, pid)
+    assert {f["name"] for f in body["files"]} == {"a.md", "b.md"}
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "body", "viewer_status"),
+    [
+        ("GET", "/api/projects/{pid}/tags", None, 200),
+        ("POST", "/api/projects/{pid}/files/a.md/tags", {"tags": ["x"]}, 403),
+        ("DELETE", "/api/projects/{pid}/files/a.md/tags", {"tags": ["x"]}, 403),
+        ("POST", "/api/projects/{pid}/files:bulk-delete", {"names": ["a.md"]}, 403),
+    ],
+)
+async def test_route_authz_for_every_new_endpoint(
+    client, indexed_project_with_viewer, method, path, body, viewer_status
+):
+    """Spec 8: reading is project:view, curating content is
+    project:edit_content. A viewer may read the tag catalog and may not tag,
+    untag or bulk-delete. (The preview rows of the plan's matrix join this
+    parametrize in Task 7, when those routes exist.)"""
+    viewer, pid = indexed_project_with_viewer
+    r = await client.request(method, path.format(pid=pid), headers=viewer, json=body)
+    assert r.status_code == viewer_status

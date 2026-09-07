@@ -26,7 +26,12 @@ from graphrag_ui.services import settings as settings_service
 from graphrag_ui.services.errors import ProjectIndexingError
 from graphrag_ui.services.project_lock import lock_project
 from graphrag_ui.services.projects import ws_path
-from tests.test_files import _alice, _make_project, _upload
+from tests.test_files import (
+    _alice,
+    _make_project,
+    _upload,
+    indexed_project,  # noqa: F401  (pytest fixture; test params shadow it)
+)
 
 
 def monkeypatch_attr(module, name, value):
@@ -312,3 +317,32 @@ async def test_env_alone_moves_the_effective_configuration(client, db_session):
     assert (
         await client.delete(f"/api/projects/{pid}/env/TITLE_COLUMN", headers=alice)
     ).status_code in (204, 400)
+
+
+# --- tags vs bulk delete under the freeze (spec 8) ---
+
+
+async def test_tagging_is_allowed_while_indexing(client, db_session, indexed_project):  # noqa: F811  (fixture imported above)
+    """Tags are metadata, not input (spec 8): tagging a document while an
+    index runs changes nothing the indexer reads, so no freeze check —
+    only the project lock, which discovery also takes."""
+    alice, pid = indexed_project
+    project = await db_session.get(Project, uuid.UUID(pid))
+    await _queue_index_job(db_session, project.id, project.owner_id)
+
+    r = await client.post(
+        f"/api/projects/{pid}/files/a.md/tags", headers=alice, json={"tags": ["x"]}
+    )
+    assert r.status_code == 204
+
+
+async def test_bulk_delete_is_refused_while_indexing(client, db_session, indexed_project):  # noqa: F811  (fixture imported above)
+    """Bulk delete IS input: same lock, same 409 as a single delete."""
+    alice, pid = indexed_project
+    project = await db_session.get(Project, uuid.UUID(pid))
+    await _queue_index_job(db_session, project.id, project.owner_id)
+
+    r = await client.post(
+        f"/api/projects/{pid}/files:bulk-delete", headers=alice, json={"names": ["a.md"]}
+    )
+    assert r.status_code == 409 and r.json()["code"] == "project_indexing"

@@ -7,10 +7,11 @@ with payload {name, size}.
 
 import re
 import uuid
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, Response, UploadFile, status
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from graphrag_ui.api.deps import CurrentUser, DbSession, get_current_user
 from graphrag_ui.api.errors import ApiError
@@ -54,6 +55,41 @@ class FileListOut(BaseModel):
     # per file would invite the UI to render it per file (spec 6.3).
     ingest_check: str
     has_baseline: bool
+
+
+# Tags are metadata, not input (spec 8): a tag body is curated vocabulary,
+# so each tag is a non-empty bounded string rather than free text.
+_TAG = Annotated[str, StringConstraints(min_length=1, max_length=50)]
+
+
+class TagsIn(BaseModel):
+    # extra="forbid": a body with unknown keys is a caller bug, not a
+    # silently ignored field (same posture as every other body here).
+    model_config = ConfigDict(extra="forbid")
+
+    tags: list[_TAG] = Field(min_length=1)
+
+
+class BulkDeleteIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # 500 names is the bulk ceiling (spec 8); each name is validated against
+    # the project's whitelist in the service, like every other filename.
+    names: list[str] = Field(min_length=1, max_length=500)
+
+
+class TagOut(BaseModel):
+    name: str
+    count: int
+
+
+class TagCatalogOut(BaseModel):
+    tags: list[TagOut]
+
+
+class BulkDeleteOut(BaseModel):
+    deleted: int
+    bytes: int
 
 
 # POST /api/projects/{pid}/files — the only upload endpoint (pid is a path
@@ -171,5 +207,81 @@ def register_files_routes(app):
         except ProjectIndexingError as e:
             raise ApiError(status.HTTP_409_CONFLICT, e.code, str(e), e.params) from None
         return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @router.post("/{pid}/files/{filename}/tags", status_code=status.HTTP_204_NO_CONTENT)
+    async def add_tags(
+        pid: uuid.UUID, filename: str, body: TagsIn, db: DbSession, user: CurrentUser
+    ):
+        # Tags are metadata, not input (spec 8): no 409 while an index runs.
+        project = await _project_or_404(db, pid)
+        if not can(
+            user.global_perms,
+            user.is_active,
+            Atom.project_edit_content,
+            await get_member_perms(db, pid, user.id),
+        ):
+            raise _forbidden()
+        try:
+            await files_service.add_tags(db, project, filename, body.tags, actor_id=user.id)
+        except FileServiceError as e:
+            raise ApiError(status.HTTP_400_BAD_REQUEST, e.code, str(e), e.params) from None
+        except FileNotFoundError:
+            raise ApiError(status.HTTP_404_NOT_FOUND, "file_not_found", "file not found") from None
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @router.delete("/{pid}/files/{filename}/tags", status_code=status.HTTP_204_NO_CONTENT)
+    async def remove_tags(
+        pid: uuid.UUID, filename: str, body: TagsIn, db: DbSession, user: CurrentUser
+    ):
+        project = await _project_or_404(db, pid)
+        if not can(
+            user.global_perms,
+            user.is_active,
+            Atom.project_edit_content,
+            await get_member_perms(db, pid, user.id),
+        ):
+            raise _forbidden()
+        try:
+            await files_service.remove_tags(db, project, filename, body.tags, actor_id=user.id)
+        except FileServiceError as e:
+            raise ApiError(status.HTTP_400_BAD_REQUEST, e.code, str(e), e.params) from None
+        except FileNotFoundError:
+            raise ApiError(status.HTTP_404_NOT_FOUND, "file_not_found", "file not found") from None
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @router.get("/{pid}/tags", response_model=TagCatalogOut)
+    async def list_tags(pid: uuid.UUID, db: DbSession, user: CurrentUser):
+        project = await _project_or_404(db, pid)
+        if not can(
+            user.global_perms,
+            user.is_active,
+            Atom.project_view,
+            await get_member_perms(db, pid, user.id),
+        ):
+            raise _forbidden()
+        return TagCatalogOut(tags=[TagOut(**t) for t in await files_service.list_tags(db, project)])
+
+    @router.post("/{pid}/files:bulk-delete", response_model=BulkDeleteOut)
+    async def bulk_delete_files(
+        pid: uuid.UUID, body: BulkDeleteIn, db: DbSession, user: CurrentUser
+    ):
+        # Bulk delete IS input: same lock and same 409 as a single delete.
+        project = await _project_or_404(db, pid)
+        if not can(
+            user.global_perms,
+            user.is_active,
+            Atom.project_edit_content,
+            await get_member_perms(db, pid, user.id),
+        ):
+            raise _forbidden()
+        try:
+            result = await files_service.bulk_delete(db, project, body.names, actor_id=user.id)
+        except FileServiceError as e:
+            raise ApiError(status.HTTP_400_BAD_REQUEST, e.code, str(e), e.params) from None
+        except FileNotFoundError:
+            raise ApiError(status.HTTP_404_NOT_FOUND, "file_not_found", "file not found") from None
+        except ProjectIndexingError as e:
+            raise ApiError(status.HTTP_409_CONFLICT, e.code, str(e), e.params) from None
+        return BulkDeleteOut(**result)
 
     app.include_router(router)

@@ -13,6 +13,10 @@ KNOWN_UNTYPED = {
     "DELETE /api/admin/roles/{role_id}",
     "DELETE /api/projects/{pid}/env/{key}",
     "DELETE /api/projects/{pid}/files/{filename}",
+    # kb slice 1: the tag routes answer 204 No Content; OpenAPI forbids a
+    # response body on 204, so they join the debt set like every other
+    # no-content endpoint rather than declaring a bogus response_model.
+    "DELETE /api/projects/{pid}/files/{filename}/tags",
     "DELETE /api/projects/{project_id}",
     "DELETE /api/projects/{project_id}/members/{user_id}",
     "GET /api/health",
@@ -27,6 +31,7 @@ KNOWN_UNTYPED = {
     "POST /api/auth/change-password",
     "POST /api/auth/logout",
     "POST /api/jobs/{job_id}/cancel",
+    "POST /api/projects/{pid}/files/{filename}/tags",
     "POST /api/projects/{pid}/query",
 }
 

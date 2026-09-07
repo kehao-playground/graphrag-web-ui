@@ -13,7 +13,7 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.adapters.models import FileTag, FileTagLink, Project, ProjectFile
@@ -298,7 +298,7 @@ async def list_files(session: AsyncSession, project: Project) -> dict:
         # file is not among this project's loaded rows should not exist; the
         # guard keeps a stray one from failing the whole listing.
         if file_id in name_of:
-            tags[file_id].append(tag_name)
+            tags[name_of[file_id]].append(tag_name)
     for file_tags in tags.values():
         file_tags.sort()
 
@@ -440,6 +440,197 @@ async def delete_file(
         target.unlink()
         await session.commit()
         return size
+    except Exception:
+        await session.rollback()
+        raise
+
+
+async def add_tags(
+    session: AsyncSession, project: Project, name: str, tags: list[str], actor_id: uuid.UUID | None
+) -> None:
+    """Attach tags to input/<name> and audit file.tagged, one transaction.
+
+    Tags are metadata, NOT input (spec 8): no freeze check — tagging while
+    an index runs changes nothing the indexer reads. The project lock is
+    still taken, because the write touches project_files-adjacent rows and
+    discovery may run concurrently.
+    """
+    name = _safe_name(project.input_file_type, name)
+    target = ws_path(project.id) / "input" / name
+    if not target.is_file():
+        raise FileNotFoundError(name)
+    # A file nobody listed yet has no project_files row; tags attach to the
+    # row, so discover it inline (the same shape _discover_untracked would
+    # produce on the next listing). The hash is the unbounded walk listing
+    # already does per file (spec A4) — run it off the lock.
+    sha = await asyncio.to_thread(sha256_file, target)
+    size = target.stat().st_size
+    unique_tags = sorted(dict.fromkeys(tags))
+    try:
+        await lock_project(session, project.id)
+        row = (
+            await session.execute(
+                select(ProjectFile).where(
+                    ProjectFile.project_id == project.id, ProjectFile.name == name
+                )
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            row = ProjectFile(
+                project_id=project.id,
+                name=name,
+                sha256=sha,
+                size=size,
+                discovered_at=datetime.now(UTC),
+            )
+            session.add(row)
+            await session.flush()
+        have = set(
+            (
+                await session.execute(
+                    select(FileTag.name).where(
+                        FileTag.project_id == project.id, FileTag.name.in_(unique_tags)
+                    )
+                )
+            ).scalars()
+        )
+        session.add_all(
+            FileTag(project_id=project.id, name=t) for t in unique_tags if t not in have
+        )
+        await session.flush()
+        tag_ids = set(
+            (
+                await session.execute(
+                    select(FileTag.id).where(
+                        FileTag.project_id == project.id, FileTag.name.in_(unique_tags)
+                    )
+                )
+            ).scalars()
+        )
+        linked = set(
+            (
+                await session.execute(
+                    select(FileTagLink.tag_id).where(FileTagLink.file_id == row.id)
+                )
+            ).scalars()
+        )
+        session.add_all(FileTagLink(file_id=row.id, tag_id=tid) for tid in tag_ids - linked)
+        await audit(
+            session,
+            actor_id,
+            "file.tagged",
+            "project",
+            str(project.id),
+            {"name": name, "tags": unique_tags},
+        )
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
+
+
+async def remove_tags(
+    session: AsyncSession, project: Project, name: str, tags: list[str], actor_id: uuid.UUID | None
+) -> None:
+    """Detach tags from input/<name> and audit file.untagged, one
+    transaction. Same boundary as add_tags: no freeze, project lock yes."""
+    name = _safe_name(project.input_file_type, name)
+    target = ws_path(project.id) / "input" / name
+    if not target.is_file():
+        raise FileNotFoundError(name)
+    unique_tags = sorted(dict.fromkeys(tags))
+    try:
+        await lock_project(session, project.id)
+        # Deleting through subselects keeps it one statement shaped the same
+        # regardless of how many tags are detached.
+        await session.execute(
+            delete(FileTagLink).where(
+                FileTagLink.file_id.in_(
+                    select(ProjectFile.id).where(
+                        ProjectFile.project_id == project.id, ProjectFile.name == name
+                    )
+                ),
+                FileTagLink.tag_id.in_(
+                    select(FileTag.id).where(
+                        FileTag.project_id == project.id, FileTag.name.in_(unique_tags)
+                    )
+                ),
+            )
+        )
+        await audit(
+            session,
+            actor_id,
+            "file.untagged",
+            "project",
+            str(project.id),
+            {"name": name, "tags": unique_tags},
+        )
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
+
+
+async def list_tags(session: AsyncSession, project: Project) -> list[dict]:
+    """The project's tag catalog with live link counts — one grouped query.
+    A tag with zero links still lists (count 0): it stays the project's
+    vocabulary, and suggesting it in a picker costs nothing."""
+    rows = (
+        await session.execute(
+            select(FileTag.name, func.count(FileTagLink.tag_id))
+            .outerjoin(FileTagLink, FileTagLink.tag_id == FileTag.id)
+            .where(FileTag.project_id == project.id)
+            .group_by(FileTag.name)
+            .order_by(FileTag.name)
+        )
+    ).all()
+    return [{"name": name, "count": int(count)} for name, count in rows]
+
+
+async def bulk_delete(
+    session: AsyncSession, project: Project, names: list[str], actor_id: uuid.UUID | None
+) -> dict:
+    """Delete every input/<name> in ONE locked transaction, auditing
+    file.deleted per file; returns {"deleted": int, "bytes": int}.
+
+    Bulk delete IS input (spec 8): same lock and same 409 as a single
+    delete. Every name resolves to a real file BEFORE any unlink or audit
+    row, so one unknown name aborts the batch with nothing touched
+    (all-or-nothing); duplicate names collapse to one delete.
+    """
+    unique_names = list(dict.fromkeys(_safe_name(project.input_file_type, n) for n in names))
+    targets: dict[str, Path] = {}
+    for name in unique_names:
+        target = ws_path(project.id) / "input" / name
+        if not target.is_file():
+            raise FileNotFoundError(name)
+        targets[name] = target
+    total = 0
+    try:
+        await lock_project(session, project.id)
+        await assert_input_unfrozen(session, project.id)
+        for name, target in targets.items():
+            size = target.stat().st_size
+            await audit(
+                session,
+                actor_id,
+                "file.deleted",
+                "project",
+                str(project.id),
+                {"name": name, "size": size},
+            )
+            # file_tag_links cascade at the FK level (Task 1's model)
+            await session.execute(
+                delete(ProjectFile).where(
+                    ProjectFile.project_id == project.id, ProjectFile.name == name
+                )
+            )
+            total += size
+        await session.flush()
+        for target in targets.values():
+            target.unlink()
+        await session.commit()
+        return {"deleted": len(targets), "bytes": total}
     except Exception:
         await session.rollback()
         raise
