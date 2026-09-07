@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.adapters.models import Project
 from graphrag_ui.services.audit import audit
+from graphrag_ui.services.project_lock import assert_input_unfrozen, lock_project
 from graphrag_ui.services.projects import ws_path
 
 # dotenv keys we manage: UPPER_SNAKE (graphrag's GRAPHRAG_API_KEY etc.)
@@ -107,11 +108,14 @@ async def set_env_key(
     Payload-known-first shape: the audit row is added and flushed BEFORE
     the external .env write, so a failed write rolls the flushed row back —
     no env.key_set row without the real change. EnvValidationError (bad key /
-    multi-line value) is raised before any row or write.
+    multi-line value) is raised before any row or write; ProjectIndexingError
+    (spec 5.2b) is raised inside the project lock before either.
     """
     _validate(key, value)
     lines = _upsert_lines(project, key, value)
     try:
+        await lock_project(session, project.id)
+        await assert_input_unfrozen(session, project.id)
         await audit(session, actor_id, "env.key_set", "project", str(project.id), {"key": key})
         await session.flush()
         _atomic_write(project, lines)
@@ -127,10 +131,14 @@ async def delete_env_key(
     """Remove the key's line AND audit it, one transaction (spec A1).
 
     Same payload-known-first shape: audit+flush, then the .env write, then
-    commit. Missing key → KeyError, raised before any row or write.
+    commit. Missing key → KeyError, raised after the freeze check (a frozen
+    project refuses the mutation before debating key existence) and before
+    any row or write.
     """
-    lines = _remove_lines(project, key)
     try:
+        await lock_project(session, project.id)
+        await assert_input_unfrozen(session, project.id)
+        lines = _remove_lines(project, key)
         await audit(session, actor_id, "env.key_deleted", "project", str(project.id), {"key": key})
         await session.flush()
         _atomic_write(project, lines)

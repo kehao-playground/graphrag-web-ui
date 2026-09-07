@@ -6,16 +6,19 @@ HTTP — error classes are translated to status codes by the api layer.
 """
 
 import asyncio
+import hashlib
 import os
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from graphrag_ui.adapters.models import Project
+from graphrag_ui.adapters.models import Project, ProjectFile
 from graphrag_ui.config import get_settings
 from graphrag_ui.services.audit import audit
+from graphrag_ui.services.project_lock import assert_input_unfrozen, lock_project
 from graphrag_ui.services.projects import ws_path
 
 # Upload whitelist keyed by project.input_file_type (spec §6.5):
@@ -116,6 +119,76 @@ async def usage_bytes(project: Project) -> int:
     return await asyncio.to_thread(_usage_bytes_sync, project)
 
 
+def _replace_into_input(tmp: Path, target: Path) -> None:
+    """Atomic rename; a seam so tests can park inside the locked transaction."""
+    os.replace(tmp, target)
+
+
+async def _upsert_project_file(
+    session: AsyncSession,
+    project_id: uuid.UUID,
+    *,
+    name: str,
+    sha256: str,
+    size: int,
+    actor_id: uuid.UUID | None,
+) -> None:
+    """Insert or refresh the project_files row for an uploaded name: the
+    upload is the source of the row (Task 1's model — a row per file in
+    input/), so an upload resets discovered_at to None."""
+    row = (
+        await session.execute(
+            select(ProjectFile).where(
+                ProjectFile.project_id == project_id, ProjectFile.name == name
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        row = ProjectFile(project_id=project_id, name=name)
+        session.add(row)
+    row.sha256 = sha256
+    row.size = size
+    row.uploaded_by = actor_id
+    row.uploaded_at = datetime.now(UTC)
+    row.discovered_at = None
+
+
+async def _commit_upload(
+    session: AsyncSession,
+    project: Project,
+    name: str,
+    size: int,
+    sha: str,
+    actor_id: uuid.UUID | None,
+    tmp: Path,
+    target: Path,
+) -> None:
+    """The committing transaction: lock, re-check the freeze, write the audit
+    row and project_files, rename, commit.
+
+    The lock is taken HERE and not around the upload stream: holding it for
+    the whole of a multi-gigabyte upload would block job enqueue for that
+    long. Taking it only for the rename keeps the window short and still
+    serializes, because enqueue takes the same lock (spec 5.2b).
+    """
+    await lock_project(session, project.id)
+    await assert_input_unfrozen(session, project.id)
+    await audit(
+        session,
+        actor_id,
+        "file.uploaded",
+        "project",
+        str(project.id),
+        {"name": name, "size": size},
+    )
+    await _upsert_project_file(
+        session, project.id, name=name, sha256=sha, size=size, actor_id=actor_id
+    )
+    await session.flush()
+    _replace_into_input(tmp, target)
+    await session.commit()
+
+
 async def save_file(
     session: AsyncSession, project: Project, filename: str, source, actor_id: uuid.UUID | None
 ) -> tuple[str, int]:
@@ -128,10 +201,11 @@ async def save_file(
     chunk of RAM (spec §8.2 — uploads share the pod's memory budget with the
     indexer). Overwriting an existing name is allowed (idempotent re-upload).
 
-    Also owns the audit row + transaction (spec A1): the file.uploaded row
-    is flushed after the stream lands but before the rename commits, so any
-    failure (stream, cap, quota, rename) rolls the row back and leaves no
-    partial file behind.
+    Also owns the audit row + transaction (spec A1): the committing half
+    lives in _commit_upload, which takes the project-row lock, re-checks
+    the input freeze, flushes the file.uploaded + project_files rows and
+    only then renames, so any failure (stream, cap, quota, freeze, rename)
+    rolls the rows back and leaves no partial file behind.
     """
     name = _safe_name(project.input_file_type, filename)
     # Usage snapshot BEFORE the tmp file appears in input/: the quota check
@@ -145,29 +219,23 @@ async def save_file(
     # tmp name is dot-prefixed so a concurrent listing never surfaces it.
     tmp = input_dir / f".tmp-{uuid.uuid4().hex}"
     size = 0
+    h = hashlib.sha256()
     try:
         with tmp.open("wb") as out:
             while chunk := await source.read(_CHUNK_BYTES):
                 size += len(chunk)
                 if size > max_file_bytes():
                     raise FileTooLargeError(get_settings().upload_max_file_mb)
+                h.update(chunk)
                 out.write(chunk)
         # Quota check needs the final size, so it runs after the stream is
         # fully consumed, against the pre-write usage snapshot — before the
         # audit row, so an over-quota upload leaves no trace.
         if base_usage + size > quota_bytes():
             raise QuotaExceededError(get_settings().project_quota_mb)
-        await audit(
-            session,
-            actor_id,
-            "file.uploaded",
-            "project",
-            str(project.id),
-            {"name": name, "size": size},
+        await _commit_upload(
+            session, project, name, size, h.hexdigest(), actor_id, tmp, input_dir / name
         )
-        await session.flush()
-        os.replace(tmp, input_dir / name)
-        await session.commit()
         return name, size
     except Exception:
         await session.rollback()
@@ -211,10 +279,12 @@ async def delete_file(
     session: AsyncSession, project: Project, filename: str, actor_id: uuid.UUID | None
 ) -> int:
     """Remove input/<name> AND audit it, one transaction (spec A1); returns
-    the removed file's size.
+    the removed file's size. The project_files row goes with the file.
 
-    FileNotFoundError is raised before any audit row. Residual (spec A1,
-    accepted): a commit failure after the unlink loses the audit row.
+    FileNotFoundError is raised before any audit row; ProjectIndexingError
+    (spec 5.2b) is raised inside the project lock, before any row or unlink.
+    Residual (spec A1, accepted): a commit failure after the unlink loses
+    the audit row.
     """
     name = _safe_name(project.input_file_type, filename)
     target = ws_path(project.id) / "input" / name
@@ -222,6 +292,8 @@ async def delete_file(
         raise FileNotFoundError(name)
     size = target.stat().st_size
     try:
+        await lock_project(session, project.id)
+        await assert_input_unfrozen(session, project.id)
         await audit(
             session,
             actor_id,
@@ -229,6 +301,12 @@ async def delete_file(
             "project",
             str(project.id),
             {"name": name, "size": size},
+        )
+        # file_tag_links cascade at the FK level (Task 1's model)
+        await session.execute(
+            delete(ProjectFile).where(
+                ProjectFile.project_id == project.id, ProjectFile.name == name
+            )
         )
         await session.flush()
         target.unlink()

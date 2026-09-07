@@ -10,7 +10,7 @@ import uuid
 import pytest
 from sqlalchemy import select
 
-from graphrag_ui.adapters.models import AuditLog, Project
+from graphrag_ui.adapters.models import AuditLog, Project, User
 from graphrag_ui.config import get_settings
 from graphrag_ui.domain.role_catalog import ROLE_ID_VIEWER
 from graphrag_ui.services import files as files_service
@@ -314,6 +314,22 @@ async def test_upload_rollback_leaves_no_audit_row_when_rename_fails(
     """Post-audit external failure (the atomic rename): the flushed
     file.uploaded row must roll back and leave no tmp or target file —
     the audit row never outlives the work it describes (spec A1)."""
+    # Task 3 wires uploads to project_files (FKs to projects/users, Task
+    # 1's model), so the fixture's unsaved Project and a phantom actor
+    # need real rows for the insert to reach the monkeypatched rename.
+    owner = User(
+        id=uuid.uuid4(), email="rename-owner@test.local", password_hash="x", display_name="o"
+    )
+    actor = User(
+        id=uuid.uuid4(), email="rename-actor@test.local", password_hash="x", display_name="a"
+    )
+    db_session.add_all([owner, actor])
+    await db_session.commit()
+    project.owner_id = owner.id
+    db_session.add(project)
+    await db_session.commit()
+    pid = project.id  # save_file's rollback expires session instances
+
     chunks = iter([b"hello"])
 
     class Reader:
@@ -325,10 +341,8 @@ async def test_upload_rollback_leaves_no_audit_row_when_rename_fails(
 
     monkeypatch.setattr(files_service.os, "replace", _boom)
     with pytest.raises(OSError, match="rename failed"):
-        await files_service.save_file(
-            db_session, project, "ok.txt", Reader(), actor_id=uuid.uuid4()
-        )
-    input_dir = ws_path(project.id) / "input"
+        await files_service.save_file(db_session, project, "ok.txt", Reader(), actor_id=actor.id)
+    input_dir = ws_path(pid) / "input"
     assert not list(input_dir.glob(".tmp-*"))  # finally-cleaned tmp
     assert not (input_dir / "ok.txt").exists()  # rename never landed
     rows = (

@@ -17,6 +17,7 @@ from graphrag_ui.api.deps import CurrentUser, DbSession, get_current_user
 from graphrag_ui.api.errors import ApiError
 from graphrag_ui.api.projects_routes import _forbidden, _project_or_404
 from graphrag_ui.domain.permissions import Atom, can
+from graphrag_ui.services.errors import ProjectIndexingError
 from graphrag_ui.services.projects import get_member_perms
 from graphrag_ui.services.settings import (
     SettingsConflictError,
@@ -97,6 +98,8 @@ def register_settings_routes(app):
             )
         except SettingsValidationError as e:
             raise ApiError(status.HTTP_400_BAD_REQUEST, e.code, str(e), e.params) from None
+        except ProjectIndexingError as e:
+            raise ApiError(status.HTTP_409_CONFLICT, e.code, str(e), e.params) from None
         return SettingsWriteOut(content_hash=new_hash)
 
     @router.get("/{pid}/settings/versions", response_model=list[VersionOut])

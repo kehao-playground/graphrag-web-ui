@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.adapters.models import Project, SettingsVersion
 from graphrag_ui.services.audit import audit
+from graphrag_ui.services.project_lock import assert_input_unfrozen, lock_project
 from graphrag_ui.services.projects import ws_path
 
 # Versions list endpoint caps the returned rows (display history, not an archive)
@@ -63,11 +64,13 @@ async def write_settings(
     """Optimistic-lock write; returns the new hash.
 
     Raises SettingsConflictError when the disk hash differs from expected_hash
-    (checked first — a stale editor must resync before any validation), and
+    (checked first — a stale editor must resync before any validation),
     SettingsValidationError when the content exceeds MAX_CONTENT_BYTES, is
-    not parseable YAML, or breaks graphrag's $ placeholder rules.
+    not parseable YAML, or breaks graphrag's $ placeholder rules, and
+    ProjectIndexingError when an index/update job holds the project — the
+    re-check runs inside the project lock in _commit_settings, so a frozen
+    write never touches the file on disk.
     """
-    path = ws_path(project.id) / "settings.yaml"
     current_content, current_hash = read_settings(project)
     if current_hash != expected_hash:
         raise SettingsConflictError(current_content, current_hash)
@@ -104,11 +107,30 @@ async def write_settings(
             "settings_invalid_placeholder", "invalid $ placeholder in settings"
         ) from e
 
-    data = content.encode()
-    new_hash = _hash_bytes(data)
+    new_hash = _hash_bytes(content.encode())
+    await _commit_settings(session, project, content, new_hash, actor_id)
+    return new_hash
+
+
+async def _commit_settings(
+    session: AsyncSession, project: Project, content: str, new_hash: str, actor_id: uuid.UUID
+) -> None:
+    """The committing transaction: lock, re-check the freeze, write
+    settings.yaml atomically, snapshot the version row, audit, commit.
+
+    Barrier seam (same shape as files._commit_upload): the config-freeze
+    test parks here BEFORE the lock is taken, so an enqueue racing the
+    write wins and the re-check inside the lock refuses it — and the disk
+    write happens only after the re-check, so a refused write leaves
+    settings.yaml untouched. The lock covers the whole committing half so
+    enqueue cannot capture a start snapshot mid-write.
+    """
+    await lock_project(session, project.id)
+    await assert_input_unfrozen(session, project.id)
+    path = ws_path(project.id) / "settings.yaml"
     # atomic write: never leave a half-written settings.yaml behind a crash
     tmp = path.with_name(path.name + ".tmp")
-    tmp.write_bytes(data)
+    tmp.write_bytes(content.encode())
     tmp.replace(path)
 
     session.add(
@@ -125,7 +147,6 @@ async def write_settings(
         {"content_hash": new_hash},
     )
     await session.commit()
-    return new_hash
 
 
 async def list_versions(session: AsyncSession, project: Project) -> list[SettingsVersion]:

@@ -14,6 +14,7 @@ from graphrag_ui.adapters import jobs_repo
 from graphrag_ui.adapters.models import Job, Project, User
 from graphrag_ui.config import get_settings
 from graphrag_ui.domain.jobs import build_argv
+from graphrag_ui.services.project_lock import lock_project
 from graphrag_ui.services.projects import ws_path
 
 
@@ -41,8 +42,10 @@ async def enqueue(
     if free < settings.disk_watermark_mb * 1024 * 1024:
         raise DiskWatermarkError(str(free))
     try:
-        # insert_job flushes; the partial unique index raises IntegrityError
-        # here already when another active job exists — map both paths.
+        # Same lock the file/settings/.env mutations take (spec 5.2b): a
+        # mutation already holding it makes this wait until its rename has
+        # committed, so the start snapshot cannot miss it.
+        await lock_project(session, project.id)
         job = await jobs_repo.insert_job(
             session, project_id=project.id, type=type, method=method, argv=argv, queued_by=actor.id
         )

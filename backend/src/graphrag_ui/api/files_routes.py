@@ -18,6 +18,7 @@ from graphrag_ui.api.projects_routes import _forbidden, _project_or_404
 from graphrag_ui.config import get_settings
 from graphrag_ui.domain.permissions import Atom, can
 from graphrag_ui.services import files as files_service
+from graphrag_ui.services.errors import ProjectIndexingError
 from graphrag_ui.services.files import (
     FileServiceError,
     FileTooLargeError,
@@ -117,6 +118,8 @@ def register_files_routes(app):
         except (FileTooLargeError, QuotaExceededError) as e:
             # 413 for both single-file cap and project quota (spec §9 error handling)
             raise ApiError(status.HTTP_413_CONTENT_TOO_LARGE, e.code, str(e), e.params) from None
+        except ProjectIndexingError as e:
+            raise ApiError(status.HTTP_409_CONFLICT, e.code, str(e), e.params) from None
         return FileOut(name=name, size=size)
 
     @router.get("/{pid}/files", response_model=FileListOut)
@@ -151,6 +154,8 @@ def register_files_routes(app):
             raise ApiError(status.HTTP_400_BAD_REQUEST, e.code, str(e), e.params) from None
         except FileNotFoundError:
             raise ApiError(status.HTTP_404_NOT_FOUND, "file_not_found", "file not found") from None
+        except ProjectIndexingError as e:
+            raise ApiError(status.HTTP_409_CONFLICT, e.code, str(e), e.params) from None
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     app.include_router(router)

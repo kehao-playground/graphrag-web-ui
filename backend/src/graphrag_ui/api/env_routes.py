@@ -23,6 +23,7 @@ from graphrag_ui.services.env_file import (
     list_env,
     set_env_key,
 )
+from graphrag_ui.services.errors import ProjectIndexingError
 from graphrag_ui.services.projects import get_member_perms
 
 
@@ -95,7 +96,8 @@ def register_env_routes(app):
             # str(e) may echo the (non-secret) key but never the value —
             # env_file's messages are fixed to keep it that way
             raise ApiError(status.HTTP_400_BAD_REQUEST, e.code, str(e), e.params) from None
-        return Response(status_code=status.HTTP_204_NO_CONTENT)
+        except ProjectIndexingError as e:
+            raise ApiError(status.HTTP_409_CONFLICT, e.code, str(e), e.params) from None
 
     @router.delete("/{pid}/env/{key}", status_code=status.HTTP_204_NO_CONTENT)
     async def delete_env(pid: uuid.UUID, key: str, db: DbSession, user: CurrentUser):
@@ -113,6 +115,8 @@ def register_env_routes(app):
             raise ApiError(
                 status.HTTP_404_NOT_FOUND, "env_key_not_found", "key not found"
             ) from None
+        except ProjectIndexingError as e:
+            raise ApiError(status.HTTP_409_CONFLICT, e.code, str(e), e.params) from None
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     app.include_router(router)

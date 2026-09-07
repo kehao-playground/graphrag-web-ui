@@ -12,3 +12,13 @@ class ServicePipelineError(RuntimeError):
         super().__init__(detail or code)
         self.code = code
         self.detail = detail
+
+
+class ProjectIndexingError(RuntimeError):
+    """An index/update job holds the project; input and configuration are
+    frozen for its duration (spec 5.2b). Routes map to 409."""
+
+    def __init__(self, job_id: str, job_type: str) -> None:
+        super().__init__(f"project is being indexed by job {job_id}")
+        self.code = "project_indexing"
+        self.params = {"job_type": job_type}
