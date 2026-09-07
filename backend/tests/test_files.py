@@ -695,6 +695,8 @@ async def test_bulk_delete_is_all_or_nothing_on_an_unknown_name(client, indexed_
     ("method", "path", "body", "viewer_status"),
     [
         ("GET", "/api/projects/{pid}/tags", None, 200),
+        ("GET", "/api/projects/{pid}/files/a.md/preview", None, 200),
+        ("POST", "/api/projects/{pid}/files/a.md/preview", {"passage": "x"}, 200),
         ("POST", "/api/projects/{pid}/files/a.md/tags", {"tags": ["x"]}, 403),
         ("DELETE", "/api/projects/{pid}/files/a.md/tags", {"tags": ["x"]}, 403),
         ("POST", "/api/projects/{pid}/files:bulk-delete", {"names": ["a.md"]}, 403),
@@ -704,9 +706,89 @@ async def test_route_authz_for_every_new_endpoint(
     client, indexed_project_with_viewer, method, path, body, viewer_status
 ):
     """Spec 8: reading is project:view, curating content is
-    project:edit_content. A viewer may read the tag catalog and may not tag,
-    untag or bulk-delete. (The preview rows of the plan's matrix join this
-    parametrize in Task 7, when those routes exist.)"""
+    project:edit_content. A viewer may read the tag catalog, preview a
+    document, and may not tag, untag or bulk-delete."""
     viewer, pid = indexed_project_with_viewer
     r = await client.request(method, path.format(pid=pid), headers=viewer, json=body)
     assert r.status_code == viewer_status
+
+
+# --- document preview (spec 7.4; slice 1 serves the ad-hoc passage form) ---
+
+
+@pytest.fixture
+async def alice_project(client):
+    """A project with no baseline: preview never depends on index state."""
+    alice = await _alice(client)
+    pid = await _make_project(client, alice)
+    return alice, pid
+
+
+async def test_preview_returns_the_head_window(client, indexed_project):
+    alice, pid = indexed_project
+    r = await client.get(f"/api/projects/{pid}/files/a.md/preview", headers=alice)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["offset"] == 0 and body["match"] is False
+    assert len(body["text"].encode()) <= 64 * 1024
+
+
+async def test_preview_finds_a_match_beyond_the_first_window(client, alice_project):
+    """The 64 KiB cap bounds the RESPONSE, not the scan."""
+    alice, pid = alice_project
+    needle = "NEEDLE-8f3c"
+    await _upload(client, alice, pid, "big.md", b"x" * 200_000 + needle.encode() + b"y" * 5_000)
+
+    r = await client.post(
+        f"/api/projects/{pid}/files/big.md/preview", headers=alice, json={"passage": needle}
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["match"] is True
+    assert needle in body["text"]
+    assert body["offset"] > 64 * 1024
+
+
+async def test_unmatched_passage_returns_the_head_and_says_so(client, alice_project):
+    alice, pid = alice_project
+    await _upload(client, alice, pid, "a.md", b"hello world")
+    r = await client.post(
+        f"/api/projects/{pid}/files/a.md/preview", headers=alice, json={"passage": "absent"}
+    )
+    assert r.status_code == 200 and r.json()["match"] is False
+    assert r.json()["offset"] == 0
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {},  # neither form
+        {"passage": ""},  # empty passage
+        {"passage": "x", "result_id": "abc"},  # mixed / unknown field
+        {"result_id": "abc"},  # slice 3's form, not yet served
+        {"passage": "x", "unknown": 1},  # extra="forbid"
+    ],
+)
+async def test_locator_forms_are_exhaustive_not_permissive(client, alice_project, body):
+    """A partially specified locator is a caller bug; guessing an
+    interpretation is how authorization bindings get bypassed by accident."""
+    alice, pid = alice_project
+    await _upload(client, alice, pid, "a.md", b"hello")
+    r = await client.post(f"/api/projects/{pid}/files/a.md/preview", headers=alice, json=body)
+    assert r.status_code == 422
+
+
+async def test_passage_bound_is_bytes_not_characters(client, alice_project):
+    """pydantic's string max_length counts CHARACTERS, so a CJK passage
+    would pass a character check at three times the byte budget."""
+    alice, pid = alice_project
+    await _upload(client, alice, pid, "a.md", b"hello")
+    url = f"/api/projects/{pid}/files/a.md/preview"
+
+    assert (await client.post(url, headers=alice, json={"passage": "a" * 4096})).status_code in (
+        200,
+        404,
+    )
+    assert (await client.post(url, headers=alice, json={"passage": "a" * 4097})).status_code == 422
+    # 2000 CJK characters = 6000 UTF-8 bytes: under a character cap, over the byte cap.
+    assert (await client.post(url, headers=alice, json={"passage": "字" * 2000})).status_code == 422

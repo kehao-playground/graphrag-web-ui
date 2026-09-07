@@ -111,6 +111,77 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+# Preview contract limits (spec 7.4): module-level constants, not env vars —
+# the frontend sizes its drawer around the window and the API around the
+# passage bound.
+PREVIEW_WINDOW_BYTES = 64 * 1024
+PASSAGE_MAX_BYTES = 4096
+
+
+def _preview_core(path: Path, needle: bytes | None) -> dict:
+    """One bounded window of the file, centered on the first occurrence of
+    `needle` anywhere in it when given, else the head.
+
+    The window cap bounds the RESPONSE, never the scan: with a passage the
+    file is streamed in _CHUNK_BYTES blocks carrying an overlap of
+    len(needle) - 1 bytes, so a passage spanning a chunk boundary is still
+    found (spec 7.4).
+    """
+    total = path.stat().st_size
+    with path.open("rb") as fh:
+        if needle is None:
+            return {
+                "text": fh.read(PREVIEW_WINDOW_BYTES).decode("utf-8", errors="replace"),
+                "offset": 0,
+                "total_size": total,
+                "match": False,
+            }
+        overlap = len(needle) - 1
+        base = 0  # absolute offset of buf[0]
+        carry = b""
+        found = -1
+        while True:
+            chunk = fh.read(_CHUNK_BYTES)
+            if not chunk:
+                break
+            buf = carry + chunk
+            idx = buf.find(needle)
+            if idx != -1:
+                found = base + idx
+                break
+            carry = buf[-overlap:] if overlap > 0 else b""
+            base += len(buf) - len(carry)
+        if found == -1:
+            # Unmatched: the head plus match=False, rather than pretending.
+            fh.seek(0)
+            return {
+                "text": fh.read(PREVIEW_WINDOW_BYTES).decode("utf-8", errors="replace"),
+                "offset": 0,
+                "total_size": total,
+                "match": False,
+            }
+        start = max(0, found - PREVIEW_WINDOW_BYTES // 2)
+        fh.seek(start)
+        return {
+            "text": fh.read(PREVIEW_WINDOW_BYTES).decode("utf-8", errors="replace"),
+            "offset": start,
+            "total_size": total,
+            "match": True,
+        }
+
+
+async def preview_file(project: Project, name: str, *, around: str | None = None) -> dict:
+    """{"text", "offset", "total_size", "match"} for input/<name>; the
+    bounded scan runs off the event loop (spec A4)."""
+    name = _safe_name(project.input_file_type, name)
+    target = ws_path(project.id) / "input" / name
+    if not target.is_file():
+        # A `removed` row has no file behind it; there is nothing to preview.
+        raise FileNotFoundError(name)
+    needle = around.encode("utf-8") if around is not None else None
+    return await asyncio.to_thread(_preview_core, target, needle)
+
+
 def quota_bytes() -> int:
     return get_settings().project_quota_mb * _MIB
 

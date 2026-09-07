@@ -11,7 +11,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, Response, UploadFile, status
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 from graphrag_ui.api.deps import CurrentUser, DbSession, get_current_user
 from graphrag_ui.api.errors import ApiError
@@ -21,6 +21,7 @@ from graphrag_ui.domain.permissions import Atom, can
 from graphrag_ui.services import files as files_service
 from graphrag_ui.services.errors import ProjectIndexingError
 from graphrag_ui.services.files import (
+    PASSAGE_MAX_BYTES,
     FileServiceError,
     FileTooLargeError,
     QuotaExceededError,
@@ -90,6 +91,32 @@ class TagCatalogOut(BaseModel):
 class BulkDeleteOut(BaseModel):
     deleted: int
     bytes: int
+
+
+class PreviewOut(BaseModel):
+    text: str
+    offset: int
+    total_size: int
+    match: bool
+
+
+class PreviewIn(BaseModel):
+    # extra="forbid" so a mixed or unknown-field body is a 422 rather than a
+    # silently ignored key (spec 7.4). Slice 1 serves the ad-hoc passage
+    # form only; the {result_id, entry_id} locator is slice 3's and is
+    # rejected here as an unknown field by design.
+    model_config = ConfigDict(extra="forbid")
+
+    passage: str
+
+    @field_validator("passage")
+    @classmethod
+    def _bounded_bytes(cls, v: str) -> str:
+        if not v:
+            raise ValueError("passage must not be empty")
+        if len(v.encode("utf-8")) > PASSAGE_MAX_BYTES:
+            raise ValueError(f"passage exceeds {PASSAGE_MAX_BYTES} bytes")
+        return v
 
 
 # POST /api/projects/{pid}/files — the only upload endpoint (pid is a path
@@ -283,5 +310,39 @@ def register_files_routes(app):
         except ProjectIndexingError as e:
             raise ApiError(status.HTTP_409_CONFLICT, e.code, str(e), e.params) from None
         return BulkDeleteOut(**result)
+
+    @router.get("/{pid}/files/{filename}/preview", response_model=PreviewOut)
+    async def get_preview(pid: uuid.UUID, filename: str, db: DbSession, user: CurrentUser):
+        project = await _project_or_404(db, pid)
+        if not can(
+            user.global_perms,
+            user.is_active,
+            Atom.project_view,
+            await get_member_perms(db, pid, user.id),
+        ):
+            raise _forbidden()
+        try:
+            return PreviewOut(**await files_service.preview_file(project, filename))
+        except FileNotFoundError:
+            raise ApiError(status.HTTP_404_NOT_FOUND, "file_not_found", "file not found") from None
+
+    @router.post("/{pid}/files/{filename}/preview", response_model=PreviewOut)
+    async def post_preview(
+        pid: uuid.UUID, filename: str, body: PreviewIn, db: DbSession, user: CurrentUser
+    ):
+        project = await _project_or_404(db, pid)
+        if not can(
+            user.global_perms,
+            user.is_active,
+            Atom.project_view,
+            await get_member_perms(db, pid, user.id),
+        ):
+            raise _forbidden()
+        try:
+            return PreviewOut(
+                **await files_service.preview_file(project, filename, around=body.passage)
+            )
+        except FileNotFoundError:
+            raise ApiError(status.HTTP_404_NOT_FOUND, "file_not_found", "file not found") from None
 
     app.include_router(router)

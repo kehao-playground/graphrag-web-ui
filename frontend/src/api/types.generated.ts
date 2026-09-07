@@ -438,6 +438,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{pid}/files/{filename}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Preview */
+        get: operations["get_preview_api_projects__pid__files__filename__preview_get"];
+        put?: never;
+        /** Post Preview */
+        post: operations["post_preview_api_projects__pid__files__filename__preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{pid}/files/{filename}/tags": {
         parameters: {
             query?: never;
@@ -983,6 +1001,22 @@ export interface components {
             /** Disk Watermark Mb */
             disk_watermark_mb: number;
             last_run: components["schemas"]["LastRunOut"] | null;
+        };
+        /** PreviewIn */
+        PreviewIn: {
+            /** Passage */
+            passage: string;
+        };
+        /** PreviewOut */
+        PreviewOut: {
+            /** Match */
+            match: boolean;
+            /** Offset */
+            offset: number;
+            /** Text */
+            text: string;
+            /** Total Size */
+            total_size: number;
         };
         /** ProjectIn */
         ProjectIn: {
@@ -2180,6 +2214,74 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_preview_api_projects__pid__files__filename__preview_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+                filename: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreviewOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_preview_api_projects__pid__files__filename__preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+                filename: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreviewIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreviewOut"];
+                };
             };
             /** @description Validation Error */
             422: {
