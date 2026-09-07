@@ -101,7 +101,11 @@ def _scan_start_state(root: Path) -> tuple[dict[str, str], list[str] | None, str
     entries: dict[str, str] = {}
     if input_dir.is_dir():
         for p in sorted(input_dir.iterdir()):
-            if p.is_file():
+            # Dotfiles are upload scratch (.tmp-*) or editor droppings;
+            # listings skip them (files._scan_input) and graphrag's own
+            # scan does too, so the snapshot must not see them either —
+            # a promoted .tmp-* would haunt the union listing as `removed`.
+            if p.is_file() and not p.name.startswith("."):
                 entries[p.name] = sha256_file(p)
     titles = read_document_titles(root)
     settings_path = root / "settings.yaml"

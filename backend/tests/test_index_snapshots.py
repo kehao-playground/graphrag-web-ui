@@ -318,3 +318,17 @@ async def test_a_job_cancelled_while_queued_does_not_move_the_epoch(
     assert job.status == "queued"
     await db_session.refresh(project)
     assert project.artifact_epoch == 0
+
+
+async def test_start_snapshot_skips_dotfile_leftovers(db_session, project_with_files):
+    """A crashed upload leaves a .tmp-* dotfile in input/; listings skip
+    dotfiles and so must the snapshot, or the promoted baseline would carry
+    a phantom name the indexer never ingested — and the union listing would
+    show it as `removed` forever."""
+    project, _owner = project_with_files
+    (ws_path(project.id) / "input" / ".tmp-leftover").write_bytes(b"junk")
+    job = await _job(db_session, project)
+    sid = await index_snapshots.capture_start(db_session, project.id, job.id)
+
+    rows = await index_snapshots.entries_of(db_session, sid)
+    assert set(rows) == {"a.md", "b.md"}
