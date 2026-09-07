@@ -9,14 +9,16 @@ import asyncio
 import hashlib
 import os
 import uuid
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from graphrag_ui.adapters.models import Project, ProjectFile
+from graphrag_ui.adapters.models import FileTag, FileTagLink, Project, ProjectFile
 from graphrag_ui.config import get_settings
+from graphrag_ui.domain.files import AttributableTitles, IngestCheck, index_state
 from graphrag_ui.services.audit import audit
 from graphrag_ui.services.project_lock import assert_input_unfrozen, lock_project
 from graphrag_ui.services.projects import ws_path
@@ -254,35 +256,147 @@ async def save_file(
         tmp.unlink(missing_ok=True)  # no-op after a successful replace
 
 
-async def list_files(project: Project) -> list[dict]:
-    """[{name, size, modified_at}] sorted by name.
+async def list_files(session: AsyncSession, project: Project) -> dict:
+    """Rows are input/ UNION the baseline's filenames, sorted by name.
 
-    Dotfiles are skipped: they are never valid uploads, and the only writer
-    here (save_file) uses dot-prefixed tmp names during atomic writes.
+    Reads the BASELINE SNAPSHOT ROW, never documents.parquet: recovery
+    provenance was evaluated when the artifacts were produced, and
+    re-deriving it here would bind the answer to today's configuration
+    (spec 6.3). The only artifact touch is a stat on
+    output/documents.parquet, which distinguishes unavailable_not_indexed
+    from available.
+
+    Returns {"files": [...], "ingest_check": str, "has_baseline": bool}. A
+    name with no file behind it (a `removed` document) carries NULL
+    size/modified_at/sha256 and no tags rather than invented values.
     """
-    input_dir = ws_path(project.id) / "input"
-    return await asyncio.to_thread(_scan_input, input_dir)
+    # Deferred: index_snapshots imports sha256_file from this module, so a
+    # top-level import here would be circular.
+    from graphrag_ui.services.index_snapshots import baseline_entries, baseline_row
+
+    root = ws_path(project.id)
+    scanned = await asyncio.to_thread(_scan_input, root / "input")
+    row = await baseline_row(session, project.id)
+    baseline = await baseline_entries(session, project.id)
+    await _discover_untracked(session, project, scanned)
+
+    file_rows = (
+        (await session.execute(select(ProjectFile).where(ProjectFile.project_id == project.id)))
+        .scalars()
+        .all()
+    )
+    name_of = {f.id: f.name for f in file_rows}
+    tags: dict[str, list[str]] = {name: [] for name in name_of.values()}
+    for file_id, tag_name in (
+        await session.execute(
+            select(FileTagLink.file_id, FileTag.name)
+            .join(FileTag, FileTag.id == FileTagLink.tag_id)
+            .where(FileTag.project_id == project.id)
+        )
+    ).all():
+        tags[name_of[file_id]].append(tag_name)
+    for file_tags in tags.values():
+        file_tags.sort()
+
+    if row is None:
+        check = IngestCheck.unavailable_no_baseline
+    elif row.title_recovery == "unavailable_title_column":
+        check = IngestCheck.unavailable_title_column
+    elif not _documents_parquet_exists(root):
+        check = IngestCheck.unavailable_not_indexed
+    else:
+        check = IngestCheck.available
+    attributable = (
+        AttributableTitles.of(row.attributable_titles)
+        if row is not None and check == IngestCheck.available
+        else AttributableTitles.unavailable()
+    )
+
+    files = []
+    for name in sorted(set(scanned) | set(baseline)):
+        on_disk = scanned.get(name)
+        files.append(
+            {
+                "name": name,
+                "size": on_disk[0] if on_disk else None,
+                "modified_at": on_disk[1] if on_disk else None,
+                "sha256": on_disk[2] if on_disk else None,
+                "index_state": index_state(
+                    name, on_disk[2] if on_disk else None, baseline, attributable
+                ).value,
+                "tags": tags.get(name, []) if on_disk else [],
+            }
+        )
+    return {"files": files, "ingest_check": check.value, "has_baseline": row is not None}
 
 
-def _scan_input(input_dir: Path) -> list[dict]:
-    """iterdir/stat/sort over input/ — one stat per uploaded file, unbounded
-    (spec A4), so list_files runs this off the event loop via to_thread."""
-    if not input_dir.exists():
-        return []
-    entries = []
+def _scan_input(input_dir: Path) -> dict[str, tuple[int, str, str]]:
+    """iterdir/stat/sha256 over input/ — {name: (size, modified_at iso,
+    sha256)}. Hashing every file is unbounded (spec A4), so list_files runs
+    this off the event loop via to_thread. Dotfiles are skipped: they are
+    never valid uploads, and the only writer here (save_file) uses
+    dot-prefixed tmp names during atomic writes."""
+    if not input_dir.is_dir():
+        return {}
+    entries: dict[str, tuple[int, str, str]] = {}
     for p in input_dir.iterdir():
         if not p.is_file() or p.name.startswith("."):
             continue
         st = p.stat()
-        entries.append(
-            {
-                "name": p.name,
-                "size": st.st_size,
-                "modified_at": datetime.fromtimestamp(st.st_mtime, tz=UTC).isoformat(),
-            }
+        entries[p.name] = (
+            st.st_size,
+            datetime.fromtimestamp(st.st_mtime, tz=UTC).isoformat(),
+            sha256_file(p),
         )
-    entries.sort(key=lambda e: str(e["name"]))
     return entries
+
+
+async def _discover_untracked(
+    session: AsyncSession, project: Project, scanned: Mapping[str, tuple[int, str, str]]
+) -> None:
+    """Insert a project_files row for every scanned name that has none.
+
+    Files that predate this release have no row and nothing on disk records
+    who uploaded them: discovery runs on the FIRST listing, with
+    uploaded_by/uploaded_at NULL and discovered_at set. The name check runs
+    under the project-row lock and the commit always happens, so concurrent
+    listings cannot double-insert (uq_project_files_project_name backs the
+    check) and the lock is released even when there is nothing to insert.
+    """
+    if not scanned:
+        return
+    await lock_project(session, project.id)
+    known = set(
+        (
+            await session.execute(
+                select(ProjectFile.name).where(ProjectFile.project_id == project.id)
+            )
+        ).scalars()
+    )
+    missing = [name for name in scanned if name not in known]
+    if missing:
+        session.add_all(
+            ProjectFile(
+                project_id=project.id,
+                name=name,
+                sha256=scanned[name][2],
+                size=scanned[name][0],
+                discovered_at=datetime.now(UTC),
+            )
+            for name in missing
+        )
+    await session.commit()
+
+
+def _documents_parquet_exists(root: Path) -> bool:
+    """A cheap stat, not a read: proves output/documents.parquet exists and
+    nothing more (a present-but-corrupt parquet is outside what the ingest
+    check detects)."""
+    try:
+        (root / "output" / "documents.parquet").stat()
+    except OSError:
+        return False
+    return True
 
 
 async def delete_file(

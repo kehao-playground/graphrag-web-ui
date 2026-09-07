@@ -201,23 +201,62 @@
       },
       "FileEntryOut": {
         "properties": {
-          "modified_at": {
-            "title": "Modified At",
+          "index_state": {
+            "title": "Index State",
             "type": "string"
+          },
+          "modified_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Modified At"
           },
           "name": {
             "title": "Name",
             "type": "string"
           },
+          "sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sha256"
+          },
           "size": {
-            "title": "Size",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size"
+          },
+          "tags": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
           }
         },
         "required": [
           "name",
           "size",
-          "modified_at"
+          "modified_at",
+          "sha256",
+          "index_state"
         ],
         "title": "FileEntryOut",
         "type": "object"
@@ -231,6 +270,14 @@
             "title": "Files",
             "type": "array"
           },
+          "has_baseline": {
+            "title": "Has Baseline",
+            "type": "boolean"
+          },
+          "ingest_check": {
+            "title": "Ingest Check",
+            "type": "string"
+          },
           "quota_bytes": {
             "title": "Quota Bytes",
             "type": "integer"
@@ -243,7 +290,9 @@
         "required": [
           "files",
           "usage_bytes",
-          "quota_bytes"
+          "quota_bytes",
+          "ingest_check",
+          "has_baseline"
         ],
         "title": "FileListOut",
         "type": "object"

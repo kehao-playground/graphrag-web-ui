@@ -5,12 +5,21 @@ slow test — because the files endpoints must work against the real workspace
 layout (per task brief: no FakeInitializer in this module).
 """
 
+import hashlib
 import uuid
 
 import pytest
 from sqlalchemy import select
 
-from graphrag_ui.adapters.models import AuditLog, Project, User
+from graphrag_ui.adapters.models import (
+    AuditLog,
+    IndexSnapshot,
+    IndexSnapshotEntry,
+    Job,
+    Project,
+    ProjectFile,
+    User,
+)
 from graphrag_ui.config import get_settings
 from graphrag_ui.domain.role_catalog import ROLE_ID_VIEWER
 from graphrag_ui.services import files as files_service
@@ -349,3 +358,228 @@ async def test_upload_rollback_leaves_no_audit_row_when_rename_fails(
         await db_session.execute(select(AuditLog).where(AuditLog.action == "file.uploaded"))
     ).scalars()
     assert list(rows) == []
+
+
+# --- listing: union enumeration, discovery, ingest check (spec 6.2/6.3) ---
+
+
+async def _seed_baseline(
+    db_session, pid: str, entries: dict[str, str], *, attributable: list[str], recovery: str
+) -> None:
+    """The state a succeeded index job leaves behind: a promoted baseline
+    (kind='baseline') with its entries and projects.baseline_snapshot_id
+    pointing at it. Seeded as rows instead of forking the real CLI — the
+    API-created project and uploads already exercised the real paths."""
+    project = (
+        await db_session.execute(select(Project).where(Project.id == uuid.UUID(pid)))
+    ).scalar_one()
+    job = Job(
+        project_id=project.id,
+        type="index",
+        method="fast",
+        argv=["index", "--root", str(ws_path(project.id)), "--method", "fast"],
+        queued_by=project.owner_id,
+        status="succeeded",
+    )
+    db_session.add(job)
+    await db_session.flush()
+    snap = IndexSnapshot(
+        job_id=job.id,
+        project_id=project.id,
+        kind="baseline",
+        attributable_titles=attributable,
+        title_recovery=recovery,
+        artifact_epoch=1,
+    )
+    db_session.add(snap)
+    await db_session.flush()
+    db_session.add_all(
+        IndexSnapshotEntry(snapshot_id=snap.id, name=name, sha256=sha)
+        for name, sha in entries.items()
+    )
+    project.baseline_snapshot_id = snap.id
+    await db_session.commit()
+
+
+def _stub_parquet(pid: str) -> None:
+    """A documents.parquet the ingest check can stat; content is irrelevant
+    — the check proves existence and nothing more."""
+    out = ws_path(uuid.UUID(pid)) / "output"
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "documents.parquet").write_bytes(b"stub-parquet")
+
+
+@pytest.fixture
+async def indexed_project(client, db_session):
+    """a.md + b.md uploaded through the API and indexed: a baseline with
+    available recovery, both names attributable, output/ holding a
+    documents.parquet. Yields (alice headers, pid)."""
+    alice = await _alice(client)
+    pid = await _make_project(client, alice)
+    await _upload(client, alice, pid, "a.md", b"A")
+    await _upload(client, alice, pid, "b.md", b"B")
+    _stub_parquet(pid)
+    await _seed_baseline(
+        db_session,
+        pid,
+        {"a.md": hashlib.sha256(b"A").hexdigest(), "b.md": hashlib.sha256(b"B").hexdigest()},
+        attributable=["a.md", "b.md"],
+        recovery="available",
+    )
+    return alice, pid
+
+
+@pytest.fixture
+async def title_column_project(client, db_session):
+    """Indexed while input.title_column was set, then the setting removed
+    without rebuilding: today's settings.yaml has no title_column, the
+    baseline row still records the unavailable recovery. Yields (alice
+    headers, pid)."""
+    alice = await _alice(client)
+    pid = await _make_project(client, alice)
+    await _upload(client, alice, pid, "a.md", b"A")
+    _stub_parquet(pid)
+    await _seed_baseline(
+        db_session,
+        pid,
+        {"a.md": hashlib.sha256(b"A").hexdigest()},
+        attributable=[],
+        recovery="unavailable_title_column",
+    )
+    return alice, pid
+
+
+@pytest.fixture
+async def skipped_project(client, db_session):
+    """The rule ran and matched nothing: available recovery with an EMPTY
+    attributable set — a different fact from unavailable, and the only one
+    that produces `skipped`. Yields (alice headers, pid)."""
+    alice = await _alice(client)
+    pid = await _make_project(client, alice)
+    await _upload(client, alice, pid, "a.md", b"A")
+    _stub_parquet(pid)
+    await _seed_baseline(
+        db_session,
+        pid,
+        {"a.md": hashlib.sha256(b"A").hexdigest()},
+        attributable=[],
+        recovery="available",
+    )
+    return alice, pid
+
+
+async def test_listing_reports_new_before_any_index(client):
+    alice = await _alice(client)
+    pid = await _make_project(client, alice)
+    await _upload(client, alice, pid, "a.md", b"A")
+
+    body = await _list(client, alice, pid)
+    assert body["ingest_check"] == "unavailable_no_baseline"
+    assert body["has_baseline"] is False
+    assert [(f["name"], f["index_state"]) for f in body["files"]] == [("a.md", "new")]
+    assert body["files"][0]["sha256"]
+
+
+async def test_deleted_file_still_lists_as_removed_with_null_columns(
+    client, db_session, indexed_project
+):
+    """A removed row has no file behind it: size, modified_at and sha256 are
+    NULL rather than an invented zero, and files.total still counts it."""
+    alice, pid = indexed_project  # baseline: a.md, b.md
+    assert (
+        await client.delete(f"/api/projects/{pid}/files/a.md", headers=alice)
+    ).status_code == 204
+
+    body = await _list(client, alice, pid)
+    row = next(f for f in body["files"] if f["name"] == "a.md")
+    assert row["index_state"] == "removed"
+    assert row["size"] is None and row["modified_at"] is None and row["sha256"] is None
+    assert row["tags"] == []
+    assert len(body["files"]) == 2
+
+
+async def test_no_file_operation_applies_to_a_removed_row(client, indexed_project):
+    alice, pid = indexed_project
+    await client.delete(f"/api/projects/{pid}/files/a.md", headers=alice)
+
+    assert (
+        await client.delete(f"/api/projects/{pid}/files/a.md", headers=alice)
+    ).status_code == 404
+    r = await client.get(f"/api/projects/{pid}/files/a.md/preview", headers=alice)
+    assert r.status_code == 404
+
+
+async def test_modified_and_indexed_are_distinguished_by_hash(client, indexed_project):
+    alice, pid = indexed_project
+    await _upload(client, alice, pid, "a.md", b"CHANGED")
+
+    body = await _list(client, alice, pid)
+    states = {f["name"]: f["index_state"] for f in body["files"]}
+    assert states == {"a.md": "modified", "b.md": "indexed"}
+
+
+async def test_untracked_file_is_discovered_idempotently(client, db_session, tmp_path):
+    """Files that predate this release have no project_files row and nothing
+    on disk records who uploaded them, so provenance is NULL and the UI
+    renders the uploader as a dash rather than attributing the file to
+    whoever opened the page."""
+    alice = await _alice(client)
+    pid = await _make_project(client, alice)
+    (ws_path(uuid.UUID(pid)) / "input" / "legacy.md").write_bytes(b"legacy")
+
+    first = await _list(client, alice, pid)
+    second = await _list(client, alice, pid)
+    assert first["files"] == second["files"]
+
+    rows = (
+        (
+            await db_session.execute(
+                select(ProjectFile).where(ProjectFile.project_id == uuid.UUID(pid))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(rows) == 1
+    assert rows[0].uploaded_by is None and rows[0].uploaded_at is None
+    assert rows[0].discovered_at is not None
+    assert rows[0].sha256 == hashlib.sha256(b"legacy").hexdigest()
+
+
+async def test_ingest_check_reports_missing_output_under_an_existing_baseline(
+    client, indexed_project
+):
+    """A cheap stat, not a read: it proves existence and nothing more. A
+    present-but-corrupt parquet is outside what this detects, and the
+    guarantee is worded as missing output, not healthy output."""
+    alice, pid = indexed_project
+    (ws_path(uuid.UUID(pid)) / "output" / "documents.parquet").unlink()
+
+    body = await _list(client, alice, pid)
+    assert body["ingest_check"] == "unavailable_not_indexed"
+    assert body["has_baseline"] is True
+    assert all(f["index_state"] != "skipped" for f in body["files"])
+
+
+async def test_title_column_provenance_survives_a_later_settings_edit(
+    client, db_session, title_column_project
+):
+    """Index under title_column, then remove the setting without rebuilding:
+    listing must still report unavailable_title_column and emit no skipped,
+    because it reads the baseline row rather than today's settings.yaml. The
+    earlier design produced a screen of false alarms from a config edit."""
+    alice, pid = title_column_project
+    body = await _list(client, alice, pid)
+    assert body["ingest_check"] == "unavailable_title_column"
+    assert all(f["index_state"] != "skipped" for f in body["files"])
+
+
+async def test_empty_attributable_set_with_available_recovery_yields_skipped(
+    client, skipped_project
+):
+    """`attributable_titles = []` with title_recovery = 'available' is a
+    different fact from unavailable, and only this one produces skipped."""
+    alice, pid = skipped_project
+    body = await _list(client, alice, pid)
+    assert body["ingest_check"] == "available"
+    assert {f["index_state"] for f in body["files"]} == {"skipped"}

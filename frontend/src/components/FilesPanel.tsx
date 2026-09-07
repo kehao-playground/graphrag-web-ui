@@ -92,8 +92,8 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
 
   const columns: TableProps<FileEntry>["columns"] = [
     { title: t("common.name"), dataIndex: "name" },
-    { title: t("files.size"), dataIndex: "size", width: 110, render: (_, f) => humanBytes(f.size) },
-    { title: t("files.modifiedAt"), dataIndex: "modified_at", width: 190, render: (_, f) => new Date(f.modified_at).toLocaleString(i18n.language) },
+    { title: t("files.size"), dataIndex: "size", width: 110, render: (_, f) => (f.size === null ? "—" : humanBytes(f.size ?? 0)) },
+    { title: t("files.modifiedAt"), dataIndex: "modified_at", width: 190, render: (_, f) => (f.modified_at === null ? "—" : new Date(f.modified_at).toLocaleString(i18n.language)) },
     ...(canEdit
       ? [{
           title: t("common.actions"),

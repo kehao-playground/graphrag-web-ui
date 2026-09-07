@@ -35,14 +35,25 @@ class FileOut(BaseModel):
 
 class FileEntryOut(BaseModel):
     name: str
-    size: int
-    modified_at: str
+    # Nullable because a `removed` row has no file behind it (spec 6.1).
+    # Inventing a zero size or the deletion timestamp would let the UI sort
+    # and total them as if they were files.
+    size: int | None
+    modified_at: str | None
+    sha256: str | None
+    index_state: str
+    tags: list[str] = []
 
 
 class FileListOut(BaseModel):
     files: list[FileEntryOut]
     usage_bytes: int
     quota_bytes: int
+    # Whether `skipped` can be emitted at all, and why not. On the response,
+    # not on each row: it is a property of the artifacts, and repeating it
+    # per file would invite the UI to render it per file (spec 6.3).
+    ingest_check: str
+    has_baseline: bool
 
 
 # POST /api/projects/{pid}/files — the only upload endpoint (pid is a path
@@ -132,10 +143,13 @@ def register_files_routes(app):
             await get_member_perms(db, pid, user.id),
         ):
             raise _forbidden()
+        listing = await files_service.list_files(db, project)
         return FileListOut(
-            files=[FileEntryOut(**f) for f in await files_service.list_files(project)],
+            files=[FileEntryOut(**f) for f in listing["files"]],
             usage_bytes=await files_service.usage_bytes(project),
             quota_bytes=files_service.quota_bytes(),
+            ingest_check=listing["ingest_check"],
+            has_baseline=listing["has_baseline"],
         )
 
     @router.delete("/{pid}/files/{filename}", status_code=status.HTTP_204_NO_CONTENT)

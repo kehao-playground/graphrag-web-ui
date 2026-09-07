@@ -754,17 +754,30 @@ export interface components {
         };
         /** FileEntryOut */
         FileEntryOut: {
+            /** Index State */
+            index_state: string;
             /** Modified At */
-            modified_at: string;
+            modified_at: string | null;
             /** Name */
             name: string;
+            /** Sha256 */
+            sha256: string | null;
             /** Size */
-            size: number;
+            size: number | null;
+            /**
+             * Tags
+             * @default []
+             */
+            tags: string[];
         };
         /** FileListOut */
         FileListOut: {
             /** Files */
             files: components["schemas"]["FileEntryOut"][];
+            /** Has Baseline */
+            has_baseline: boolean;
+            /** Ingest Check */
+            ingest_check: string;
             /** Quota Bytes */
             quota_bytes: number;
             /** Usage Bytes */
