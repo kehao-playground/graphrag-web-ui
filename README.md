@@ -78,6 +78,37 @@ flowchart LR
     W --> E["explore — duckdb over output/ parquet<br/>read-only"]
 ```
 
+### Documents — the knowledge manager view
+
+The **Documents** tab is where a knowledge manager curates a project's corpus.
+Every file in `input/` carries an **index state** — `new` (never indexed),
+`modified` (changed since the last index), `indexed`, `skipped` (silently
+dropped by the last run), or `removed` (deleted from disk but still inside the
+index; only a full rebuild clears it). Files can be searched, filtered by state
+and tag, tagged, previewed, and bulk-deleted from this view.
+
+While an `index`/`update` job is queued or running, the project's input and
+configuration are **frozen**: uploads, deletes, bulk deletes, `settings.yaml`
+writes and `.env` edits are refused with HTTP 409 until the job finishes, so
+the indexer's snapshot is exactly what was uploaded.
+
+A trustworthy baseline comes from a full `index` run; an `update` never
+creates one, so existing projects read every file as `new` until someone runs
+a full index.
+
+**Release notes — knowledge manager (slice 1):**
+
+- Input freeze: uploads, single/bulk deletes, `PUT .../settings`,
+  `PATCH .../env` and `DELETE .../env/{key}` now return **409
+  `project_indexing`** while an `index`/`update` job is queued or running.
+- `FileEntryOut.size` / `.modified_at` / `.sha256` are **nullable**, and
+  listings can contain rows with no file behind them (`removed` documents
+  still in the index).
+- Documents tab: per-file index state, client-side search and filters,
+  tags, bulk delete with a count-and-size confirmation, and a bounded
+  document preview (optionally centered on a passage).
+
+
 ## Quickstart (15 minutes)
 
 1. **Prerequisites** — Docker + Docker Compose. Node **24** and Python 3.12 + uv are only

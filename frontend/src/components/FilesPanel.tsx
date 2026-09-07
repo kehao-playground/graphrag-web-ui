@@ -2,13 +2,14 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router-dom";
-import { Alert, Space, Spin, Upload, message } from "antd";
+import { Alert, Button, Modal, Space, Spin, Upload, message } from "antd";
 import type { UploadProps } from "antd";
 import { api, detailOf } from "../api/client";
-import type { FilesOut, Project, TagCatalog } from "../api/types";
+import type { FilesOut, Preflight, Project, TagCatalog } from "../api/types";
+import FilePreviewDrawer from "./files/FilePreviewDrawer";
 import FilesToolbar from "./files/FilesToolbar";
 import FilesTable from "./files/FilesTable";
-import { isIndexState } from "./files/indexState";
+import { humanBytes, isIndexState } from "./files/indexState";
 import type { IndexState } from "./files/indexState";
 
 // Mirrors the backend whitelist (services/files.py ALLOWED_EXTENSIONS):
@@ -37,6 +38,8 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
   const { t } = useTranslation();
   const [search, setSearch] = useState("");
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [previewName, setPreviewName] = useState<string | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
 
   const files = useQuery({
@@ -76,6 +79,54 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
     },
     onError: (e) => message.error(e.message),
   });
+
+  // Frozen = an index/update job holds the project (spec 5.2b): the backend
+  // refuses uploads/deletes/bulk deletes with 409 while it runs. The panel
+  // disables the affordances and says why, rather than letting the user
+  // discover the 409. Shares JobsPanel's cache key so both tabs see one
+  // preflight; quiet on failure (a missing preflight costs the lock, not
+  // the panel).
+  const preflight = useQuery({
+    queryKey: ["projects", projectId, "jobs", "preflight"],
+    queryFn: async () => {
+      const r = await api(`/api/projects/${projectId}/jobs/preflight`);
+      if (!r.ok) throw new Error(await detailOf(r, "jobs.loadPreflightFailed"));
+      return (await r.json()) as Preflight;
+    },
+    retry: false,
+  });
+  const activeType = preflight.data?.active_job?.type;
+  const frozen = activeType === "index" || activeType === "update";
+
+  const bulkDelete = useMutation({
+    mutationFn: async (names: string[]) => {
+      const r = await api(`/api/projects/${projectId}/files:bulk-delete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ names }),
+      });
+      if (!r.ok) throw new Error(await detailOf(r, "files.bulkDeleteFailed"));
+    },
+    onSuccess: (_d, names) => {
+      message.success(t("files.bulkDeleteDone", { n: names.length }));
+      setSelected([]);
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "files"] });
+    },
+    onError: (e) => message.error(e.message),
+  });
+
+  // Deleting N documents is not the same act as deleting one: the confirm
+  // names the count and the total size before anything is unlinked.
+  const confirmBulkDelete = () => {
+    const rows = all.filter((f) => selected.includes(f.name));
+    const bytes = rows.reduce((n, f) => n + (f.size ?? 0), 0);
+    Modal.confirm({
+      title: t("files.bulkDeleteTitle", { n: rows.length, size: humanBytes(bytes) }),
+      okText: t("common.delete"),
+      okButtonProps: { danger: true },
+      onOk: () => bulkDelete.mutate(rows.map((f) => f.name)),
+    });
+  };
 
   // customRequest keeps the multipart POST inside api() so the auth header
   // and 401-retry apply; the browser sets the multipart boundary itself.
@@ -132,10 +183,19 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
       {canEdit && (
-        <Upload.Dragger accept={accept} customRequest={customRequest} showUploadList={false} multiple>
+        <Upload.Dragger
+          accept={accept}
+          customRequest={customRequest}
+          showUploadList={false}
+          multiple
+          disabled={frozen}
+        >
           <p className="ant-upload-text">{t("files.uploadHint")}</p>
           <p className="ant-upload-hint">{t("files.acceptHint", { accept })}</p>
         </Upload.Dragger>
+      )}
+      {frozen && (
+        <Alert type="warning" showIcon message={t("files.frozenNotice")} />
       )}
       <FilesToolbar
         search={search}
@@ -168,9 +228,33 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
           description={ingestReason ? t(`files.ingestCheck.${ingestReason}`) : undefined}
         />
       )}
+      {canEdit && (
+        <Space>
+          <Button
+            danger
+            disabled={frozen || selected.length === 0}
+            onClick={confirmBulkDelete}
+          >
+            {t("files.bulkDelete")}
+          </Button>
+        </Space>
+      )}
       <Spin spinning={files.isFetching}>
-        <FilesTable files={visible} canEdit={canEdit} onDelete={(name) => deleteFile.mutate(name)} />
+        <FilesTable
+          files={visible}
+          canEdit={canEdit}
+          frozen={frozen}
+          selected={selected}
+          onSelect={setSelected}
+          onDelete={(name) => deleteFile.mutate(name)}
+          onPreview={setPreviewName}
+        />
       </Spin>
+      <FilePreviewDrawer
+        projectId={projectId}
+        name={previewName}
+        onClose={() => setPreviewName(null)}
+      />
     </Space>
   );
 }

@@ -4,7 +4,7 @@ import type { TableProps } from "antd";
 import type { FileEntry } from "../../api/types";
 import { STATE_COLOR, humanBytes, isIndexState, useStateCopy } from "./indexState";
 
-export default function FilesTable({ files, canEdit, frozen = false, onDelete, onPreview }: {
+export default function FilesTable({ files, canEdit, frozen = false, selected, onSelect, onDelete, onPreview }: {
   files: FileEntry[];
   canEdit: boolean;
   // While an index/update job is active the panel locks every mutating
@@ -24,6 +24,22 @@ export default function FilesTable({ files, canEdit, frozen = false, onDelete, o
   const { t, i18n } = useTranslation();
   const copy = useStateCopy();
 
+  // Selection exists only for the bulk actions (canEdit). A removed row is
+  // inert: the checkbox is hidden (not merely disabled) so the row reads
+  // as having nothing to act on, and aria-label carries the filename so
+  // row-scoped role queries can address it.
+  const rowSelection: TableProps<FileEntry>["rowSelection"] =
+    canEdit && onSelect
+      ? {
+          selectedRowKeys: selected ?? [],
+          onChange: (keys) => onSelect(keys as string[]),
+          getCheckboxProps: (f: FileEntry) => ({
+            disabled: f.index_state === "removed",
+            "aria-label": f.name,
+            style: f.index_state === "removed" ? { display: "none" } : undefined,
+          }),
+        }
+      : undefined;
   const columns: TableProps<FileEntry>["columns"] = [
     {
       title: t("common.name"),
@@ -81,6 +97,7 @@ export default function FilesTable({ files, canEdit, frozen = false, onDelete, o
       size="small"
       dataSource={files}
       columns={columns}
+      rowSelection={rowSelection}
       pagination={false}
     />
   );

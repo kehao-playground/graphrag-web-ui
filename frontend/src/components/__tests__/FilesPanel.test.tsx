@@ -20,6 +20,14 @@ vi.mock("../../api/client", async (importOriginal) => ({
     if (path === "/api/projects/p1/tags") {
       return new Response(JSON.stringify({ tags: [{ name: "policy", count: 1 }] }), { status: 200 });
     }
+    if (path === "/api/projects/p1/jobs/preflight") {
+      return new Response(JSON.stringify(preflightBody), { status: 200 });
+    }
+    if (path === "/api/projects/p1/files/notes.txt/preview") {
+      return new Response(JSON.stringify({
+        text: "PREVIEW-BODY", offset: 0, total_size: 12, match: false,
+      }), { status: 200 });
+    }
     return new Response(JSON.stringify({}), { status: 200 });
   }),
 }));
@@ -44,14 +52,25 @@ const FILES_BODY = {
 // suite stays order-independent.
 let filesBody: Record<string, unknown> = FILES_BODY;
 
+// PreflightOut as far as the panel cares: the active job that freezes
+// document work (spec 5.2b), or null.
+let preflightBody: Record<string, unknown> = { active_job: null };
+
 beforeEach(() => {
   filesBody = FILES_BODY;
+  preflightBody = { active_job: null };
 });
 
 // Composition wrapper: the panel under a fresh QueryClient, inside a router
 // whose initial URL can seed the ?state= filter (the slice ③ landing path).
-function renderPanel(opts: { route?: string; body?: Record<string, unknown> } = {}) {
+// activeJob seeds the preflight mock with a freezing job (index/update).
+function renderPanel(opts: {
+  route?: string;
+  body?: Record<string, unknown>;
+  activeJob?: { id: string; type: string } | null;
+} = {}) {
   filesBody = opts.body ?? FILES_BODY;
+  if (opts.activeJob !== undefined) preflightBody = { active_job: opts.activeJob };
   return render(
     <QueryClientProvider client={new QueryClient()}>
       <MemoryRouter initialEntries={[opts.route ?? "/"]}>
@@ -121,4 +140,35 @@ test("the not-yet-indexed bar counts new+modified and links to jobs", async () =
   // draft.md is modified, notes.txt indexed, gone.md removed → 1 pending.
   expect(await screen.findByText("尚有 1 份文件未建立索引")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "前往任務" })).toHaveAttribute("href", "/projects/p1?tab=jobs");
+});
+
+test("bulk delete confirms with count and total size", async () => {
+  renderPanel();
+  await userEvent.click(await screen.findByRole("checkbox", { name: /notes.txt/ }));
+  await userEvent.click(screen.getByRole("checkbox", { name: /draft.md/ }));
+  await userEvent.click(screen.getByRole("button", { name: "刪除所選" }));
+  // Deleting 30 documents is not the same act as deleting one.
+  // antd renders the confirm title twice in the DOM (title div + an
+  // internal span), so "at least one visible copy" is the honest pin.
+  expect((await screen.findAllByText(/2 個檔案/)).length).toBeGreaterThan(0);
+  expect(screen.getAllByText(/1.5 KiB/).length).toBeGreaterThan(0);
+});
+
+test("a removed row offers no selection and no actions", async () => {
+  renderPanel();
+  const removedRow = (await screen.findByText("gone.md")).closest("tr")!;
+  expect(within(removedRow).queryByRole("checkbox")).not.toBeInTheDocument();
+  expect(within(removedRow).queryByRole("button", { name: "刪除" })).not.toBeInTheDocument();
+});
+
+test("uploader and delete are disabled with a reason while indexing", async () => {
+  renderPanel({ activeJob: { id: "j1", type: "index" } });
+  expect(await screen.findByText(/索引作業執行中，暫停文件異動/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "刪除所選" })).toBeDisabled();
+});
+
+test("clicking a row name opens the preview drawer with the head window", async () => {
+  renderPanel();
+  await userEvent.click(await screen.findByText("notes.txt"));
+  expect(await screen.findByText("PREVIEW-BODY")).toBeInTheDocument();
 });
