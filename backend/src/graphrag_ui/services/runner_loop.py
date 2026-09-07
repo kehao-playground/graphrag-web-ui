@@ -19,6 +19,8 @@ from graphrag_ui.adapters.db import get_session_factory
 from graphrag_ui.adapters.index_runner import IndexRunner, RunResult, log_path_for
 from graphrag_ui.adapters.models import Job
 from graphrag_ui.config import get_settings
+from graphrag_ui.services import index_snapshots
+from graphrag_ui.services.project_lock import FREEZING_JOB_TYPES
 from graphrag_ui.services.projects import ws_path
 from graphrag_ui.services.retention import prune_update_output
 
@@ -97,6 +99,13 @@ async def _execute(job_id: uuid.UUID) -> None:
 
     hb_task = asyncio.create_task(watch())
     try:
+        if job_type in FREEZING_JOB_TYPES:
+            async with get_session_factory()() as s:
+                await index_snapshots.capture_start(s, project_id, job_id)
+            async with get_session_factory()() as s:
+                # Immediately before the spawn, promoted or not: every
+                # attempt that can write output/ moves the epoch (spec 7.4).
+                await index_snapshots.bump_artifact_epoch(s, project_id)
         res = await IndexRunner().run(
             argv=argv,
             root=root,
@@ -120,8 +129,19 @@ async def _execute(job_id: uuid.UUID) -> None:
         except Exception:  # a dead watcher must not block finish()
             logger.warning("watch task ended with an error", exc_info=True)
     async with get_session_factory()() as s:
+        job = await jobs_repo.get_job(s, job_id)
         await jobs_repo.finish(
-            s, job_id, res.status, exit_code=res.exit_code, error=res.error, stats=res.stats
+            s,
+            job_id,
+            res.status,
+            exit_code=res.exit_code,
+            error=res.error,
+            stats=res.stats,
+            on_before_commit=(
+                None
+                if job is None
+                else lambda sess: index_snapshots.promote_after_finish(sess, job_id, res.status)
+            ),
         )
     if job_type == "update" and res.status == "succeeded":
         # Retention (spec §6.3): the merge already consumed older deltas;

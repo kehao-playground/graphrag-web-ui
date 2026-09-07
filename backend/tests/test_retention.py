@@ -6,16 +6,21 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from sqlalchemy import update
+from sqlalchemy import select, update
 
 from graphrag_ui.adapters import jobs_repo
 from graphrag_ui.adapters.db import get_session_factory
 from graphrag_ui.adapters.index_runner import RunResult
-from graphrag_ui.adapters.models import Job, Project, User
+from graphrag_ui.adapters.models import IndexSnapshot, IndexSnapshotEntry, Job, Project, User
 from graphrag_ui.config import get_settings
 from graphrag_ui.services import runner_loop
 from graphrag_ui.services.projects import ws_path
-from graphrag_ui.services.retention import prune_update_output, sweep_all, sweep_job_logs
+from graphrag_ui.services.retention import (
+    prune_update_output,
+    sweep_all,
+    sweep_index_snapshots,
+    sweep_job_logs,
+)
 
 NOW = datetime(2026, 8, 21, 12, 0, 0, tzinfo=UTC)
 
@@ -144,7 +149,73 @@ async def test_sweep_all_prunes_and_sweeps(app, tmp_path):
 
 async def test_sweep_all_safe_on_empty_workspaces(app):
     res = await sweep_all()
-    assert res == {"deleted_logs": 0, "pruned_dirs": 0}
+    assert res == {"deleted_logs": 0, "pruned_dirs": 0, "deleted_snapshots": 0}
+
+
+async def test_sweep_prunes_old_start_rows_but_keeps_the_current_baseline_both(app):
+    """Snapshot pruning (spec 6.3 retention): the current baseline's job
+    keeps BOTH its rows (start + baseline) — that is the live evidence the
+    per-file listing computes from — while an older failed job's start row,
+    past the failed-log window, is superseded input hash and goes."""
+    async with get_session_factory()() as s:
+        u = User(email=f"u{uuid.uuid4().hex[:6]}@t.local", password_hash="x", display_name="u")
+        s.add(u)
+        await s.flush()
+        p = Project(
+            name="p", slug=f"s-{uuid.uuid4().hex[:8]}", owner_id=u.id, input_file_type="text"
+        )
+        s.add(p)
+        await s.flush()
+
+        async def _terminal_job(status: str, finished_at: datetime) -> Job:
+            job = await jobs_repo.insert_job(
+                s,
+                project_id=p.id,
+                type="index",
+                method="fast",
+                argv=["index", "--root", "/ws", "--method", "fast"],
+                queued_by=u.id,
+            )
+            await s.commit()
+            await jobs_repo.claim_next(s, "w-seed")
+            await jobs_repo.finish(s, job.id, status)
+            # finish() stamps func.now(); the sweep needs a controlled clock.
+            await s.execute(update(Job).where(Job.id == job.id).values(finished_at=finished_at))
+            await s.commit()
+            return job
+
+        async def _snapshot(job: Job, kind: str) -> uuid.UUID:
+            row = IndexSnapshot(
+                job_id=job.id,
+                project_id=p.id,
+                kind=kind,
+                attributable_titles=[],
+                title_recovery="available",
+            )
+            s.add(row)
+            await s.flush()
+            s.add(IndexSnapshotEntry(snapshot_id=row.id, name="a.md", sha256="h1"))
+            await s.commit()
+            return row.id
+
+        old = await _terminal_job("failed", NOW - timedelta(days=91))
+        old_start = await _snapshot(old, "start")
+        current = await _terminal_job("succeeded", NOW - timedelta(days=1))
+        current_start = await _snapshot(current, "start")
+        current_baseline = await _snapshot(current, "baseline")
+        await s.execute(
+            update(Project).where(Project.id == p.id).values(baseline_snapshot_id=current_baseline)
+        )
+        await s.commit()
+
+    async with get_session_factory()() as s:
+        res = await sweep_index_snapshots(s, NOW)
+    assert res == {"deleted_snapshots": 1}
+
+    async with get_session_factory()() as s:
+        remaining = set((await s.execute(select(IndexSnapshot.id))).scalars().all())
+    assert old_start not in remaining
+    assert {current_start, current_baseline} <= remaining
 
 
 async def _seed_running_job(type: str) -> tuple[uuid.UUID, Path]:

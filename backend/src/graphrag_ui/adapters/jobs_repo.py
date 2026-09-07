@@ -2,6 +2,7 @@
 their own transaction except insert_job (caller owns enqueue semantics)."""
 
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import cast
 
@@ -87,6 +88,7 @@ async def finish(
     exit_code: int | None = None,
     error: str | None = None,
     stats: dict | None = None,
+    on_before_commit: Callable[[AsyncSession], Awaitable[None]] | None = None,
 ) -> None:
     if status not in TERMINAL_STATUSES:
         msg = f"non-terminal finish status: {status}"
@@ -98,6 +100,11 @@ async def finish(
             status=status, exit_code=exit_code, error=error, stats=stats, finished_at=func.now()
         )
     )
+    if on_before_commit is not None:
+        # Baseline promotion must land in the SAME transaction that marks the
+        # job succeeded (spec 5.2): otherwise a crash between the two leaves
+        # a project pointing at a baseline for a job that never finished.
+        await on_before_commit(session)
     await session.commit()
     await _reload(session, job_id)
 

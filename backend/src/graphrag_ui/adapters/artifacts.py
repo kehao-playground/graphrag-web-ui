@@ -197,6 +197,18 @@ def graph(root: Path, level: int | None = None, node_limit: int | None = None) -
     }
 
 
+def read_document_titles(root: Path) -> list[str] | None:
+    """documents.title for every indexed document, or None when the parquet
+    is absent. One duckdb read of a single column - the whole documents table
+    is never loaded (documents is not in FrameCache.TABLES)."""
+    path = root / "output" / "documents.parquet"
+    if not path.is_file():
+        return None
+    with duckdb.connect(":memory:") as con:
+        rows = con.execute("SELECT title FROM read_parquet(?)", [str(path)]).fetchall()
+    return [str(r[0]) for r in rows if r[0] is not None]
+
+
 def _clean(value: Any) -> Any:
     """Coerce a duckdb value into JSON-safe primitives (recursive)."""
     if value is None or isinstance(value, (bool, int, float, str)):

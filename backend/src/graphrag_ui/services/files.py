@@ -99,6 +99,16 @@ def _dir_size(path: Path) -> int:
     return sum(p.stat().st_size for p in path.rglob("*") if p.is_file())
 
 
+def sha256_file(path: Path) -> str:
+    """Streaming sha256; used by discovery and by the start snapshot, which
+    both hash files nobody just uploaded."""
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        while chunk := fh.read(_CHUNK_BYTES):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def quota_bytes() -> int:
     return get_settings().project_quota_mb * _MIB
 
