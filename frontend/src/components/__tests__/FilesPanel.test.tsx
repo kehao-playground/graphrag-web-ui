@@ -1,5 +1,6 @@
-import { render, screen } from "@testing-library/react";
-import { vi } from "vitest";
+import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { vi, beforeEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import FilesPanel from "../FilesPanel";
@@ -14,36 +15,110 @@ vi.mock("../../api/client", async (importOriginal) => ({
     // Route by URL like Projects.test.tsx: the FilesOut fixture is only
     // served on the /files endpoint, so a wrong-path query starves the panel.
     if (path === "/api/projects/p1/files") {
-      return new Response(JSON.stringify({
-        files: [
-          { name: "notes.txt", size: 1024, modified_at: "2026-08-19T00:00:00Z" },
-          { name: "readme.md", size: 512, modified_at: "2026-08-19T01:00:00Z" },
-        ],
-        usage_bytes: 1536,
-        quota_bytes: 10240,
-      }), { status: 200 });
+      return new Response(JSON.stringify(filesBody), { status: 200 });
+    }
+    if (path === "/api/projects/p1/tags") {
+      return new Response(JSON.stringify({ tags: [{ name: "policy", count: 1 }] }), { status: 200 });
     }
     return new Response(JSON.stringify({}), { status: 200 });
   }),
 }));
 
-test("renders file names and quota percent from GET files", async () => {
-  const qc = new QueryClient()
-  render(
-    <QueryClientProvider client={qc}>
-      <MemoryRouter>
+// FileListOut fixture (Task 5): FileEntryOut rows carry index_state and
+// tags, the response carries ingest_check/has_baseline. One row per state
+// the split must render, plus a removed row with all-null file facts.
+const FILES_BODY = {
+  files: [
+    { name: "notes.txt", size: 1024, modified_at: "2026-08-19T00:00:00Z",
+      sha256: "aa", index_state: "indexed", tags: ["policy"] },
+    { name: "draft.md", size: 512, modified_at: "2026-08-19T01:00:00Z",
+      sha256: "bb", index_state: "modified", tags: [] },
+    { name: "gone.md", size: null, modified_at: null, sha256: null,
+      index_state: "removed", tags: [] },
+  ],
+  usage_bytes: 1536, quota_bytes: 10240,
+  ingest_check: "available", has_baseline: true,
+};
+
+// Mutable so the banner test can swap ingest_check; reset per test so the
+// suite stays order-independent.
+let filesBody: Record<string, unknown> = FILES_BODY;
+
+beforeEach(() => {
+  filesBody = FILES_BODY;
+});
+
+// Composition wrapper: the panel under a fresh QueryClient, inside a router
+// whose initial URL can seed the ?state= filter (the slice ③ landing path).
+function renderPanel(opts: { route?: string; body?: Record<string, unknown> } = {}) {
+  filesBody = opts.body ?? FILES_BODY;
+  return render(
+    <QueryClientProvider client={new QueryClient()}>
+      <MemoryRouter initialEntries={[opts.route ?? "/"]}>
         <FilesPanel projectId="p1" inputFileType="text" canEdit />
       </MemoryRouter>
     </QueryClientProvider>,
-  )
-  expect(await screen.findByText("notes.txt")).toBeInTheDocument()
-  expect(screen.getByText("readme.md")).toBeInTheDocument()
+  );
+}
+
+test("renders file names and quota percent from GET files", async () => {
+  renderPanel();
+  expect(await screen.findByText("notes.txt")).toBeInTheDocument();
+  expect(screen.getByText("draft.md")).toBeInTheDocument();
   // 1536 / 10240 = 15%
-  expect(screen.getByText("15%")).toBeInTheDocument()
+  expect(screen.getByText("15%")).toBeInTheDocument();
   // human-readable binary units: sub-KiB sizes stay in bytes, larger
   // values scale KiB -> MiB -> GiB (5 GB quota renders "4.9 GiB", not
   // "5120000.0 KiB")
-  expect(screen.getByText("1.0 KiB")).toBeInTheDocument()
-  expect(screen.getByText("512 B")).toBeInTheDocument()
-  expect(screen.getByText("已使用 1.5 KiB / 10.0 KiB")).toBeInTheDocument()
-})
+  expect(screen.getByText("1.0 KiB")).toBeInTheDocument();
+  expect(screen.getByText("512 B")).toBeInTheDocument();
+  expect(screen.getByText("已使用 1.5 KiB / 10.0 KiB")).toBeInTheDocument();
+});
+
+test("renders an index state per row, and a removed row shows no size", async () => {
+  renderPanel();
+  expect(await screen.findByText("已索引")).toBeInTheDocument();
+  expect(screen.getByText("已修改")).toBeInTheDocument();
+  expect(screen.getByText("已刪除")).toBeInTheDocument();
+  const removedRow = screen.getByText("gone.md").closest("tr")!;
+  expect(within(removedRow).getByText("—")).toBeInTheDocument();
+});
+
+test("a removed row explains that only a full rebuild clears it", async () => {
+  renderPanel();
+  await userEvent.hover(await screen.findByText("已刪除"));
+  expect(await screen.findByText(/完整重建/)).toBeInTheDocument();
+});
+
+test("filename search filters client-side", async () => {
+  renderPanel();
+  await userEvent.type(await screen.findByPlaceholderText("搜尋檔名…"), "draft");
+  expect(screen.getByText("draft.md")).toBeInTheDocument();
+  expect(screen.queryByText("notes.txt")).not.toBeInTheDocument();
+});
+
+test("the state filter is seeded from the ?state= query param", async () => {
+  renderPanel({ route: "/projects/p1/files?state=modified" });
+  expect(await screen.findByText("draft.md")).toBeInTheDocument();
+  expect(screen.queryByText("notes.txt")).not.toBeInTheDocument();
+});
+
+test("an unavailable ingest check shows one banner naming the reason", async () => {
+  renderPanel({ body: { ...FILES_BODY, ingest_check: "unavailable_title_column" } });
+  expect(await screen.findByText(/靜默略過偵測已關閉/)).toBeInTheDocument();
+  // One banner for the table, never one per row.
+  expect(screen.getAllByText(/靜默略過偵測已關閉/)).toHaveLength(1);
+});
+
+test("no banner when the check is available", async () => {
+  renderPanel();
+  await screen.findByText("notes.txt");
+  expect(screen.queryByText(/靜默略過偵測已關閉/)).not.toBeInTheDocument();
+});
+
+test("the not-yet-indexed bar counts new+modified and links to jobs", async () => {
+  renderPanel();
+  // draft.md is modified, notes.txt indexed, gone.md removed → 1 pending.
+  expect(await screen.findByText("尚有 1 份文件未建立索引")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "前往任務" })).toHaveAttribute("href", "/projects/p1?tab=jobs");
+});
