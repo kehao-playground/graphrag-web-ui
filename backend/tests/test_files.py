@@ -792,3 +792,17 @@ async def test_passage_bound_is_bytes_not_characters(client, alice_project):
     assert (await client.post(url, headers=alice, json={"passage": "a" * 4097})).status_code == 422
     # 2000 CJK characters = 6000 UTF-8 bytes: under a character cap, over the byte cap.
     assert (await client.post(url, headers=alice, json={"passage": "字" * 2000})).status_code == 422
+
+
+async def test_preview_maps_invalid_filenames_to_a_structured_400(client, alice_project):
+    """Regression: the preview routes once let FileServiceError escape as a
+    500; they map it to the same 400 shape as every sibling file route."""
+    alice, pid = alice_project
+    r = await client.get(f"/api/projects/{pid}/files/noext/preview", headers=alice)
+    assert r.status_code == 400
+    assert r.json()["code"] == "file_ext_not_allowed"
+    r = await client.post(
+        f"/api/projects/{pid}/files/.hidden.md/preview", headers=alice, json={"passage": "x"}
+    )
+    assert r.status_code == 400
+    assert r.json()["code"] == "file_name_leading_dot"

@@ -323,6 +323,8 @@ def register_files_routes(app):
             raise _forbidden()
         try:
             return PreviewOut(**await files_service.preview_file(project, filename))
+        except FileServiceError as e:
+            raise ApiError(status.HTTP_400_BAD_REQUEST, e.code, str(e), e.params) from None
         except FileNotFoundError:
             raise ApiError(status.HTTP_404_NOT_FOUND, "file_not_found", "file not found") from None
 
@@ -342,6 +344,8 @@ def register_files_routes(app):
             return PreviewOut(
                 **await files_service.preview_file(project, filename, around=body.passage)
             )
+        except FileServiceError as e:
+            raise ApiError(status.HTTP_400_BAD_REQUEST, e.code, str(e), e.params) from None
         except FileNotFoundError:
             raise ApiError(status.HTTP_404_NOT_FOUND, "file_not_found", "file not found") from None
 
