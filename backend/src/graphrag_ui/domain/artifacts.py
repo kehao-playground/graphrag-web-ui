@@ -16,7 +16,10 @@ still holds because the adapter resolves it through that join.
 Pure domain layer: no I/O, no external imports.
 """
 
+import re
+from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -104,3 +107,47 @@ TABLES: dict[str, TableSpec] = {
 def table_spec(name: str) -> TableSpec | None:
     """Look up a table spec; None for unknown names (incl. 'graph')."""
     return TABLES.get(name)
+
+
+# graphrag_input/structured_file_reader.py:48-53 appends " (N)" to a
+# structured file's title when the file yields more than one row. Anchored
+# at the end and requiring at least one digit, so "report (1).csv" - a real
+# filename - is never treated as a suffixed title.
+_ROW_SUFFIX_RE = re.compile(r" \(\d+\)$")
+
+
+def title_column_configured(settings_data: Any) -> bool:
+    """Rule 1 of the recovery rule (spec 6.3): with input.title_column set,
+    a title is arbitrary row data and no filename can be attributed to it.
+
+    We never write title_column ourselves (adapters/workspace.py sets only
+    input.type and input.file_pattern), but SettingsPanel lets a user
+    hand-edit settings.yaml, so the case is reachable and is detected rather
+    than assumed away.
+    """
+    if not isinstance(settings_data, dict):
+        return False
+    section = settings_data.get("input")
+    if not isinstance(section, dict):
+        return False
+    return bool(section.get("title_column"))
+
+
+def recover_filename(title: str, candidates: frozenset[str]) -> str | None:
+    """Map one documents.title back to a filename, or None.
+
+    Exact match is tried FIRST so a single-row file genuinely named
+    "report (1).csv" is not stripped down to a name that does not exist.
+    """
+    if title in candidates:
+        return title
+    stripped = _ROW_SUFFIX_RE.sub("", title)
+    if stripped != title and stripped in candidates:
+        return stripped
+    return None
+
+
+def recover_filenames(titles: Iterable[str], candidates: frozenset[str]) -> frozenset[str]:
+    """Filenames attributable to a set of titles; unmatched titles vanish."""
+    out = {recover_filename(t, candidates) for t in titles}
+    return frozenset(n for n in out if n is not None)
