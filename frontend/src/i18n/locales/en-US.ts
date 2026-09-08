@@ -35,7 +35,7 @@ const enUS = {
     file_not_found: "File not found",
     project_indexing: "An indexing job is running; document and settings changes are paused",
     job_not_found: "Job not found",
-    job_conflict: "An indexing job is already active for this project",
+    job_conflict: "A job is already active for this project",
     disk_watermark: "Insufficient free disk space",
     job_already_finished: "Job already finished",
     job_invalid_last_event_id: "Invalid Last-Event-ID",

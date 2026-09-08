@@ -65,6 +65,16 @@ async def heartbeat(
     await _reload(session, job_id)
 
 
+async def set_progress(session: AsyncSession, job_id: uuid.UUID, done: int, total: int) -> None:
+    """Batch progress tick. Reassigns the whole JSONB value — the column has
+    no mutation tracking, so an in-place edit would never flush."""
+    await session.execute(
+        update(Job).where(Job.id == job_id).values(progress={"done": done, "total": total})
+    )
+    await session.commit()
+    await _reload(session, job_id)
+
+
 async def request_cancel(session: AsyncSession, job_id: uuid.UUID) -> bool:
     res = await session.execute(
         update(Job)

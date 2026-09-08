@@ -33,7 +33,7 @@ export default {
     project_indexing: "索引作業執行中,文件與設定異動已暫停",
     // jobs
     job_not_found: "找不到任務",
-    job_conflict: "此專案已有進行中的索引任務",
+    job_conflict: "此專案已有進行中的任務",
     disk_watermark: "磁碟剩餘空間不足",
     job_already_finished: "任務已結束",
     job_invalid_last_event_id: "無效的 Last-Event-ID",

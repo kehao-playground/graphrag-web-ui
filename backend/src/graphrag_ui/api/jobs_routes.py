@@ -84,7 +84,7 @@ def register_jobs_routes(app):
             raise ApiError(
                 status.HTTP_409_CONFLICT,
                 "job_conflict",
-                "this project already has an indexing job in progress",
+                "this project already has a job in progress",
             ) from None
         except DiskWatermarkError:
             raise ApiError(

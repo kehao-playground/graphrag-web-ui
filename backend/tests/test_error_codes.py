@@ -150,7 +150,7 @@ async def test_job_conflict_carries_code(client, app):
     )
     assert r.status_code == 409
     body = r.json()
-    assert body["detail"] == "this project already has an indexing job in progress"
+    assert body["detail"] == "this project already has a job in progress"
     assert body["code"] == "job_conflict"
 
 
