@@ -37,6 +37,10 @@ export default {
     disk_watermark: "磁碟剩餘空間不足",
     job_already_finished: "任務已結束",
     job_invalid_last_event_id: "無效的 Last-Event-ID",
+    // question sets
+    question_set_not_found: "找不到題組",
+    question_not_found: "找不到問題",
+    question_set_too_large: "一個題組最多 {{max_questions}} 題",
     // projects
     project_not_found: "專案不存在",
     init_failed: "graphrag init 失敗",

@@ -17,6 +17,9 @@ KNOWN_UNTYPED = {
     # response body on 204, so they join the debt set like every other
     # no-content endpoint rather than declaring a bogus response_model.
     "DELETE /api/projects/{pid}/files/{filename}/tags",
+    # kb slice 2: same 204-no-content reason as the tag routes above.
+    "DELETE /api/projects/{pid}/question-sets/{sid}",
+    "DELETE /api/projects/{pid}/question-sets/{sid}/questions/{qid}",
     "DELETE /api/projects/{project_id}",
     "DELETE /api/projects/{project_id}/members/{user_id}",
     "GET /api/health",
