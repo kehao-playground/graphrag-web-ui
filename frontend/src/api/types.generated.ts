@@ -700,6 +700,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{pid}/test-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Matrix */
+        get: operations["get_matrix_api_projects__pid__test_runs_get"];
+        put?: never;
+        /** Start Run */
+        post: operations["start_run_api_projects__pid__test_runs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}": {
         parameters: {
             query?: never;
@@ -780,6 +798,40 @@ export interface paths {
         };
         /** Get Roles */
         get: operations["get_roles_api_roles_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/test-results/{rid}/rating": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Put Rating */
+        put: operations["put_rating_api_test_results__rid__rating_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/test-runs/{rid}/results": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Results */
+        get: operations["get_results_api_test_runs__rid__results_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -878,6 +930,19 @@ export interface components {
             bytes: number;
             /** Deleted */
             deleted: number;
+        };
+        /** CellOut */
+        CellOut: {
+            /** Completed */
+            completed: boolean;
+            /** Error */
+            error: string | null;
+            /** Question Text */
+            question_text: string;
+            /** Rating */
+            rating: string | null;
+            /** Result Id */
+            result_id: string;
         };
         /** ChangePasswordIn */
         ChangePasswordIn: {
@@ -1036,6 +1101,13 @@ export interface components {
             refresh_token: string;
             user: components["schemas"]["UserOut"];
         };
+        /** MatrixOut */
+        MatrixOut: {
+            /** Rows */
+            rows: components["schemas"]["RowOut"][];
+            /** Runs */
+            runs: components["schemas"]["RunOut"][];
+        };
         /** MemberIn */
         MemberIn: {
             /**
@@ -1171,6 +1243,33 @@ export interface components {
             /** Text */
             text: string;
         };
+        /** RatingIn */
+        RatingIn: {
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /**
+             * Score
+             * @enum {string}
+             */
+            score: "good" | "fair" | "poor";
+        };
+        /** RatingOut */
+        RatingOut: {
+            /** Note */
+            note: string;
+            /**
+             * Rated At
+             * Format: date-time
+             */
+            rated_at: string;
+            /** Rated By */
+            rated_by: string;
+            /** Score */
+            score: string;
+        };
         /** RefreshIn */
         RefreshIn: {
             /** Refresh Token */
@@ -1187,6 +1286,35 @@ export interface components {
         ResetPasswordIn: {
             /** New Password */
             new_password: string;
+        };
+        /** ResultListOut */
+        ResultListOut: {
+            /** Results */
+            results: components["schemas"]["ResultOut"][];
+        };
+        /** ResultOut */
+        ResultOut: {
+            /** Answer */
+            answer: string | null;
+            /** Citations */
+            citations: unknown[] | null;
+            /** Completed At */
+            completed_at: string | null;
+            /** Error */
+            error: string | null;
+            /** Id */
+            id: string;
+            /** Position */
+            position: number;
+            /** Question Id */
+            question_id: string;
+            /** Question Text */
+            question_text: string;
+            rating: components["schemas"]["RatingOut"] | null;
+            /** Timings */
+            timings: {
+                [key: string]: unknown;
+            } | null;
         };
         /** RoleCreateIn */
         RoleCreateIn: {
@@ -1236,6 +1364,45 @@ export interface components {
             name: string;
             /** Permissions */
             permissions: string[];
+        };
+        /** RowOut */
+        RowOut: {
+            /** Cells */
+            cells: (components["schemas"]["CellOut"] | null)[];
+            /** Lineage Id */
+            lineage_id: string;
+        };
+        /** RunIn */
+        RunIn: {
+            /**
+             * Method
+             * @enum {string}
+             */
+            method: "local" | "global" | "drift" | "basic";
+            /**
+             * Set Id
+             * Format: uuid
+             */
+            set_id: string;
+        };
+        /** RunOut */
+        RunOut: {
+            /** Finished At */
+            finished_at: string | null;
+            /** Id */
+            id: string;
+            /** Index Job Id */
+            index_job_id: string | null;
+            /** Job Id */
+            job_id: string;
+            /** Method */
+            method: string;
+            /** Set Id */
+            set_id: string;
+            /** Started At */
+            started_at: string | null;
+            /** Workspace Config Revision */
+            workspace_config_revision: string | null;
         };
         /** SetIn */
         SetIn: {
@@ -2518,7 +2685,9 @@ export interface operations {
     };
     list_jobs_api_projects__pid__jobs_get: {
         parameters: {
-            query?: never;
+            query?: {
+                type?: ("index" | "update" | "test_run") | null;
+            };
             header?: never;
             path: {
                 pid: string;
@@ -3076,6 +3245,74 @@ export interface operations {
             };
         };
     };
+    get_matrix_api_projects__pid__test_runs_get: {
+        parameters: {
+            query?: {
+                runs?: number;
+            };
+            header?: never;
+            path: {
+                pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MatrixOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_run_api_projects__pid__test_runs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_one_api_projects__project_id__get: {
         parameters: {
             query?: never;
@@ -3306,6 +3543,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RoleOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_rating_api_test_results__rid__rating_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RatingIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RatingOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_results_api_test_runs__rid__results_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResultListOut"];
                 };
             };
             /** @description Validation Error */

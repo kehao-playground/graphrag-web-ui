@@ -4,8 +4,9 @@ read/list/logs = project:view."""
 
 import json
 import uuid
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Header, status
+from fastapi import APIRouter, Depends, Header, Query, status
 from fastapi.responses import StreamingResponse
 
 from graphrag_ui.adapters.db import get_session_factory
@@ -93,7 +94,17 @@ def register_jobs_routes(app):
         return job_out(job)
 
     @router.get("/projects/{pid}/jobs", response_model=list[JobOut])
-    async def list_jobs(pid: uuid.UUID, db: DbSession, user: CurrentUser):
+    async def list_jobs(
+        pid: uuid.UUID,
+        db: DbSession,
+        user: CurrentUser,
+        # Static Literal spelling of domain.jobs.JOB_TYPES (same posture
+        # as JobCreateIn): validates, feeds the OpenAPI enum, and an
+        # unknown type is a 422 rather than a silently empty list.
+        type: Annotated[Literal["index", "update", "test_run"] | None, Query()] = None,
+    ):
+        # Server-side exclusion so the jobs page can drop test_run rows
+        # (spec 8).
         await _project_or_404(db, pid)
         if not can(
             user.global_perms,
@@ -102,7 +113,7 @@ def register_jobs_routes(app):
             await get_member_perms(db, pid, user.id),
         ):
             raise _forbidden()
-        return [job_out(j) for j in await jobs_service.list_for_project(db, pid)]
+        return [job_out(j) for j in await jobs_service.list_for_project(db, pid, job_type=type)]
 
     @router.get("/projects/{pid}/jobs/preflight", response_model=PreflightOut)
     async def preflight(pid: uuid.UUID, db: DbSession, user: CurrentUser):

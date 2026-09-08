@@ -66,8 +66,10 @@ async def get(session: AsyncSession, job_id: uuid.UUID) -> Job | None:
     return await jobs_repo.get_job(session, job_id)
 
 
-async def list_for_project(session: AsyncSession, project_id) -> list[Job]:
-    return await jobs_repo.list_jobs(session, project_id)
+async def list_for_project(
+    session: AsyncSession, project_id: uuid.UUID, *, job_type: str | None = None
+) -> list[Job]:
+    return await jobs_repo.list_jobs(session, project_id, job_type=job_type)
 
 
 async def active_job(session: AsyncSession, project_id) -> Job | None:

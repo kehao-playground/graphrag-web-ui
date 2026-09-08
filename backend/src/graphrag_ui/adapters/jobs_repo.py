@@ -132,10 +132,13 @@ async def get_job(session: AsyncSession, job_id: uuid.UUID) -> Job | None:
     return await session.get(Job, job_id)
 
 
-async def list_jobs(session: AsyncSession, project_id: uuid.UUID, limit: int = 50) -> list[Job]:
-    res = await session.execute(
-        select(Job).where(Job.project_id == project_id).order_by(Job.queued_at.desc()).limit(limit)
-    )
+async def list_jobs(
+    session: AsyncSession, project_id: uuid.UUID, limit: int = 50, *, job_type: str | None = None
+) -> list[Job]:
+    query = select(Job).where(Job.project_id == project_id)
+    if job_type is not None:
+        query = query.where(Job.type == job_type)
+    res = await session.execute(query.order_by(Job.queued_at.desc()).limit(limit))
     return list(res.scalars().all())
 
 

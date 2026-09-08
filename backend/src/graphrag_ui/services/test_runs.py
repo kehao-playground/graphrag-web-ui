@@ -27,7 +27,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from graphrag_ui.adapters import jobs_repo
 from graphrag_ui.adapters.db import get_session_factory
 from graphrag_ui.adapters.index_runner import RunResult
-from graphrag_ui.adapters.models import Job, Project, TestResult, TestRun, User
+from graphrag_ui.adapters.models import (
+    Job,
+    Project,
+    Question,
+    ResultRating,
+    TestResult,
+    TestRun,
+    User,
+)
 from graphrag_ui.services import query as query_service
 from graphrag_ui.services.audit import audit
 from graphrag_ui.services.jobs import JobConflictError
@@ -267,3 +275,131 @@ async def execute_test_run(
     return RunResult(
         status="cancelled" if cancelled else "succeeded", exit_code=None, error=None, stats=None
     )
+
+
+async def get_run(session: AsyncSession, run_id: uuid.UUID) -> TestRun | None:
+    return await session.get(TestRun, run_id)
+
+
+async def list_results(
+    session: AsyncSession, run_id: uuid.UUID
+) -> list[tuple[TestResult, ResultRating | None]]:
+    """A run's results in ask order, each with its current rating (spec 5.3)."""
+    rows = (
+        await session.execute(
+            select(TestResult, ResultRating)
+            .outerjoin(ResultRating, ResultRating.result_id == TestResult.id)
+            .where(TestResult.run_id == run_id)
+            .order_by(TestResult.position)
+        )
+    ).all()
+    return [(result, rating) for result, rating in rows]
+
+
+async def run_matrix(
+    session: AsyncSession, project_id: uuid.UUID, limit: int
+) -> tuple[list[TestRun], list[tuple[uuid.UUID, list[tuple[TestResult, str | None] | None]]]]:
+    """The matrix window: the `limit` most recent runs OLDEST-first, plus
+    per-lineage cell lists aligned to them by position (spec 5.3).
+
+    Rows are lineages, not question rows: an edit forks a new question on
+    the same lineage, which keeps one row while each cell carries the text
+    actually asked. A lineage a run never asked is None at that position.
+    Rows keep first-introduction order: the earliest (window run, position)
+    pair a lineage appeared at, so the matrix reads top-to-bottom as the set
+    grew.
+    """
+    newest_first = list(
+        (
+            await session.execute(
+                select(TestRun)
+                .join(Job, Job.id == TestRun.job_id)
+                .where(TestRun.project_id == project_id)
+                .order_by(Job.queued_at.desc(), TestRun.id.desc())
+                .limit(limit)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    runs = list(reversed(newest_first))
+    index = {run.id: i for i, run in enumerate(runs)}
+    fetched = (
+        await session.execute(
+            select(TestResult, Question.lineage_id, ResultRating.score)
+            .join(Question, Question.id == TestResult.question_id)
+            .outerjoin(ResultRating, ResultRating.result_id == TestResult.id)
+            .where(TestResult.run_id.in_(index))
+            .order_by(TestResult.position)
+        )
+    ).all()
+    by_lineage: dict[uuid.UUID, list[tuple[TestResult, str | None] | None]] = {}
+    first_seen: dict[uuid.UUID, tuple[int, int]] = {}
+    for result, lineage_id, score in fetched:
+        i = index[result.run_id]
+        cells = by_lineage.setdefault(lineage_id, [None] * len(runs))
+        # One live question per lineage per set manifest, so a lineage
+        # appears at most once per run — never overwritten.
+        cells[i] = (result, score)
+        first_seen[lineage_id] = min(
+            first_seen.get(lineage_id, (i, result.position)), (i, result.position)
+        )
+    ordered = sorted(by_lineage.items(), key=lambda item: first_seen[item[0]])
+    return runs, [(lineage_id, cells) for lineage_id, cells in ordered]
+
+
+async def result_with_project(
+    session: AsyncSession, result_id: uuid.UUID
+) -> tuple[TestResult, uuid.UUID] | None:
+    """A result and its run's project id — the authz resolution path for
+    ratings (spec 8): permission is checked against the row's OWN project."""
+    row = (
+        await session.execute(
+            select(TestResult, TestRun.project_id)
+            .join(TestRun, TestRun.id == TestResult.run_id)
+            .where(TestResult.id == result_id)
+        )
+    ).first()
+    return None if row is None else (row[0], row[1])
+
+
+async def rate_result(
+    session: AsyncSession, result: TestResult, score: str, note: str, actor: User
+) -> ResultRating:
+    """Upsert the result's ONE current rating and audit test.rated (spec 5.3).
+
+    Project-shared, not per-user: a colleague must see the judgement this
+    writes. Who changed what is carried by the audit log, not by row
+    versioning, so re-rating overwrites the same row.
+    """
+    result_id = result.id
+    actor_id = actor.id
+    now = datetime.now(UTC)
+    rating = ResultRating(
+        result_id=result_id, score=score, note=note, rated_by=actor_id, rated_at=now
+    )
+    session.add(rating)
+    try:
+        await audit(
+            session, actor_id, "test.rated", "test_result", str(result_id), {"score": score}
+        )
+        await session.commit()
+        return rating
+    except IntegrityError:
+        # Lost the unique(result_id) race — or re-rating an existing row.
+        # Insert-and-map, never check-then-insert (models.py posture): a
+        # check-then-insert upsert turns two concurrent first-ratings into
+        # an unmapped 500 for the loser.
+        await session.rollback()
+        existing = (
+            await session.execute(select(ResultRating).where(ResultRating.result_id == result_id))
+        ).scalar_one()
+        existing.score = score
+        existing.note = note
+        existing.rated_by = actor_id
+        existing.rated_at = now
+        await audit(
+            session, actor_id, "test.rated", "test_result", str(result_id), {"score": score}
+        )
+        await session.commit()
+        return existing

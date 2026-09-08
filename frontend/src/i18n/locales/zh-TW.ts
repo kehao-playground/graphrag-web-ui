@@ -41,6 +41,10 @@ export default {
     question_set_not_found: "找不到題組",
     question_not_found: "找不到問題",
     question_set_too_large: "一個題組最多 {{max_questions}} 題",
+    question_set_empty: "題組沒有問題,無法執行",
+    // test runs
+    test_run_not_found: "找不到測試執行",
+    test_result_not_found: "找不到測試結果",
     // projects
     project_not_found: "專案不存在",
     init_failed: "graphrag init 失敗",
