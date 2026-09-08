@@ -23,6 +23,7 @@ from graphrag_ui.services import index_snapshots
 from graphrag_ui.services.project_lock import FREEZING_JOB_TYPES
 from graphrag_ui.services.projects import ws_path
 from graphrag_ui.services.retention import prune_update_output
+from graphrag_ui.services.test_runs import execute_test_run
 
 _HEARTBEAT_S = 10.0
 _STALE_AFTER_S = 60.0
@@ -65,8 +66,8 @@ async def _cancel_requested_in_db(job_id: uuid.UUID) -> bool:
 
 
 async def _execute(job_id: uuid.UUID) -> None:
-    # IndexRunner resolves from this module's globals: tests monkeypatch
-    # runner_loop.IndexRunner (dry_run precedent).
+    # IndexRunner and execute_test_run resolve from this module's globals:
+    # tests monkeypatch them (dry_run precedent).
     wid = worker_id()
     async with get_session_factory()() as s:
         job = await jobs_repo.get_job(s, job_id)
@@ -106,14 +107,19 @@ async def _execute(job_id: uuid.UUID) -> None:
                 # Immediately before the spawn, promoted or not: every
                 # attempt that can write output/ moves the epoch (spec 7.4).
                 await index_snapshots.bump_artifact_epoch(s, project_id)
-        res = await IndexRunner().run(
-            argv=argv,
-            root=root,
-            log_path=log_path_for(root, job_id),
-            job_type=job_type,
-            heartbeat=lambda: asyncio.sleep(0),  # placeholder: run() never awaits it
-            cancel_requested=lambda: state["cancelled"],
-        )
+        if job_type == "test_run":
+            # Same RunResult contract, so claiming, heartbeat, cancellation
+            # polling and terminal-state writing are shared untouched.
+            res = await execute_test_run(job_id, root, cancel_requested=lambda: state["cancelled"])
+        else:
+            res = await IndexRunner().run(
+                argv=argv,
+                root=root,
+                log_path=log_path_for(root, job_id),
+                job_type=job_type,
+                heartbeat=lambda: asyncio.sleep(0),  # placeholder: run() never awaits it
+                cancel_requested=lambda: state["cancelled"],
+            )
     except Exception as exc:  # the job must reach a terminal state regardless
         logger.exception("job execution crashed: %s", job_id)
         res = RunResult(

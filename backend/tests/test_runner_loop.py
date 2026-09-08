@@ -4,9 +4,10 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.adapters import jobs_repo
-from graphrag_ui.adapters.db import get_session_factory
+from graphrag_ui.adapters.db import get_session_factory, reset_engine
 from graphrag_ui.adapters.index_runner import RunResult
 from graphrag_ui.adapters.models import Job, Project, User
 from graphrag_ui.config import get_settings
@@ -68,6 +69,31 @@ async def _claim(job_id: uuid.UUID, wid: str = "w-seed") -> None:
 async def _get(job_id: uuid.UUID) -> Job:
     async with get_session_factory()() as s:
         return await jobs_repo.get_job(s, job_id)
+
+
+async def _running_job(
+    db_session: AsyncSession, *, type_: str = "index", params: dict | None = None
+) -> Job:
+    """One user + project + job already in `running`, attached to db_session,
+    so _execute's claim guard passes without racing a real claim."""
+    u = User(email=f"u{uuid.uuid4().hex[:6]}@t.local", password_hash="x", display_name="u")
+    db_session.add(u)
+    await db_session.flush()
+    p = Project(name="p", slug=f"s-{uuid.uuid4().hex[:8]}", owner_id=u.id, input_file_type="text")
+    db_session.add(p)
+    await db_session.flush()
+    job = Job(
+        project_id=p.id,
+        type=type_,
+        method="standard",
+        argv=[],  # test_run has no CLI; the index tests fake the runner
+        queued_by=u.id,
+        status="running",
+        params=params,
+    )
+    db_session.add(job)
+    await db_session.commit()
+    return job
 
 
 async def test_execute_runs_and_finishes(app, monkeypatch):
@@ -202,3 +228,60 @@ async def test_execute_survives_watch_poll_failure(app, monkeypatch):
     assert flaky_calls["n"] >= 2  # first beat raised, watcher retried and recovered
     assert job.status == "succeeded"
     assert job.worker_id == runner_loop.worker_id()  # recovered beat landed
+
+
+async def test_execute_dispatches_test_run_to_the_service_never_indexrunner(
+    db_session, monkeypatch, tmp_path
+):
+    # Task 5's real worker writes under root; point the workspace at tmp_path
+    # so nothing leaks into the repo's default ./data/workspaces.
+    monkeypatch.setenv("WORKSPACES_DIR", str(tmp_path))
+    # db_session (unlike app) does not rebuild the shared engine, and its
+    # pooled connections are bound to a previous test's event loop.
+    await reset_engine()
+    get_settings.cache_clear()
+    called = {"index": 0, "batch": 0}
+
+    class ExplodingRunner:
+        async def run(self, **kwargs):
+            called["index"] += 1
+            raise AssertionError("IndexRunner must not run a test_run job")
+
+    async def fake_batch(job_id, root, *, cancel_requested):
+        called["batch"] += 1
+        return RunResult(status="succeeded", exit_code=None, error=None, stats=None)
+
+    monkeypatch.setattr(runner_loop, "IndexRunner", ExplodingRunner)
+    monkeypatch.setattr(runner_loop, "execute_test_run", fake_batch)
+
+    job = await _running_job(db_session, type_="test_run", params={"run_id": str(uuid.uuid4())})
+    await runner_loop._execute(job.id)
+
+    assert called == {"index": 0, "batch": 1}
+    await db_session.refresh(job)
+    assert job.status == "succeeded"
+
+
+async def test_execute_still_dispatches_index_to_indexrunner(db_session, monkeypatch, tmp_path):
+    """Regression guard: the dispatch must not change the existing path."""
+    # log_path_for mkdirs under WORKSPACES_DIR; the default ./data/workspaces
+    # would leak test directories into the repo.
+    monkeypatch.setenv("WORKSPACES_DIR", str(tmp_path))
+    get_settings.cache_clear()
+    await reset_engine()  # db_session leaves shared-pool connections on an old loop
+    called = {"index": 0}
+
+    class RecordingRunner:
+        async def run(self, **kwargs):
+            called["index"] += 1
+            return RunResult(status="succeeded", exit_code=0, error=None, stats=None)
+
+    async def explode(*a, **kw):
+        raise AssertionError("the batch service must not run an index job")
+
+    monkeypatch.setattr(runner_loop, "IndexRunner", RecordingRunner)
+    monkeypatch.setattr(runner_loop, "execute_test_run", explode)
+
+    job = await _running_job(db_session, type_="index")
+    await runner_loop._execute(job.id)
+    assert called["index"] == 1

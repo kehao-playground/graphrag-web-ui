@@ -50,6 +50,15 @@ def test_display_status_cancelling():
     assert display_status("running", False) == "running"
     assert display_status("queued", True) == "queued"
     assert display_status("succeeded", False) == "succeeded"
-    assert set(JOB_TYPES) == {"index", "update"}
+    assert set(JOB_TYPES) == {"index", "update", "test_run"}
     assert set(JOB_METHODS) == {"standard", "fast"}
     assert "failed(interrupted)" in TERMINAL_STATUSES
+
+
+def test_test_run_is_a_job_type_but_has_no_argv():
+    """A test_run job spawns no CLI. Asking for an argv is a caller bug, not
+    a silent empty list - an empty argv would reach create_subprocess_exec
+    and fork bare `graphrag`."""
+    assert "test_run" in JOB_TYPES
+    with pytest.raises(ValueError, match="test_run"):
+        build_argv("test_run", "standard", Path("/tmp/ws"))

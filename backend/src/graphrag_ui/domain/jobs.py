@@ -3,7 +3,8 @@ No I/O, no graphrag imports (AGENTS.md layering)."""
 
 from pathlib import Path
 
-JOB_TYPES = ("index", "update")
+JOB_TYPES = ("index", "update", "test_run")
+CLI_JOB_TYPES = ("index", "update")
 JOB_METHODS = ("standard", "fast")
 TERMINAL_STATUSES = {"succeeded", "failed", "failed(interrupted)", "cancelled"}
 
@@ -11,9 +12,13 @@ TERMINAL_STATUSES = {"succeeded", "failed", "failed(interrupted)", "cancelled"}
 def build_argv(job_type: str, method: str, root: Path) -> list[str]:
     """graphrag CLI argv (without the executable). `update` must receive
     standard|fast — the CLI appends '-update' internally; passing
-    'standard-update' would build 'standard-update-update' (source-verified)."""
-    if job_type not in JOB_TYPES:
-        msg = f"unknown job type: {job_type}"
+    'standard-update' would build 'standard-update-update' (source-verified).
+
+    test_run is a valid job type with NO argv: it runs in-process through
+    services/test_runs.py. Asking for one is a caller bug, not a silent
+    empty list (spec 7.2)."""
+    if job_type not in CLI_JOB_TYPES:
+        msg = f"job type has no CLI argv: {job_type}"
         raise ValueError(msg)
     if method not in JOB_METHODS:
         msg = f"unknown method: {method}"
