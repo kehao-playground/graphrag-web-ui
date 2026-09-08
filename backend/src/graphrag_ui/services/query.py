@@ -11,6 +11,9 @@ Error contract (route maps, service never touches HTTP):
 
 import logging
 import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -99,24 +102,30 @@ def _frame_texts(df: pd.DataFrame) -> dict[int, str | None]:
     return entries
 
 
-async def run_query(
-    project: Project,
-    user: User,
-    method: str,
-    query: str,
-    response_type: str | None = None,
-) -> dict:
-    """Run one four-mode query; returns the API response body (never raises HTTP)."""
-    total_start = time.perf_counter()
-    # Rate limit first: cheap in-memory check before any I/O.
-    get_rate_limiter().check(str(user.id), str(project.id))
+@dataclass(frozen=True)
+class Prepared:
+    root: Path
+    config: Any
+    frames: dict[str, pd.DataFrame]
+    frames_ms: float
 
+
+async def _prepare_query(project: Project, method: str, *, config: Any = None) -> Prepared:
+    """Config load (or reuse a caller-supplied one) -> frames -> frames_ms.
+
+    No limiter and no user on purpose: this is the part the batch service
+    shares with the interactive paths, and the batch is bounded by
+    MAX_CONCURRENT_JOBS instead (spec 7.3). The `config` parameter exists
+    so services/test_runs.py can load configuration once at worker start
+    and reuse it for every question.
+    """
     root = ws_path(project.id)
-    try:
-        config = load_config(root)
-    except Exception as exc:
-        logger.exception("query config load failed (project %s)", project.id)
-        raise QueryError("config", str(exc)[-500:]) from exc
+    if config is None:
+        try:
+            config = load_config(root)
+        except Exception as exc:
+            logger.exception("query config load failed (project %s)", project.id)
+            raise QueryError("config", str(exc)[-500:]) from exc
 
     frames_start = time.perf_counter()
     cache = get_frame_cache()
@@ -128,17 +137,28 @@ async def run_query(
         logger.exception("frame load failed (project %s, method %s)", project.id, method)
         raise QueryError("search", str(exc)[-500:]) from exc
     frames_ms = (time.perf_counter() - frames_start) * 1000
+    return Prepared(root=root, config=config, frames=frames, frames_ms=frames_ms)
+
+
+async def _execute_query(
+    prepared: Prepared, method: str, query: str, response_type: str | None
+) -> dict:
+    """search -> citations -> timings. Non-streaming only: the adapter's
+    search returns context_data, which is what these citations join
+    against. Streaming has no context_data and keeps its own tail in
+    stream_query."""
+    exec_start = time.perf_counter()
     search_start = time.perf_counter()
     try:
         answer, context = await GraphragSearchAdapter().search(
             method,
-            config,
-            frames,
+            prepared.config,
+            prepared.frames,
             query,
             response_type or DEFAULT_RESPONSE_TYPE,
         )
     except Exception as exc:
-        logger.exception("search failed (project %s, method %s)", project.id, method)
+        logger.exception("search failed (project %s, method %s)", prepared.root.name, method)
         raise QueryError("search", str(exc)[-500:]) from exc
     search_ms = (time.perf_counter() - search_start) * 1000
 
@@ -151,12 +171,32 @@ async def run_query(
         "context": [{"name": name, "rows": len(df)} for name, df in context.items()],
         "citations": citations,
         "timings": {
-            "frames_ms": frames_ms,
+            "frames_ms": prepared.frames_ms,
             "search_ms": search_ms,
             "citations_ms": citations_ms,
-            "total_ms": (time.perf_counter() - total_start) * 1000,
+            "total_ms": (time.perf_counter() - exec_start) * 1000,
         },
     }
+
+
+async def run_query(
+    project: Project,
+    user: User,
+    method: str,
+    query: str,
+    response_type: str | None = None,
+) -> dict:
+    """Run one four-mode query; returns the API response body (never raises HTTP)."""
+    total_start = time.perf_counter()
+    # Rate limit first: cheap in-memory check before any I/O.
+    get_rate_limiter().check(str(user.id), str(project.id))
+
+    prepared = await _prepare_query(project, method)
+    body = await _execute_query(prepared, method, query, response_type)
+    # total_ms spans the whole interactive request (limiter + preamble +
+    # search), so it is measured from run_query's own entry.
+    body["timings"]["total_ms"] = (time.perf_counter() - total_start) * 1000
+    return body
 
 
 async def stream_query(
@@ -179,28 +219,12 @@ async def stream_query(
     total_start = time.perf_counter()
     get_rate_limiter().check(str(user.id), str(project.id))
 
-    root = ws_path(project.id)
-    try:
-        config = load_config(root)
-    except Exception as exc:
-        logger.exception("query config load failed (project %s)", project.id)
-        raise QueryError("config", str(exc)[-500:]) from exc
-
-    frames_start = time.perf_counter()
-    cache = get_frame_cache()
-    try:
-        frames = {table: await cache.get(root, table) for table in tables_for(method)}
-    except WorkspaceNotIndexedError:
-        raise
-    except Exception as exc:
-        logger.exception("frame load failed (project %s, method %s)", project.id, method)
-        raise QueryError("search", str(exc)[-500:]) from exc
-    frames_ms = (time.perf_counter() - frames_start) * 1000
+    prepared = await _prepare_query(project, method)
 
     gen = GraphragSearchAdapter().stream(
         method,
-        config,
-        frames,
+        prepared.config,
+        prepared.frames,
         query,
         response_type or DEFAULT_RESPONSE_TYPE,
     )
@@ -226,15 +250,14 @@ async def stream_query(
 
     citations_start = time.perf_counter()
     # Streaming has no context_data: join markers against the cached frames
-    # we just streamed with.
-    citations = build_citations("".join(answer_parts), _flatten_frames(frames))
+    citations = build_citations("".join(answer_parts), _flatten_frames(prepared.frames))
     citations_ms = (time.perf_counter() - citations_start) * 1000
 
     yield ("citations", citations)
     yield (
         "done",
         {
-            "frames_ms": frames_ms,
+            "frames_ms": prepared.frames_ms,
             "search_ms": search_ms,
             "citations_ms": citations_ms,
             "total_ms": (time.perf_counter() - total_start) * 1000,
