@@ -151,7 +151,7 @@ class Job(Base):
     project_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("projects.id", ondelete="CASCADE"), index=True
     )
-    type: Mapped[str] = mapped_column(String(10))  # index|update
+    type: Mapped[str] = mapped_column(String(10))  # index|update|test_run
     method: Mapped[str] = mapped_column(String(16))  # standard|fast
     argv: Mapped[list] = mapped_column(JSONB)
     status: Mapped[str] = mapped_column(String(20), default="queued", index=True)
@@ -168,6 +168,11 @@ class Job(Base):
     queued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # A test_run job stores {"run_id"}; the ordered question manifest lives
+    # in the test_results rows written by the same transaction, not here —
+    # argv stays a graphrag CLI argument vector (empty for test_run).
+    params: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    progress: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
 
 class ProjectFile(Base):
@@ -236,3 +241,100 @@ class IndexSnapshotEntry(Base):
     )
     name: Mapped[str] = mapped_column(String(255), primary_key=True)
     sha256: Mapped[str] = mapped_column(String(64))
+
+
+class QuestionSet(Base):
+    """A named set of questions. Archived, never hard-deleted on user action:
+    a cascade would destroy exactly the run history test_results.question_text
+    exists to protect (spec 5.3)."""
+
+    __tablename__ = "question_sets"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(200))
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class Question(Base):
+    """Immutable once referenced by a run: editing forks a new row on the
+    same lineage_id. The matrix's rows are lineages, not question rows, so a
+    question keeps one row while each cell shows the text actually asked."""
+
+    __tablename__ = "questions"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    set_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("question_sets.id", ondelete="CASCADE"), index=True
+    )
+    lineage_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True)
+    text: Mapped[str] = mapped_column(Text)
+    position: Mapped[int] = mapped_column(Integer)
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class TestRun(Base):
+    """One batch run of a question set, executed as a test_run job.
+    index_job_id records the last successful index/update at run start — it
+    labels a matrix column and is what makes runs comparable."""
+
+    __tablename__ = "test_runs"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    set_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("question_sets.id"))
+    job_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("jobs.id"))
+    index_job_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("jobs.id"), nullable=True
+    )
+    method: Mapped[str] = mapped_column(String(16))
+    workspace_config_revision: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class TestResult(Base):
+    """One answer cell of a run, inserted as a nullable placeholder at
+    enqueue. question_text is the question AS ASKED, denormalized: a historic
+    run is self-contained and an edit cannot retro-label an old answer."""
+
+    __tablename__ = "test_results"
+    __table_args__ = (
+        UniqueConstraint("run_id", "question_id", name="uq_test_results_run_question"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("test_runs.id", ondelete="CASCADE"), index=True
+    )
+    question_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("questions.id"))
+    position: Mapped[int] = mapped_column(Integer)
+    question_text: Mapped[str] = mapped_column(Text)
+    answer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    citations: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    timings: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ResultRating(Base):
+    """One CURRENT rating per result, project-shared rather than per-user.
+
+    This is a team console: a maintainer must see the quality judgement
+    their colleague recorded. Re-rating overwrites; who changed what is
+    carried by the audit log (test.rated), not by row versioning.
+    """
+
+    __tablename__ = "result_ratings"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    result_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("test_results.id", ondelete="CASCADE"), unique=True
+    )
+    score: Mapped[str] = mapped_column(String(8))  # good | fair | poor
+    note: Mapped[str] = mapped_column(Text, server_default="")
+    rated_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    rated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
