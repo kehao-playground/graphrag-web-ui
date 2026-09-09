@@ -49,7 +49,8 @@ export const MATRIX = {
     },
     {
       // run-1 never asked (null) and run-4 was cancelled before asking
-      // (unfilled placeholder): both mechanisms of 未執行 in one row.
+      // (unfilled placeholder): the two not-run mechanisms in one row.
+      // zh-TW: both cells must render 未執行.
       lineage_id: "L5",
       cells: [
         null,

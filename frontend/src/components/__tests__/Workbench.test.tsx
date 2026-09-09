@@ -67,8 +67,9 @@ test("the launch dialog states question count and method before committing", asy
   renderWorkbench();
   await userEvent.click(await screen.findByRole("button", { name: "重跑整組" }));
   // The count comes from GET question-sets/{sid}/questions (20 in the
-  // fixture); the method is the raw identifier the run will record. The
-  // regex must not match the set picker's selected name (客服常問 20 題).
+  // fixture); the method is the raw identifier the run will record.
+  // zh-TW: 客服常問 20 題 is the fixture set's selected name the regex must
+  // not match.
   expect(await screen.findByText(/將執行 20 題/)).toBeInTheDocument();
   expect(screen.getByText(/local/)).toBeInTheDocument();
   // Committing POSTs the selected set + method to /test-runs.
@@ -163,7 +164,7 @@ test("editing a never-run question opens the editor without the fork warning", a
   expect(editor).toHaveValue("題目 1");
   await userEvent.clear(editor);
   await userEvent.type(editor, "題目 1 (改)");
-  // antd auto-spaces two-CJK-character button labels ("儲 存").
+  // zh-TW: 儲存 is auto-spaced to 儲 存 by antd's CJK button handling.
   await userEvent.click(screen.getByRole("button", { name: /儲\s*存/ }));
   await waitFor(() =>
     expect(apiMock).toHaveBeenCalledWith("/api/projects/p1/question-sets/s1/questions/q-0", {
@@ -182,7 +183,7 @@ test("two selected cells open the side-by-side diff", async () => {
   // Second pick on the same question in another run → sentence-level diff.
   await userEvent.click(screen.getByLabelText(cellLabel("Q3 退貨流程幾天", 4)));
   expect(await screen.findByRole("heading", { name: /並排比較/ })).toBeInTheDocument();
-  // 需附發票。 exists only in run-3's answer; run-4 dropped it.
+  // zh-TW: 需附發票。 exists only in run-3's answer; run-4 dropped it.
   expect(await screen.findByText("需附發票。")).toBeInTheDocument();
   expect(screen.getByText("#13 · 區域 · 09-03")).toBeInTheDocument();
   expect(screen.getByText("#14 · 區域 · 09-04")).toBeInTheDocument();

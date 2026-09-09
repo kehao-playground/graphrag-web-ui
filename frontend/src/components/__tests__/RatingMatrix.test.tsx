@@ -61,7 +61,8 @@ test("a cell a run never asked renders as not-run, not as an empty answer", asyn
   renderWorkbench();
   const row = (await screen.findByText("Q5 企業採購窗口")).closest("tr")!;
   // run-1 never asked (null cell) + run-4 cancelled before asking
-  // (unfilled placeholder) — both are 未執行, neither is an answer.
+  // (unfilled placeholder) — both render the not-run label.
+  // zh-TW: 未執行 is the literal label both cells must show.
   expect(within(row).getAllByLabelText("未執行")).toHaveLength(2);
 });
 

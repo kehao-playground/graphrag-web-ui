@@ -13,7 +13,8 @@ const RESPONSE_TYPE = "multiple paragraphs";
 
 // The workbench's ad-hoc mode (spec §9.2): the interactive SSE path, kept
 // exactly as QueryPanel had it, with its rendering lifted into AnswerView
-// and a one-action 存成題目 into a question set.
+// and a one-action save button into a question set.
+// zh-TW: the save button's literal label is 存成題目.
 export default function AdhocQuery({ projectId, canUse }: { projectId: string; canUse: boolean }) {
   const qc = useQueryClient();
   const { t } = useTranslation();
@@ -101,8 +102,9 @@ export default function AdhocQuery({ projectId, canUse }: { projectId: string; c
   });
 
   // One action saves the QUESTION (not the answer) into the chosen set;
-  // answers are produced by runs, and 存成題目 is how a good ad-hoc
+  // answers are produced by runs, and this save button is how a good ad-hoc
   // question joins the set the next batch will ask.
+  // zh-TW: the button's literal label is 存成題目.
   const saveQuestion = useMutation({
     mutationFn: async (setId: string) => {
       const r = await api(`/api/projects/${projectId}/question-sets/${setId}/questions`, {
