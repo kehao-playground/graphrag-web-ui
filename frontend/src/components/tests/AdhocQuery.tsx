@@ -1,42 +1,35 @@
 import { useEffect, useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { Button, Collapse, Input, Select, Skeleton, Space, Typography, message } from "antd";
-import type { Citation, QueryMethod, QueryTimings } from "../api/types";
-import { messageOfBody } from "../api/client";
-import { useAuth } from "../stores/auth";
+import { Button, Input, Modal, Select, Space, message } from "antd";
+import type { Citation, QueryMethod, QueryTimings, QuestionSet } from "../../api/types";
+import { api, detailOf, messageOfBody } from "../../api/client";
+import { useAuth } from "../../stores/auth";
+import AnswerView from "./AnswerView";
+import { methodOptions } from "./methods";
 
 // Query answers are multi-paragraph prose; the backend default response_type.
 const RESPONSE_TYPE = "multiple paragraphs";
 
-export default function QueryPanel({ projectId, canUse }: { projectId: string; canUse: boolean }) {
+// The workbench's ad-hoc mode (spec §9.2): the interactive SSE path, kept
+// exactly as QueryPanel had it, with its rendering lifted into AnswerView
+// and a one-action 存成題目 into a question set.
+export default function AdhocQuery({ projectId, canUse }: { projectId: string; canUse: boolean }) {
+  const qc = useQueryClient();
   const { t } = useTranslation();
-  // drift keeps the endonym "DRIFT" in every locale (identifier, not copy).
-  const METHOD_OPTIONS = (["local", "global", "drift", "basic"] as const).map((v) => ({
-    label:
-      v === "local" ? t("query.methodLocal")
-      : v === "global" ? t("query.methodGlobal")
-      : v === "drift" ? t("query.methodDrift")
-      : t("query.methodBasic"),
-    value: v,
-  }));
   const [method, setMethod] = useState<QueryMethod>("local");
   const [query, setQuery] = useState("");
   const [chunks, setChunks] = useState<string[]>([]);
   const [citations, setCitations] = useState<Citation[]>([]);
   const [timings, setTimings] = useState<QueryTimings | null>(null);
   const [streaming, setStreaming] = useState(false);
-  const answerRef = useRef<HTMLDivElement>(null);
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [saveSet, setSaveSet] = useState<string>();
   const esRef = useRef<EventSource | null>(null);
 
-  // Close on unmount (tab switch): unlike job logs there is no resume, and
+  // Close on unmount (mode switch): unlike job logs there is no resume, and
   // auto-reconnect would replay the query and double-charge the rate limit.
   useEffect(() => () => esRef.current?.close(), []);
-
-  // Keep the newest line visible as the answer grows.
-  useEffect(() => {
-    const el = answerRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [chunks]);
 
   const run = () => {
     const q = query.trim();
@@ -93,14 +86,48 @@ export default function QueryPanel({ projectId, canUse }: { projectId: string; c
     });
   };
 
+  // Save-target sets: fetched only while the save dialog is open, so a
+  // query session that never saves pays no extra request. Quiet on failure
+  // (a missing catalog costs the save target list, not the query).
+  const sets = useQuery({
+    queryKey: ["projects", projectId, "question-sets"],
+    queryFn: async () => {
+      const r = await api(`/api/projects/${projectId}/question-sets`);
+      if (!r.ok) throw new Error(await detailOf(r, "workbench.loadSetsFailed"));
+      return (await r.json()) as { sets: QuestionSet[] };
+    },
+    enabled: saveOpen,
+    retry: false,
+  });
+
+  // One action saves the QUESTION (not the answer) into the chosen set;
+  // answers are produced by runs, and 存成題目 is how a good ad-hoc
+  // question joins the set the next batch will ask.
+  const saveQuestion = useMutation({
+    mutationFn: async (setId: string) => {
+      const r = await api(`/api/projects/${projectId}/question-sets/${setId}/questions`, {
+        method: "POST",
+        body: JSON.stringify({ text: query.trim() }),
+      });
+      if (!r.ok) throw new Error(await detailOf(r, "workbench.saveFailed"));
+    },
+    onSuccess: () => {
+      message.success(t("workbench.saved"));
+      setSaveOpen(false);
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "question-sets"] });
+    },
+    onError: (e) => message.error(e.message),
+  });
+
   const busy = streaming;
+  const canSave = !busy && query.trim().length > 0;
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
       <Space direction="vertical" size="small" style={{ width: "100%" }}>
         <Select
           value={method}
           onChange={setMethod}
-          options={METHOD_OPTIONS}
+          options={methodOptions(t)}
           style={{ width: 160 }}
           disabled={busy}
         />
@@ -110,60 +137,46 @@ export default function QueryPanel({ projectId, canUse }: { projectId: string; c
           onPressEnter={(e) => {
             if (!e.shiftKey) run();
           }}
-          placeholder={t("query.placeholder")}
+          placeholder={t("workbench.adhocPlaceholder")}
           rows={3}
           disabled={busy}
         />
         <Button type="primary" onClick={run} disabled={!canUse || busy || !query.trim()}>
-          {t("query.run")}
+          {t("workbench.adhocRun")}
         </Button>
+        {canSave && (
+          <Button
+            onClick={() => {
+              setSaveSet(undefined);
+              setSaveOpen(true);
+            }}
+          >
+            {t("workbench.saveAsQuestion")}
+          </Button>
+        )}
       </Space>
 
-      {(busy || chunks.length > 0) && (
-        <div ref={answerRef} style={{ maxHeight: "40vh", overflow: "auto" }}>
-          <Typography.Paragraph style={{ whiteSpace: "pre-wrap", marginBottom: 0 }}>
-            {chunks.join("")}
-          </Typography.Paragraph>
-        </div>
-      )}
+      <AnswerView answer={chunks.join("")} citations={citations} timings={timings} streaming={busy} />
 
-      {busy && citations.length === 0 ? (
-        <Skeleton active paragraph={{ rows: 2 }} title={false} />
-      ) : citations.length > 0 ? (
-        <Collapse
-          items={[{
-            key: "citations",
-            label: t("query.citations", { count: citations.length }),
-            children: citations.map((c, i) => (
-              <div key={`${c.label}-${i}`} style={{ marginBottom: 8 }}>
-                <Typography.Text strong>
-                  {c.label} #{c.ids.join(", ")}
-                </Typography.Text>
-                {c.entries.map((en) => (
-                  <Typography.Paragraph
-                    key={en.id}
-                    type="secondary"
-                    style={{ whiteSpace: "pre-wrap", marginBottom: 0 }}
-                  >
-                    {en.text ?? "—"}
-                  </Typography.Paragraph>
-                ))}
-              </div>
-            )),
-          }]}
+      <Modal
+        open={saveOpen}
+        title={t("workbench.saveTitle")}
+        okText={t("workbench.saveOk")}
+        cancelText={t("common.cancel")}
+        okButtonProps={{ disabled: !saveSet }}
+        confirmLoading={saveQuestion.isPending}
+        onOk={() => saveSet && saveQuestion.mutate(saveSet)}
+        onCancel={() => setSaveOpen(false)}
+      >
+        <Select
+          style={{ width: "100%" }}
+          placeholder={t("workbench.setPlaceholder")}
+          value={saveSet}
+          onChange={setSaveSet}
+          loading={sets.isPending}
+          options={(sets.data?.sets ?? []).map((s) => ({ label: s.name, value: s.id }))}
         />
-      ) : null}
-
-      {timings && (
-        <Typography.Text type="secondary">
-          {t("query.timings", {
-            frames: Math.round(timings.frames_ms),
-            search: Math.round(timings.search_ms),
-            citations: Math.round(timings.citations_ms),
-            total: Math.round(timings.total_ms),
-          })}
-        </Typography.Text>
-      )}
+      </Modal>
     </Space>
   );
 }

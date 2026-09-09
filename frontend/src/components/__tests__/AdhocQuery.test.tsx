@@ -1,8 +1,10 @@
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, vi } from "vitest";
-import QueryPanel from "../QueryPanel";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import AdhocQuery from "../tests/AdhocQuery";
 import { useAuth } from "../../stores/auth";
+import type * as ApiClient from "../../api/client";
 
 // EventSource mock per the JobLogViewer pattern: a class capturing `url` +
 // listeners with a manual emit() and a close() spy. emit() without data
@@ -27,6 +29,31 @@ class MockEventSource {
   }
 }
 
+// Save-to-set transport capture: the questions POST records URL + parsed
+// body; the sets catalog serves the one set the save dialog lists.
+let postedTo = "";
+let postedBody: unknown = null;
+const apiMock = vi.fn(async (path: string, init?: RequestInit) => {
+  if (init?.method === "POST") {
+    postedTo = path;
+    postedBody = JSON.parse(init.body as string);
+    return new Response(JSON.stringify({}), { status: 201 });
+  }
+  if (path === "/api/projects/p1/question-sets") {
+    return new Response(JSON.stringify({
+      sets: [{ id: "s1", name: "客服常問 20 題", created_at: "2026-09-01T00:00:00Z" }],
+    }), { status: 200 });
+  }
+  return new Response(JSON.stringify({}), { status: 200 });
+});
+// Real bodyOf/detailOf stay under test; only the transport is mocked.
+vi.mock("../../api/client", async (importOriginal) => ({
+  ...(await importOriginal()) as typeof ApiClient,
+  api: (...args: unknown[]) => apiMock(...args as [string, RequestInit?]),
+}));
+
+const TIMINGS = { frames_ms: 1, search_ms: 2, citations_ms: 3, total_ms: 6 };
+
 beforeEach(() => {
   MockEventSource.instances = [];
   vi.stubGlobal("EventSource", MockEventSource);
@@ -38,24 +65,29 @@ afterEach(() => {
   // Keep .ant-message alive: antd's static message holder reuses that node;
   // removing it detaches the holder and later message.error() renders nowhere.
   vi.unstubAllGlobals();
+  document.querySelectorAll(".ant-modal-root").forEach((el) => el.remove());
 });
 
 function mount(canUse = true) {
-  render(<QueryPanel projectId="p1" canUse={canUse} />);
+  return render(
+    <QueryClientProvider client={new QueryClient()}>
+      <AdhocQuery projectId="p1" canUse={canUse} />
+    </QueryClientProvider>,
+  );
 }
 
 async function startStream() {
   const user = userEvent.setup();
   await user.type(screen.getByRole("textbox"), "什麼是 GraphRAG?");
-  await user.click(screen.getByRole("button", { name: "執行查詢" }));
+  await user.click(screen.getByRole("button", { name: /^執\s?行$/ }));
   return MockEventSource.instances[0]!;
 }
 
-test("執行查詢 opens EventSource with method, encoded query, response_type and token", async () => {
+test("執行 opens EventSource with method, encoded query, response_type and token", async () => {
   mount();
   const user = userEvent.setup();
   await user.type(screen.getByRole("textbox"), "什麼是 GraphRAG?");
-  await user.click(screen.getByRole("button", { name: "執行查詢" }));
+  await user.click(screen.getByRole("button", { name: /^執\s?行$/ }));
   const es = MockEventSource.instances[0]!;
   expect(es.url).toContain("/api/projects/p1/query/stream");
   expect(es.url).toContain("method=local");
@@ -96,16 +128,16 @@ test("done renders the timings line rounded to whole ms and closes the EventSour
   ).toBeInTheDocument();
   expect(es.close).toHaveBeenCalled();
   // Button re-enables once the stream finished.
-  expect(screen.getByRole("button", { name: "執行查詢" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: /^執\s?行$/ })).toBeEnabled();
 });
 
-test("執行查詢 is disabled while streaming and until done", async () => {
+test("執行 is disabled while streaming and until done", async () => {
   mount();
   const user = userEvent.setup();
   await user.type(screen.getByRole("textbox"), "什麼是 GraphRAG?");
-  await user.click(screen.getByRole("button", { name: "執行查詢" }));
+  await user.click(screen.getByRole("button", { name: /^執\s?行$/ }));
   // No done event yet → mid-stream: the button must be disabled.
-  expect(screen.getByRole("button", { name: "執行查詢" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: /^執\s?行$/ })).toBeDisabled();
 });
 
 test("Shift+Enter inserts a newline without starting a query; Enter starts it", async () => {
@@ -138,18 +170,22 @@ test("transport error (pre-stream 4xx / network) shows the generic message and c
 });
 
 test("unmount closes the EventSource", async () => {
-  const { unmount } = render(<QueryPanel projectId="p1" canUse />);
+  const { unmount } = render(
+    <QueryClientProvider client={new QueryClient()}>
+      <AdhocQuery projectId="p1" canUse />
+    </QueryClientProvider>,
+  );
   const user = userEvent.setup();
   await user.type(screen.getByRole("textbox"), "q");
-  await user.click(screen.getByRole("button", { name: "執行查詢" }));
+  await user.click(screen.getByRole("button", { name: /^執\s?行$/ }));
   const es = MockEventSource.instances[0]!;
   unmount();
   expect(es.close).toHaveBeenCalled();
 });
 
-test("canUse=false disables 執行查詢", () => {
+test("canUse=false disables 執行", () => {
   mount(false);
-  expect(screen.getByRole("button", { name: "執行查詢" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: /^執\s?行$/ })).toBeDisabled();
 });
 
 test("proxy mode: EventSource URL carries no empty token param", async () => {
@@ -164,4 +200,41 @@ test("local mode: token still included", async () => {
   mount();
   const es = await startStream();
   expect(es.url).toContain("token=test-token");
+});
+
+test("ad-hoc query still streams token by token", async () => {
+  mount();
+  await userEvent.type(screen.getByPlaceholderText(/輸入問題/), "hello");
+  await userEvent.click(screen.getByRole("button", { name: /^執\s?行$/ }));
+  const es = MockEventSource.instances[0]!;
+  es.emit("chunk", JSON.stringify("part one "));
+  expect(await screen.findByText(/part one/)).toBeInTheDocument();
+  es.emit("chunk", JSON.stringify("part two"));
+  expect(await screen.findByText("part one part two")).toBeInTheDocument();
+});
+
+test("an ad-hoc answer saves into a question set in one action", async () => {
+  mount();
+  await userEvent.type(screen.getByPlaceholderText(/輸入問題/), "退貨要幾天?");
+  await userEvent.click(screen.getByRole("button", { name: /^執\s?行$/ }));
+  const es = MockEventSource.instances[0]!;
+  es.emit("chunk", JSON.stringify("three working days"));
+  es.emit("done", JSON.stringify(TIMINGS));
+
+  await userEvent.click(await screen.findByRole("button", { name: "存成題目" }));
+  // Pick the target set inside the save dialog (combobox opens the list).
+  const dialog = await screen.findByRole("dialog");
+  await userEvent.click(within(dialog).getByRole("combobox"));
+  // antd v6: role="option" nodes are a non-interactive a11y mirror; the
+  // clickable item is .ant-select-item-option-content (house pattern,
+  // ExplorePanel/GraphView tests).
+  await userEvent.click(
+    await screen.findByText("客服常問 20 題", { selector: ".ant-select-item-option-content" }),
+  );
+  await userEvent.click(screen.getByRole("button", { name: /^確\s?定$/ }));
+
+  await waitFor(() => {
+    expect(postedTo).toBe("/api/projects/p1/question-sets/s1/questions");
+    expect(postedBody).toEqual({ text: "退貨要幾天?" });
+  });
 });

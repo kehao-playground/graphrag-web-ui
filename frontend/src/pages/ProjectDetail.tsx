@@ -11,7 +11,7 @@ import type { Member, Project, Role, UserBrief } from "../api/types";
 import FilesPanel from "../components/FilesPanel";
 import SettingsPanel from "../components/SettingsPanel";
 import JobsPanel from "../components/JobsPanel";
-import QueryPanel from "../components/QueryPanel";
+import Workbench from "../components/tests/Workbench";
 import ExplorePanel from "../components/ExplorePanel";
 
 // Built-in role names are the backend seed's closed set, so the template
@@ -279,11 +279,12 @@ export default function ProjectDetail() {
       children: <FilesPanel projectId={id} inputFileType={p.input_file_type} canEdit={canEditFiles} />,
     },
     {
-      key: "query",
-      label: t("projectDetail.queryTab"),
-      // Tab visible to every member; the backend still enforces viewer+ on
-      // the stream (canUse is viewer+ — currently always true).
-      children: <QueryPanel projectId={id} canUse />,
+      key: "tests",
+      label: t("projectDetail.testsTab"),
+      // The workbench hosts both the batch matrix and the ad-hoc stream;
+      // the tab is visible to every member (viewer+ can read the matrix
+      // and use the stream; launching a run needs project:run_jobs).
+      children: <Workbench projectId={id} canUse canRunJobs={canRunJobs} />,
     },
     {
       key: "explore",

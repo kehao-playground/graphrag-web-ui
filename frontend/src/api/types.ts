@@ -21,6 +21,11 @@ export type EnvKeyOut = components["schemas"]["EnvKeyOut"];
 export type Job = components["schemas"]["JobOut"];
 export type LastRun = components["schemas"]["LastRunOut"];
 export type Preflight = components["schemas"]["PreflightOut"];
+export type QuestionSet = components["schemas"]["SetOut"];
+export type Question = components["schemas"]["QuestionOut"];
+export type TestRun = components["schemas"]["RunOut"];
+export type MatrixCell = components["schemas"]["CellOut"];
+export type MatrixRow = components["schemas"]["RowOut"];
 
 // display_status → antd Tag color; unknown statuses fall back to "default".
 // no backend response_model yet — hand-maintained (spec A5.2)
