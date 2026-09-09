@@ -53,14 +53,14 @@ briefs; their Global Constraints always apply.
 ```bash
 # backend (Python 3.12, uv; Docker required for testcontainers; duckdb
 # reads explore parquet artifacts read-only)
-cd backend && uv run pytest -v          # 442 tests with GRAPHRAG_API_KEY (436 fast); 6 slow tests fork the real graphrag CLI (4 need the key, skipped without it); fast only: uv run pytest -m "not slow"
+cd backend && uv run pytest -v          # 500 tests with GRAPHRAG_API_KEY (494 fast); 6 slow tests fork the real graphrag CLI (4 need the key, skipped without it); fast only: uv run pytest -m "not slow"
 cd backend && uv run ruff check
 cd backend && uv run ruff format --check   # formatting is CI-enforced; `ruff format` to fix
 cd backend && uv run mypy                  # src/ must stay clean; CI-enforced
 
 # frontend (Node 24; jsdom+undici need >=22; explore graph renders via
 # react-sigma + graphology, lazy-loaded as a separate build chunk)
-cd frontend && npm test                 # vitest run (119 tests)
+cd frontend && npm test                 # vitest run (142 tests)
 cd frontend && npm run lint             # oxlint, ratcheted at 6 warnings
 cd frontend && npx tsc -b --noEmit
 cd frontend && npm run build
