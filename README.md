@@ -108,6 +108,38 @@ a full index.
   tags, bulk delete with a count-and-size confirmation, and a bounded
   document preview (optionally centered on a passage).
 
+### Tests — the retrieval-testing loop
+
+The **Tests** tab is the retrieval-testing loop. A knowledge manager saves a
+question set once — an ad-hoc answer joins a set in one action — then
+**re-runs the whole set** against the current index as a background job.
+The run's question manifest is materialized when the job is enqueued, so an
+edit made while the job sits queued cannot change what runs. Answers are
+rated by humans (`good` / `fair` / `poor`, plus a note) in the rating
+matrix: rows are question lineages, columns are the most recent runs
+(default 5), and "regressions only" keeps questions whose newest rating is
+worse than the previous run's. Clicking a cell opens the result drawer —
+the question as asked, the answer, citations and timings; with the drawer
+open, `1`/`2`/`3` rate and advance to the next result. Selecting a second
+cell opens a side-by-side diff that highlights changes at **sentence**
+granularity, because character diffs bury the real change in prose. Editing
+a question that has runs creates a new version; past runs keep the wording
+they actually asked.
+
+**Release notes — retrieval testing (slice 2):**
+
+- Test runs and index/update jobs are **mutually exclusive per project, in
+  both directions**: the one-active-job-per-project rule holds even when the
+  global `MAX_CONCURRENT_JOBS` budget is free, and the jobs page names the
+  same conflict from the other side (HTTP 409 `job_conflict`).
+- A batch run executes **inside the API process**, as interactive queries
+  already do: many sequential queries, not a new class of load — but
+  sustained, with `MAX_CONCURRENT_JOBS` as the throttle. It deliberately
+  bypasses the per-user interactive rate limit, which one 20-question batch
+  would otherwise consume outright.
+- No new environment variables; the bounds are domain constants
+  (`MAX_QUESTIONS_PER_SET`, `MAX_QUESTION_CHARS`, `MATRIX_DEFAULT_RUNS`).
+
 
 ## Quickstart (15 minutes)
 

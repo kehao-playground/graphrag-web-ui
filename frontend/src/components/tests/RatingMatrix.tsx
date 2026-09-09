@@ -40,7 +40,7 @@ function CellView({ cell }: { cell: MatrixCell | null }) {
   return <Tag color={color}>{label}</Tag>;
 }
 
-export default function RatingMatrix({ runs, rows, regressionsOnly, onRegressionsOnly, onCell }: {
+export default function RatingMatrix({ runs, rows, regressionsOnly, onRegressionsOnly, onCell, selectedResultId }: {
   runs: TestRun[];
   rows: MatrixRow[];
   regressionsOnly: boolean;
@@ -48,6 +48,10 @@ export default function RatingMatrix({ runs, rows, regressionsOnly, onRegression
   // Task 8 wires this to the result drawer / two-cell diff selection; the
   // matrix only reports which cell was picked.
   onCell?: (run: TestRun, row: MatrixRow, cell: MatrixCell) => void;
+  // The first pick of the compare flow: the cell stays outlined after the
+  // drawer closes so the user can see what their next click will diff
+  // against.
+  selectedResultId?: string | null;
 }) {
   const { t } = useTranslation();
 
@@ -70,11 +74,37 @@ export default function RatingMatrix({ runs, rows, regressionsOnly, onRegression
       render: (_: unknown, row: MatrixRow) => {
         const cell = row.cells[i] ?? null;
         const content = <CellView cell={cell} />;
-        return onCell && cell ? (
-          <span style={{ cursor: "pointer" }} onClick={() => onCell?.(run, row, cell)}>
+        // Only a completed cell picks a result (Task 8): a null cell was
+        // never asked, an unfilled placeholder was cancelled — neither has
+        // an answer for the drawer or the diff to show.
+        if (!cell || !cell.completed || !onCell) return content;
+        const pick = () => onCell(run, row, cell);
+        // Selection aims at question × column, so every pickable cell is
+        // labelled with both (spec §9.2). The column names the run's index
+        // anchor, exactly what the diff's side labels echo.
+        const label = `${rowQuestionText(row)} × #${run.index_job_id ?? run.id}`;
+        const selected = cell.result_id === selectedResultId;
+        return (
+          <span
+            role="button"
+            tabIndex={0}
+            aria-pressed={selected}
+            aria-label={label}
+            style={{
+              cursor: "pointer",
+              ...(selected ? { outline: "2px solid #1677ff", outlineOffset: 2 } : null),
+            }}
+            onClick={pick}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                pick();
+              }
+            }}
+          >
             {content}
           </span>
-        ) : content;
+        );
       },
     })),
   ];

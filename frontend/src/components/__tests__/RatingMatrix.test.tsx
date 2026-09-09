@@ -95,3 +95,21 @@ test("cells report (run, row, cell) through onCell for the drawer", async () => 
   await userEvent.click(screen.getByText("不佳"));
   expect(onCell).toHaveBeenCalledWith(MATRIX.runs[3], MATRIX.rows[1], MATRIX.rows[1].cells[3]);
 });
+
+test("completed cells are pickable by question × column; cancelled ones are not", () => {
+  render(
+    <RatingMatrix
+      runs={MATRIX.runs}
+      rows={MATRIX.rows}
+      regressionsOnly={false}
+      onRegressionsOnly={() => {}}
+      onCell={() => {}}
+    />,
+  );
+  // Selection (Task 8) aims at question × run, so every completed cell is
+  // labelled with both (spec §9.2 "Cell → drawer").
+  expect(screen.getByLabelText("Q3 退貨流程幾天 × #13")).toBeInTheDocument();
+  // The run-4 placeholder was cancelled before asking: not an answer, and
+  // nothing for a drawer or diff to show → not pickable.
+  expect(screen.queryByLabelText("Q5 企業採購窗口 × #14")).not.toBeInTheDocument();
+});

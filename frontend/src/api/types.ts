@@ -26,6 +26,7 @@ export type Question = components["schemas"]["QuestionOut"];
 export type TestRun = components["schemas"]["RunOut"];
 export type MatrixCell = components["schemas"]["CellOut"];
 export type MatrixRow = components["schemas"]["RowOut"];
+export type TestResult = components["schemas"]["ResultOut"];
 
 // display_status → antd Tag color; unknown statuses fall back to "default".
 // no backend response_model yet — hand-maintained (spec A5.2)
