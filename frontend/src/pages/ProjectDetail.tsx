@@ -14,6 +14,7 @@ import JobsPanel from "../components/JobsPanel";
 import Workbench from "../components/tests/Workbench";
 import ExplorePanel from "../components/ExplorePanel";
 import ProjectSidebar from "../components/project/ProjectSidebar";
+import ProjectOverview from "./ProjectOverview";
 
 // Built-in role names are the backend seed's closed set, so the template
 // key stays inside typed-t's key union; custom roles render their raw name.
@@ -54,15 +55,16 @@ export interface ProjectPaneContext {
 
 // One heading per pane, so a deep link lands legible. The workbench pane
 // gets the fuller title the plan pins; the rest reuse their entry labels.
+// The overview pane is the exception: ProjectOverview brings its own
+// heading (the health heading), so it has no generic one here.
 const PANE_HEADING = {
-  overview: "projectDetail.overviewTab",
   files: "projectDetail.filesTab",
   jobs: "projectDetail.jobsTab",
   tests: "projectDetail.testsHeading",
   explore: "projectDetail.exploreTab",
   settings: "projectDetail.settingsTab",
   members: "projectDetail.membersTab",
-} as const satisfies Record<PaneKey, string>;
+} as const satisfies Record<Exclude<PaneKey, "overview">, string>;
 
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
@@ -298,12 +300,15 @@ export function ProjectPane({ pane }: { pane: PaneKey }) {
 
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
-      <Typography.Title level={4} style={{ margin: 0 }}>{t(PANE_HEADING[pane])}</Typography.Title>
+      {pane !== "overview" && (
+        <Typography.Title level={4} style={{ margin: 0 }}>{t(PANE_HEADING[pane])}</Typography.Title>
+      )}
 
       {pane === "overview" && (
-        // Placeholder body: Task 6 replaces it with the /health overview.
-        // Until then the old overview tab's project facts stay reachable.
-        <ProjectInfoDescriptions p={p} owner={ctx.owner} />
+        // The /health overview (Task 6): action card, stat tiles and
+        // recent activity, sharing the sidebar's health query. It brings
+        // its own heading, which is why it is absent from PANE_HEADING.
+        <ProjectOverview projectId={projectId} />
       )}
       {pane === "files" && (
         <FilesPanel projectId={projectId} inputFileType={p.input_file_type} canEdit={canEditFiles} />
@@ -325,8 +330,8 @@ export function ProjectPane({ pane }: { pane: PaneKey }) {
   );
 }
 
-// The project facts the old overview tab showed (spec §4 moves them to the
-// members pane; the overview pane shows them only until Task 6 lands).
+// The project facts the old overview tab showed (spec §4 moves them to
+// the members pane, where ProjectInfoDescriptions now lives).
 function ProjectInfoDescriptions({ p, owner }: { p: Project; owner: Member | undefined }) {
   const { t, i18n } = useTranslation();
   return (

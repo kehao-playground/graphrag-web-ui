@@ -2,9 +2,10 @@ import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi, beforeEach, afterEach } from "vitest";
 import { Modal } from "antd";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import Workbench from "../tests/Workbench";
-import type * as ApiClient from "../../api/client";
+import { MemoryRouter } from "react-router-dom";
+ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+ import Workbench from "../tests/Workbench";
+ import type * as ApiClient from "../../api/client";
 import { MATRIX, SETS, QUESTIONS, PREFLIGHT, RESULTS_RUN3, RESULTS_RUN4, cellLabel } from "./workbenchFixtures";
 
 // Same mock discipline as FilesPanel/JobsPanel tests: branch by URL (and
@@ -53,12 +54,18 @@ beforeEach(() => {
 });
 
 // Composition wrapper: the workbench under a fresh QueryClient. activeJob
-// seeds the preflight mock with the blocking job (any type).
-function renderWorkbench(opts: { activeJob?: { id: string; type: string } | null } = {}) {
+// seeds the preflight mock with the blocking job (any type); route mounts
+// it at its real URL so URL-initialized state (?regressions=1) is testable.
+function renderWorkbench(opts: {
+  activeJob?: { id: string; type: string } | null;
+  route?: string;
+} = {}) {
   preflightBody = { ...PREFLIGHT, active_job: opts.activeJob ?? null };
   return render(
     <QueryClientProvider client={new QueryClient()}>
-      <Workbench projectId="p1" canUse canRunJobs />
+      <MemoryRouter initialEntries={[opts.route ?? "/projects/p1/tests"]}>
+        <Workbench projectId="p1" canUse canRunJobs />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -94,6 +101,17 @@ test("without an active job 重跑整組 stays enabled", async () => {
   // the selector content), which is what enables the launch button.
   await screen.findByText("客服常問 20 題");
   expect(screen.getByRole("button", { name: "重跑整組" })).toBeEnabled();
+});
+
+test("?regressions=1 starts the matrix filtered to regressions", async () => {
+  // The slice ③ overview's regressions card deep-links here; the filter
+  // must already be applied on arrival, with the checkbox reflecting it.
+  renderWorkbench({ route: "/projects/p1/tests?regressions=1" });
+  expect(await screen.findByLabelText("只看退步的")).toBeChecked();
+  // Q3 regressed (good → poor), Q1 stayed good — same fixture contract
+  // as the click-toggle test in RatingMatrix.test.
+  expect(screen.getByText("Q3 退貨流程幾天")).toBeInTheDocument();
+  expect(screen.queryByText("Q1 保固期多長")).not.toBeInTheDocument();
 });
 
 

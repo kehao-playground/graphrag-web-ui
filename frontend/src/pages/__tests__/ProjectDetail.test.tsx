@@ -164,7 +164,9 @@ test("a deep link lands on the right pane", async () => {
 
 test("/projects/:id redirects to the overview pane", async () => {
   renderApp({ route: "/projects/p1" })
-  expect(await screen.findByRole("heading", { name: "總覽" })).toBeInTheDocument()
+  // Task 6: the overview pane is the /health overview, whose heading the
+  // plan's T5 test deferred until this landed.
+  expect(await screen.findByRole("heading", { name: "知識庫健康度" })).toBeInTheDocument()
   // the members table lives on its own pane now — the redirect did not land there
   expect(screen.queryByText("bob@test.local")).not.toBeInTheDocument()
 })
@@ -178,7 +180,7 @@ test("a reload keeps the pane", async () => {
 
 test("entries missing an atom are hidden, not disabled", async () => {
   renderApp({ route: "/projects/p1/overview", myPermissions: VIEWER_PERMS })
-  expect(await screen.findByRole("heading", { name: "總覽" })).toBeInTheDocument()
+  expect(await screen.findByRole("heading", { name: "知識庫健康度" })).toBeInTheDocument()
   // project:edit_settings / project:manage absent → the entries are removed outright
   expect(screen.queryByRole("link", { name: "設定" })).not.toBeInTheDocument()
   expect(screen.queryByRole("link", { name: "成員" })).not.toBeInTheDocument()

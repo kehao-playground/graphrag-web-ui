@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import {
@@ -30,7 +31,11 @@ export default function Workbench({ projectId, canUse, canRunJobs }: {
   const [setId, setSetId] = useState<string>();
   const [method, setMethod] = useState<QueryMethod>("local");
   const [launchOpen, setLaunchOpen] = useState(false);
-  const [regressionsOnly, setRegressionsOnly] = useState(false);
+  // The slice ③ overview's regressions card deep-links here with the
+  // filter already applied (?regressions=1); after arrival the checkbox
+  // keeps owning the state, so toggling stays purely local.
+  const [searchParams] = useSearchParams();
+  const [regressionsOnly, setRegressionsOnly] = useState(searchParams.get("regressions") === "1");
 
   // Cell selection (spec §9.2): the FIRST pick opens the drawer and stays
   // selected after it closes; a second pick on another cell opens the run
