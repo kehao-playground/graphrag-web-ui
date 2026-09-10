@@ -208,16 +208,14 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
         usageBytes={files.data?.usage_bytes ?? 0}
         quotaBytes={files.data?.quota_bytes ?? 0}
       />
-      {/* The jobs "page" is the project's Jobs tab today: the link lands on
-          the project where the tab lives, and ?tab=jobs is the deep link
-          slice ③'s routed sidebar will consume (same entry-point pattern as
-          ?state=). */}
+      {/* The jobs pane is one sidebar entry away: its routed URL is the
+          deep link (slice ③), same entry-point pattern as ?state=. */}
       {pending > 0 && (
         <Alert
           type="info"
           showIcon
           message={t("files.notIndexedBar", { n: pending })}
-          action={<Link to={`/projects/${projectId}?tab=jobs`}>{t("files.goToJobs")}</Link>}
+          action={<Link to={`/projects/${projectId}/jobs`}>{t("files.goToJobs")}</Link>}
         />
       )}
       {files.data && files.data.ingest_check !== "available" && (

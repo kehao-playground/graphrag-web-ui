@@ -9,7 +9,7 @@ import Layout from "./components/Layout";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Login from "./pages/Login";
 import Projects from "./pages/Projects";
-import ProjectDetail from "./pages/ProjectDetail";
+import ProjectDetail, { ProjectPane } from "./pages/ProjectDetail";
 import AdminUsers from "./pages/AdminUsers";
 import AdminRoles from "./pages/AdminRoles";
 import AdminAudit from "./pages/AdminAudit";
@@ -31,7 +31,19 @@ export default function App() {
             <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
               <Route path="/" element={<Navigate to="/projects" replace />} />
               <Route path="/projects" element={<Projects />} />
-              <Route path="/projects/:id" element={<ProjectDetail />} />
+              {/* Panes are routes, not tab state (spec §4): reloads stay on
+                  their pane, every view is a shareable link, and the slice ③
+                  overview can deep-link files with ?state= pre-applied. */}
+              <Route path="/projects/:id" element={<ProjectDetail />}>
+                <Route index element={<Navigate to="overview" replace />} />
+                <Route path="overview" element={<ProjectPane pane="overview" />} />
+                <Route path="files" element={<ProjectPane pane="files" />} />
+                <Route path="jobs" element={<ProjectPane pane="jobs" />} />
+                <Route path="tests" element={<ProjectPane pane="tests" />} />
+                <Route path="explore" element={<ProjectPane pane="explore" />} />
+                <Route path="settings" element={<ProjectPane pane="settings" />} />
+                <Route path="members" element={<ProjectPane pane="members" />} />
+              </Route>
               <Route path="/admin/users" element={<AdminUsers />} />
               <Route path="/admin/roles" element={<AdminRoles />} />
               <Route path="/admin/audit" element={<AdminAudit />} />

@@ -139,7 +139,7 @@ test("the not-yet-indexed bar counts new+modified and links to jobs", async () =
   renderPanel();
   // draft.md is modified, notes.txt indexed, gone.md removed → 1 pending.
   expect(await screen.findByText("尚有 1 份文件未建立索引")).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "前往任務" })).toHaveAttribute("href", "/projects/p1?tab=jobs");
+  expect(screen.getByRole("link", { name: "前往任務" })).toHaveAttribute("href", "/projects/p1/jobs");
 });
 
 test("bulk delete confirms with count and total size", async () => {
