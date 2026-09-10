@@ -1145,10 +1145,19 @@ export interface components {
             disk_watermark_mb: number;
             last_run: components["schemas"]["LastRunOut"] | null;
         };
-        /** PreviewIn */
+        /**
+         * PreviewIn
+         * @description Exactly one locator form. A partially specified locator is a caller
+         *     bug, and guessing an interpretation is how the bindings in
+         *     resolve_stored_passage get bypassed by accident (spec 7.4).
+         */
         PreviewIn: {
+            /** Entry Id */
+            entry_id?: number | null;
             /** Passage */
-            passage: string;
+            passage?: string | null;
+            /** Result Id */
+            result_id?: string | null;
         };
         /** PreviewOut */
         PreviewOut: {

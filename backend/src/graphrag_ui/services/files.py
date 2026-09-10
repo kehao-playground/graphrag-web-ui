@@ -16,7 +16,14 @@ from pathlib import Path
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from graphrag_ui.adapters.models import FileTag, FileTagLink, Project, ProjectFile
+from graphrag_ui.adapters.models import (
+    FileTag,
+    FileTagLink,
+    Project,
+    ProjectFile,
+    TestResult,
+    TestRun,
+)
 from graphrag_ui.config import get_settings
 from graphrag_ui.domain.files import AttributableTitles, IngestCheck, index_state
 from graphrag_ui.services.audit import audit
@@ -58,6 +65,13 @@ class QuotaExceededError(Exception):
         super().__init__(f"project storage quota of {quota_mb} MiB exceeded")
         self.code = "quota_exceeded"
         self.params = {"quota_mb": quota_mb}
+
+
+class LocatorMismatch(Exception):
+    """A {result_id, entry_id} locator failed one of its three bindings
+    (spec 7.4). Carries no detail on purpose: unknown and mismatched must
+    stay indistinguishable, so the route maps every failure to one fixed
+    404 — never a 403, which would confirm the row exists."""
 
 
 _MIB = 1024 * 1024
@@ -180,6 +194,43 @@ async def preview_file(project: Project, name: str, *, around: str | None = None
         raise FileNotFoundError(name)
     needle = around.encode("utf-8") if around is not None else None
     return await asyncio.to_thread(_preview_core, target, needle)
+
+
+async def resolve_stored_passage(
+    session: AsyncSession,
+    project_id: uuid.UUID,
+    result_id: uuid.UUID,
+    entry_id: int,
+    name: str,
+) -> str:
+    """The stored passage a historic locator points at (spec 7.4).
+
+    Three bindings, any mismatch -> LocatorMismatch: the result's run must
+    belong to `project_id`, `entry_id` must name an entry of a Sources
+    citation on that result, and that entry's stored source_name must equal
+    `name` (the confused-deputy stop: without it, a real result_id paired
+    with any filename would search a different document). One exception for
+    all three so the caller cannot learn which binding failed.
+    """
+    citations = (
+        await session.execute(
+            select(TestResult.citations)
+            .join(TestRun, TestRun.id == TestResult.run_id)
+            .where(TestResult.id == result_id, TestRun.project_id == project_id)
+        )
+    ).scalar_one_or_none()
+    if citations is not None:
+        for citation in citations:
+            if citation.get("label") != "Sources":
+                continue
+            for entry in citation.get("entries") or []:
+                if entry.get("id") == entry_id:
+                    # A matched entry without a usable stored passage (no
+                    # source_name, no text) is as unopenable as no match.
+                    if entry.get("source_name") == name and entry.get("text"):
+                        return str(entry["text"])
+                    raise LocatorMismatch
+    raise LocatorMismatch
 
 
 def quota_bytes() -> int:

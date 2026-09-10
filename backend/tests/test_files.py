@@ -765,7 +765,7 @@ async def test_unmatched_passage_returns_the_head_and_says_so(client, alice_proj
         {},  # neither form
         {"passage": ""},  # empty passage
         {"passage": "x", "result_id": "abc"},  # mixed / unknown field
-        {"result_id": "abc"},  # slice 3's form, not yet served
+        {"result_id": "abc"},  # half the pair (and not a UUID)
         {"passage": "x", "unknown": 1},  # extra="forbid"
     ],
 )

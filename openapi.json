@@ -804,15 +804,43 @@
       },
       "PreviewIn": {
         "additionalProperties": false,
+        "description": "Exactly one locator form. A partially specified locator is a caller\nbug, and guessing an interpretation is how the bindings in\nresolve_stored_passage get bypassed by accident (spec 7.4).",
         "properties": {
+          "entry_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Id"
+          },
           "passage": {
-            "title": "Passage",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Passage"
+          },
+          "result_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Id"
           }
         },
-        "required": [
-          "passage"
-        ],
         "title": "PreviewIn",
         "type": "object"
       },

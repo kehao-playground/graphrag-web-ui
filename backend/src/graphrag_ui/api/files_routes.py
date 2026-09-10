@@ -11,7 +11,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, Response, UploadFile, status
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from graphrag_ui.api.deps import CurrentUser, DbSession, get_current_user
 from graphrag_ui.api.errors import ApiError
@@ -24,6 +24,7 @@ from graphrag_ui.services.files import (
     PASSAGE_MAX_BYTES,
     FileServiceError,
     FileTooLargeError,
+    LocatorMismatch,
     QuotaExceededError,
     max_file_bytes,
 )
@@ -101,22 +102,32 @@ class PreviewOut(BaseModel):
 
 
 class PreviewIn(BaseModel):
-    # extra="forbid" so a mixed or unknown-field body is a 422 rather than a
-    # silently ignored key (spec 7.4). Slice 1 serves the ad-hoc passage
-    # form only; the {result_id, entry_id} locator is slice 3's and is
-    # rejected here as an unknown field by design.
+    """Exactly one locator form. A partially specified locator is a caller
+    bug, and guessing an interpretation is how the bindings in
+    resolve_stored_passage get bypassed by accident (spec 7.4)."""
+
     model_config = ConfigDict(extra="forbid")
 
-    passage: str
+    result_id: uuid.UUID | None = None
+    entry_id: int | None = None
+    passage: str | None = None
 
-    @field_validator("passage")
-    @classmethod
-    def _bounded_bytes(cls, v: str) -> str:
-        if not v:
-            raise ValueError("passage must not be empty")
-        if len(v.encode("utf-8")) > PASSAGE_MAX_BYTES:
-            raise ValueError(f"passage exceeds {PASSAGE_MAX_BYTES} bytes")
-        return v
+    @model_validator(mode="after")
+    def _exactly_one_form(self) -> "PreviewIn":
+        historic = self.result_id is not None and self.entry_id is not None
+        half = (self.result_id is None) != (self.entry_id is None)
+        adhoc = self.passage is not None
+        if half or (historic and adhoc) or not (historic or adhoc):
+            raise ValueError("provide either {result_id, entry_id} or {passage}")
+        if adhoc:
+            if not self.passage:
+                raise ValueError("passage must not be empty")
+            # The bound is on BYTES: pydantic's string max_length counts
+            # characters, so a CJK passage would pass a character check at
+            # three times the byte budget.
+            if len(self.passage.encode("utf-8")) > PASSAGE_MAX_BYTES:
+                raise ValueError(f"passage exceeds {PASSAGE_MAX_BYTES} bytes")
+        return self
 
 
 # POST /api/projects/{pid}/files — the only upload endpoint (pid is a path
@@ -341,9 +352,24 @@ def register_files_routes(app):
         ):
             raise _forbidden()
         try:
-            return PreviewOut(
-                **await files_service.preview_file(project, filename, around=body.passage)
-            )
+            if body.result_id is not None:
+                # Historic locator: resolve_stored_passage has already
+                # bound the result to THIS project and the entry's stored
+                # source_name to THIS filename (spec 7.4).
+                assert body.entry_id is not None, "the validator pairs entry_id with result_id"
+                around: str | None = await files_service.resolve_stored_passage(
+                    db, project.id, body.result_id, body.entry_id, filename
+                )
+            else:
+                around = body.passage
+            return PreviewOut(**await files_service.preview_file(project, filename, around=around))
+        except LocatorMismatch:
+            # One fixed message for all three bindings — distinguishing
+            # them would leak which one failed (never a 403, which would
+            # confirm the row exists).
+            raise ApiError(
+                status.HTTP_404_NOT_FOUND, "citation_not_found", "citation not found"
+            ) from None
         except FileServiceError as e:
             raise ApiError(status.HTTP_400_BAD_REQUEST, e.code, str(e), e.params) from None
         except FileNotFoundError:

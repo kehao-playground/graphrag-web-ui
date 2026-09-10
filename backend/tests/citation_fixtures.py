@@ -12,6 +12,7 @@ covered by test_query_stream_sse.py and the adapter tests.
 """
 
 import uuid
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pandas as pd
@@ -299,3 +300,56 @@ async def seed_test_run(
     job.progress = {"done": 0, "total": len(question_rows)}
     await db_session.commit()
     return SimpleNamespace(job_id=job.id, run_id=run.id, root=root, project_id=project.id)
+
+
+async def stored_results(
+    db_session: AsyncSession, project: Project, citations_per_result: list[list[dict]]
+) -> list[TestResult]:
+    """One question set + one succeeded run + one completed result per
+    entry of citations_per_result, each carrying that entry's stored
+    citations verbatim. Locator tests (slice 3 Task 3) seed rows directly
+    instead of executing a run: the resolver is not involved, so
+    source_name is exactly what the caller stores."""
+    qs = QuestionSet(project_id=project.id, name="Cite", created_by=project.owner_id)
+    db_session.add(qs)
+    await db_session.flush()
+    questions = [
+        Question(
+            set_id=qs.id,
+            lineage_id=uuid.uuid4(),
+            text=f"q{i}",
+            position=i,
+            created_by=project.owner_id,
+        )
+        for i in range(len(citations_per_result))
+    ]
+    db_session.add_all(questions)
+    await db_session.flush()
+    job = Job(
+        project_id=project.id,
+        type="test_run",
+        method="local",
+        argv=[],
+        queued_by=project.owner_id,
+        status="succeeded",
+    )
+    db_session.add(job)
+    await db_session.flush()
+    run = TestRun(project_id=project.id, set_id=qs.id, job_id=job.id, method="local")
+    db_session.add(run)
+    await db_session.flush()
+    results = [
+        TestResult(
+            run_id=run.id,
+            question_id=q.id,
+            position=i,
+            question_text=q.text,
+            answer="Answer body",
+            citations=citations,
+            completed_at=datetime.now(UTC),
+        )
+        for i, (q, citations) in enumerate(zip(questions, citations_per_result, strict=True))
+    ]
+    db_session.add_all(results)
+    await db_session.commit()
+    return results
