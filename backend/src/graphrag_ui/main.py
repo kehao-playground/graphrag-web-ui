@@ -17,6 +17,7 @@ from graphrag_ui.api.env_routes import register_env_routes
 from graphrag_ui.api.errors import ApiError, api_error_handler
 from graphrag_ui.api.explore_routes import register_explore_routes
 from graphrag_ui.api.files_routes import register_files_routes
+from graphrag_ui.api.health_project_routes import register_health_project_routes
 from graphrag_ui.api.health_routes import register_health_routes
 from graphrag_ui.api.jobs_routes import register_jobs_routes
 from graphrag_ui.api.projects_routes import register_projects_routes
@@ -138,6 +139,10 @@ def create_app() -> FastAPI:
     # narrowed to its own exception class cannot satisfy that signature.
     app.add_exception_handler(ApiError, api_error_handler)  # type: ignore[arg-type]
     register_health_routes(app)
+    # BEFORE projects_routes (contractual, same hazard as explore's
+    # /artifacts/graph): /api/projects/health must not fall through to
+    # /api/projects/{project_id}, whose uuid parse of "health" is a 422.
+    register_health_project_routes(app)
     register_auth_routes(app)
     register_users_routes(app)
     register_roles_routes(app)

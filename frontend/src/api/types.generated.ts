@@ -300,6 +300,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Batch */
+        get: operations["batch_api_projects_health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{pid}/artifacts/graph": {
         parameters: {
             query?: never;
@@ -485,6 +502,23 @@ export interface paths {
         put?: never;
         /** Bulk Delete Files */
         post: operations["bulk_delete_files_api_projects__pid__files_bulk_delete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{pid}/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One */
+        get: operations["one_api_projects__pid__health_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -861,6 +895,13 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ActiveJobOut */
+        ActiveJobOut: {
+            /** Id */
+            id: string;
+            /** Type */
+            type: string;
+        };
         /**
          * AuditEntryOut
          * @description One audit row, with the actor resolved to an email.
@@ -913,6 +954,47 @@ export interface components {
              * @enum {string}
              */
             auth_mode: "local" | "proxy";
+        };
+        /**
+         * BatchFileCountsOut
+         * @description Exactly the counts the project list renders (spec 7.5): no indexed,
+         *     no total — the list flags faults, the per-project page enumerates.
+         */
+        BatchFileCountsOut: {
+            /** Modified */
+            modified: number;
+            /** New */
+            new: number;
+            /** Removed */
+            removed: number;
+            /** Skipped */
+            skipped: number;
+        };
+        /** BatchHealthEntryOut */
+        BatchHealthEntryOut: {
+            /** Artifacts Stale */
+            artifacts_stale: boolean;
+            files: components["schemas"]["BatchFileCountsOut"];
+            /** Has Baseline */
+            has_baseline: boolean;
+            /** Ingest Check */
+            ingest_check: string;
+            last_index: components["schemas"]["BatchLastIndexOut"] | null;
+        };
+        /** BatchHealthOut */
+        BatchHealthOut: {
+            /** Projects */
+            projects: {
+                [key: string]: components["schemas"]["BatchHealthEntryOut"];
+            };
+        };
+        /** BatchLastIndexOut */
+        BatchLastIndexOut: {
+            /**
+             * Finished At
+             * Format: date-time
+             */
+            finished_at: string;
         };
         /** Body_upload_file_api_projects__pid__files_post */
         Body_upload_file_api_projects__pid__files_post: {
@@ -970,6 +1052,21 @@ export interface components {
             /** Keys */
             keys: components["schemas"]["EnvKeyOut"][];
         };
+        /** FileCountsOut */
+        FileCountsOut: {
+            /** Indexed */
+            indexed: number;
+            /** Modified */
+            modified: number;
+            /** New */
+            new: number;
+            /** Removed */
+            removed: number;
+            /** Skipped */
+            skipped: number;
+            /** Total */
+            total: number;
+        };
         /** FileEntryOut */
         FileEntryOut: {
             /** Index State */
@@ -1012,6 +1109,19 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** HealthOut */
+        HealthOut: {
+            active_job: components["schemas"]["ActiveJobOut"] | null;
+            /** Artifacts Stale */
+            artifacts_stale: boolean;
+            files: components["schemas"]["FileCountsOut"];
+            /** Has Baseline */
+            has_baseline: boolean;
+            /** Ingest Check */
+            ingest_check: string;
+            last_index: components["schemas"]["LastIndexOut"] | null;
+            latest_run: components["schemas"]["LatestRunOut"] | null;
         };
         /** JobCreateIn */
         JobCreateIn: {
@@ -1068,6 +1178,18 @@ export interface components {
             /** Type */
             type: string;
         };
+        /** LastIndexOut */
+        LastIndexOut: {
+            /**
+             * Finished At
+             * Format: date-time
+             */
+            finished_at: string;
+            /** Job Id */
+            job_id: string;
+            /** Type */
+            type: string;
+        };
         /** LastRunOut */
         LastRunOut: {
             /** Finished At */
@@ -1082,6 +1204,20 @@ export interface components {
             type: string;
             /** Update Documents */
             update_documents: number | null;
+        };
+        /** LatestRunOut */
+        LatestRunOut: {
+            /** Index Job Id */
+            index_job_id: string | null;
+            /** Method */
+            method: string;
+            ratings: components["schemas"]["RatingsOut"];
+            /** Regressions */
+            regressions: number;
+            /** Run Id */
+            run_id: string;
+            /** Set Id */
+            set_id: string;
         };
         /** LoginIn */
         LoginIn: {
@@ -1278,6 +1414,17 @@ export interface components {
             rated_by: string;
             /** Score */
             score: string;
+        };
+        /** RatingsOut */
+        RatingsOut: {
+            /** Fair */
+            fair: number;
+            /** Good */
+            good: number;
+            /** Poor */
+            poor: number;
+            /** Unrated */
+            unrated: number;
         };
         /** RefreshIn */
         RefreshIn: {
@@ -2200,6 +2347,37 @@ export interface operations {
             };
         };
     };
+    batch_api_projects_health_get: {
+        parameters: {
+            query: {
+                ids: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchHealthOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_graph_api_projects__pid__artifacts_graph_get: {
         parameters: {
             query?: {
@@ -2679,6 +2857,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BulkDeleteOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    one_api_projects__pid__health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthOut"];
                 };
             };
             /** @description Validation Error */

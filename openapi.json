@@ -1,6 +1,24 @@
 {
   "components": {
     "schemas": {
+      "ActiveJobOut": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type"
+        ],
+        "title": "ActiveJobOut",
+        "type": "object"
+      },
       "AuditEntryOut": {
         "description": "One audit row, with the actor resolved to an email.\n\nactor_id/actor_email are both null for rows the system wrote with no\nsigned-in actor (bootstrap admin creation), and actor_email alone is\nnull when the actor's user row is gone \u2014 the history stays readable\neither way.",
         "properties": {
@@ -112,6 +130,103 @@
           "auth_mode"
         ],
         "title": "AuthConfigOut",
+        "type": "object"
+      },
+      "BatchFileCountsOut": {
+        "description": "Exactly the counts the project list renders (spec 7.5): no indexed,\nno total \u2014 the list flags faults, the per-project page enumerates.",
+        "properties": {
+          "modified": {
+            "title": "Modified",
+            "type": "integer"
+          },
+          "new": {
+            "title": "New",
+            "type": "integer"
+          },
+          "removed": {
+            "title": "Removed",
+            "type": "integer"
+          },
+          "skipped": {
+            "title": "Skipped",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "new",
+          "modified",
+          "removed",
+          "skipped"
+        ],
+        "title": "BatchFileCountsOut",
+        "type": "object"
+      },
+      "BatchHealthEntryOut": {
+        "properties": {
+          "artifacts_stale": {
+            "title": "Artifacts Stale",
+            "type": "boolean"
+          },
+          "files": {
+            "$ref": "#/components/schemas/BatchFileCountsOut"
+          },
+          "has_baseline": {
+            "title": "Has Baseline",
+            "type": "boolean"
+          },
+          "ingest_check": {
+            "title": "Ingest Check",
+            "type": "string"
+          },
+          "last_index": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BatchLastIndexOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "files",
+          "ingest_check",
+          "artifacts_stale",
+          "has_baseline",
+          "last_index"
+        ],
+        "title": "BatchHealthEntryOut",
+        "type": "object"
+      },
+      "BatchHealthOut": {
+        "properties": {
+          "projects": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/BatchHealthEntryOut"
+            },
+            "title": "Projects",
+            "type": "object"
+          }
+        },
+        "required": [
+          "projects"
+        ],
+        "title": "BatchHealthOut",
+        "type": "object"
+      },
+      "BatchLastIndexOut": {
+        "properties": {
+          "finished_at": {
+            "format": "date-time",
+            "title": "Finished At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "finished_at"
+        ],
+        "title": "BatchLastIndexOut",
         "type": "object"
       },
       "Body_upload_file_api_projects__pid__files_post": {
@@ -283,6 +398,44 @@
         "title": "EnvOut",
         "type": "object"
       },
+      "FileCountsOut": {
+        "properties": {
+          "indexed": {
+            "title": "Indexed",
+            "type": "integer"
+          },
+          "modified": {
+            "title": "Modified",
+            "type": "integer"
+          },
+          "new": {
+            "title": "New",
+            "type": "integer"
+          },
+          "removed": {
+            "title": "Removed",
+            "type": "integer"
+          },
+          "skipped": {
+            "title": "Skipped",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "new",
+          "modified",
+          "indexed",
+          "skipped",
+          "removed",
+          "total"
+        ],
+        "title": "FileCountsOut",
+        "type": "object"
+      },
       "FileEntryOut": {
         "properties": {
           "index_state": {
@@ -410,6 +563,66 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HealthOut": {
+        "properties": {
+          "active_job": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ActiveJobOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "artifacts_stale": {
+            "title": "Artifacts Stale",
+            "type": "boolean"
+          },
+          "files": {
+            "$ref": "#/components/schemas/FileCountsOut"
+          },
+          "has_baseline": {
+            "title": "Has Baseline",
+            "type": "boolean"
+          },
+          "ingest_check": {
+            "title": "Ingest Check",
+            "type": "string"
+          },
+          "last_index": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LastIndexOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "latest_run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LatestRunOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "files",
+          "ingest_check",
+          "has_baseline",
+          "artifacts_stale",
+          "last_index",
+          "active_job",
+          "latest_run"
+        ],
+        "title": "HealthOut",
         "type": "object"
       },
       "JobCreateIn": {
@@ -572,6 +785,30 @@
         "title": "JobOut",
         "type": "object"
       },
+      "LastIndexOut": {
+        "properties": {
+          "finished_at": {
+            "format": "date-time",
+            "title": "Finished At",
+            "type": "string"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "type",
+          "finished_at"
+        ],
+        "title": "LastIndexOut",
+        "type": "object"
+      },
       "LastRunOut": {
         "properties": {
           "finished_at": {
@@ -637,6 +874,50 @@
           "update_documents"
         ],
         "title": "LastRunOut",
+        "type": "object"
+      },
+      "LatestRunOut": {
+        "properties": {
+          "index_job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Index Job Id"
+          },
+          "method": {
+            "title": "Method",
+            "type": "string"
+          },
+          "ratings": {
+            "$ref": "#/components/schemas/RatingsOut"
+          },
+          "regressions": {
+            "title": "Regressions",
+            "type": "integer"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "set_id": {
+            "title": "Set Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "set_id",
+          "method",
+          "index_job_id",
+          "ratings",
+          "regressions"
+        ],
+        "title": "LatestRunOut",
         "type": "object"
       },
       "LoginIn": {
@@ -1150,6 +1431,34 @@
           "rated_at"
         ],
         "title": "RatingOut",
+        "type": "object"
+      },
+      "RatingsOut": {
+        "properties": {
+          "fair": {
+            "title": "Fair",
+            "type": "integer"
+          },
+          "good": {
+            "title": "Good",
+            "type": "integer"
+          },
+          "poor": {
+            "title": "Poor",
+            "type": "integer"
+          },
+          "unrated": {
+            "title": "Unrated",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "good",
+          "fair",
+          "poor",
+          "unrated"
+        ],
+        "title": "RatingsOut",
         "type": "object"
       },
       "RefreshIn": {
@@ -2887,6 +3196,51 @@
         "summary": "Post Project"
       }
     },
+    "/api/projects/health": {
+      "get": {
+        "operationId": "batch_api_projects_health_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "ids",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "title": "Ids",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchHealthOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Batch"
+      }
+    },
     "/api/projects/{pid}/artifacts/graph": {
       "get": {
         "operationId": "get_graph_api_projects__pid__artifacts_graph_get",
@@ -3729,6 +4083,51 @@
           }
         ],
         "summary": "Bulk Delete Files"
+      }
+    },
+    "/api/projects/{pid}/health": {
+      "get": {
+        "operationId": "one_api_projects__pid__health_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "One"
       }
     },
     "/api/projects/{pid}/jobs": {
