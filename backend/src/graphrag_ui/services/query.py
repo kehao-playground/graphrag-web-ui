@@ -11,6 +11,7 @@ Error contract (route maps, service never touches HTTP):
 
 import logging
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ from graphrag_ui.adapters.frame_cache import WorkspaceNotIndexedError, get_frame
 from graphrag_ui.adapters.graphrag_search import GraphragSearchAdapter, load_config
 from graphrag_ui.adapters.models import Project, User
 from graphrag_ui.domain.citations import build_citations
+from graphrag_ui.services.citations import Generation, enrich_sources, read_generation
 from graphrag_ui.services.errors import INTERRUPTED_DETAIL, ServicePipelineError
 from graphrag_ui.services.projects import ws_path
 from graphrag_ui.services.rate_limit import get_rate_limiter
@@ -102,9 +104,21 @@ def _frame_texts(df: pd.DataFrame) -> dict[int, str | None]:
     return entries
 
 
+def _text_units_frame(frames: dict[str, pd.DataFrame]) -> pd.DataFrame | None:
+    """The text-units frame among its synonyms: its ids are what the
+    answer's Sources markers cite and its document_id column is what maps
+    them to documents — taken from the frames that ANSWERED, never re-read
+    (spec 7.4)."""
+    for key in _TEXT_UNIT_KEYS:
+        if key in frames:
+            return frames[key]
+    return None
+
+
 @dataclass(frozen=True)
 class Prepared:
     root: Path
+    project_id: uuid.UUID
     config: Any
     frames: dict[str, pd.DataFrame]
     frames_ms: float
@@ -137,16 +151,26 @@ async def _prepare_query(project: Project, method: str, *, config: Any = None) -
         logger.exception("frame load failed (project %s, method %s)", project.id, method)
         raise QueryError("search", str(exc)[-500:]) from exc
     frames_ms = (time.perf_counter() - frames_start) * 1000
-    return Prepared(root=root, config=config, frames=frames, frames_ms=frames_ms)
+    return Prepared(
+        root=root, project_id=project.id, config=config, frames=frames, frames_ms=frames_ms
+    )
 
 
 async def _execute_query(
-    prepared: Prepared, method: str, query: str, response_type: str | None
+    prepared: Prepared,
+    method: str,
+    query: str,
+    response_type: str | None,
+    *,
+    g0: Generation,
+    memo: dict[str, str | None] | None = None,
 ) -> dict:
     """search -> citations -> timings. Non-streaming only: the adapter's
     search returns context_data, which is what these citations join
     against. Streaming has no context_data and keeps its own tail in
-    stream_query."""
+    stream_query. `g0` is the generation the caller read BEFORE the frame
+    load (spec 7.4 step 1) — the guard must bracket the documents read that
+    enrichment performs after the search, so it cannot be read here."""
     exec_start = time.perf_counter()
     search_start = time.perf_counter()
     try:
@@ -163,7 +187,14 @@ async def _execute_query(
     search_ms = (time.perf_counter() - search_start) * 1000
 
     citations_start = time.perf_counter()
-    citations = build_citations(answer, _flatten_frames(context))
+    citations = await enrich_sources(
+        build_citations(answer, _flatten_frames(context)),
+        _text_units_frame(context),
+        prepared.root,
+        prepared.project_id,
+        g0=g0,
+        memo={} if memo is None else memo,
+    )
     citations_ms = (time.perf_counter() - citations_start) * 1000
 
     return {
@@ -190,9 +221,11 @@ async def run_query(
     total_start = time.perf_counter()
     # Rate limit first: cheap in-memory check before any I/O.
     get_rate_limiter().check(str(user.id), str(project.id))
-
+    # G0 before the frame load (spec 7.4 step 1): the guard must bracket the
+    # documents read that enrichment performs after the search.
+    g0 = await read_generation(project.id)
     prepared = await _prepare_query(project, method)
-    body = await _execute_query(prepared, method, query, response_type)
+    body = await _execute_query(prepared, method, query, response_type, g0=g0)
     # total_ms spans the whole interactive request (limiter + preamble +
     # search), so it is measured from run_query's own entry.
     body["timings"]["total_ms"] = (time.perf_counter() - total_start) * 1000
@@ -218,7 +251,8 @@ async def stream_query(
     """
     total_start = time.perf_counter()
     get_rate_limiter().check(str(user.id), str(project.id))
-
+    # G0 before the frame load, exactly like run_query (spec 7.4 step 1).
+    g0 = await read_generation(project.id)
     prepared = await _prepare_query(project, method)
 
     gen = GraphragSearchAdapter().stream(
@@ -250,7 +284,14 @@ async def stream_query(
 
     citations_start = time.perf_counter()
     # Streaming has no context_data: join markers against the cached frames
-    citations = build_citations("".join(answer_parts), _flatten_frames(prepared.frames))
+    citations = await enrich_sources(
+        build_citations("".join(answer_parts), _flatten_frames(prepared.frames)),
+        _text_units_frame(prepared.frames),
+        prepared.root,
+        prepared.project_id,
+        g0=g0,
+        memo={},
+    )
     citations_ms = (time.perf_counter() - citations_start) * 1000
 
     yield ("citations", citations)

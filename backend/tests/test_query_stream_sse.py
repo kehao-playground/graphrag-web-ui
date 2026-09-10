@@ -245,7 +245,7 @@ async def test_stream_chunks_then_citations_then_done(client, app, fake_adapter,
         {
             "label": "Sources",
             "ids": [2],
-            "entries": [{"id": 2, "text": "text two"}],
+            "entries": [{"id": 2, "text": "text two", "source_name": None}],
         }
     ]
     # done: timings dict with the POST-path keys
@@ -403,8 +403,8 @@ async def test_stream_local_resolves_parquet_shaped_markers(client, app, monkeyp
     events = _events(body)
     citations = next(p for kind, p in events if kind == "citations")
     by_label = {c["label"]: c for c in citations}
-    assert by_label["Sources"]["entries"] == [{"id": 2, "text": "unit two"}]
-    assert by_label["Reports"]["entries"] == [{"id": 6, "text": "Report Six"}]
+    assert by_label["Sources"]["entries"] == [{"id": 2, "text": "unit two", "source_name": None}]
+    assert by_label["Reports"]["entries"] == [{"id": 6, "text": "Report Six", "source_name": None}]
     # local mode loaded the full five-table frame set for the join
     assert cache.tables == [
         "entities",

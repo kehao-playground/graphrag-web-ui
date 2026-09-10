@@ -47,7 +47,11 @@ export type QueryMethod = "local" | "global" | "drift" | "basic";
 // no backend response_model yet — hand-maintained (spec A5.2)
 export interface Citation {
   label: string; ids: number[];
-  entries: { id: number; text: string | null }[];
+  // source_name is resolved WITH the answer (spec §7.4) and is null when
+  // the generation guard withheld links, when the title mapped to nothing,
+  // or when the label is not "Sources". `npm run gen:types` will not
+  // produce this — the SSE contract has no backend response_model.
+  entries: { id: number; text: string | null; source_name: string | null }[];
 }
 // no backend response_model yet — hand-maintained (spec A5.2)
 export interface QueryTimings {

@@ -38,6 +38,7 @@ from graphrag_ui.adapters.models import (
 )
 from graphrag_ui.services import query as query_service
 from graphrag_ui.services.audit import audit
+from graphrag_ui.services.citations import read_generation
 from graphrag_ui.services.jobs import JobConflictError
 from graphrag_ui.services.project_lock import lock_project
 from graphrag_ui.services.query import _execute_query, _prepare_query
@@ -211,6 +212,14 @@ async def execute_test_run(
         run.workspace_config_revision = revision
         await s.commit()
 
+    # G0 ONCE for the whole run, read before the preamble frame load
+    # (spec 7.4): every question's G1 is evaluated against this one, so a
+    # rebuild landing anywhere inside the run withholds every later link.
+    # The memo is run-scoped: at most one resolver call per question, and
+    # only for ids no earlier question already resolved.
+    g0 = await read_generation(project.id)
+    memo: dict[str, str | None] = {}
+
     # One preamble for the whole run: Prepared.config is reused for every
     # question, so an edit to settings.yaml or .env mid-batch cannot change
     # what the later questions execute against.
@@ -238,7 +247,9 @@ async def execute_test_run(
             cancelled = True
             break
         try:
-            body = await _execute_query(prepared, run.method, row.question_text, None)
+            body = await _execute_query(
+                prepared, run.method, row.question_text, None, g0=g0, memo=memo
+            )
             answer, citations, timings, error = (
                 body["answer"],
                 body["citations"],

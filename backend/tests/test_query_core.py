@@ -16,6 +16,7 @@ import pytest
 from graphrag_ui.adapters.models import Project
 from graphrag_ui.config import get_settings
 from graphrag_ui.services import query as query_service
+from graphrag_ui.services.citations import Generation
 from graphrag_ui.services.rate_limit import (
     QueryRateLimitedError,
     get_rate_limiter,
@@ -62,6 +63,19 @@ def _seams(monkeypatch):
     reset_rate_limiter()
 
 
+@pytest.fixture(autouse=True)
+def _no_generation(monkeypatch):
+    """These direct calls have no DB project behind them: G0 reads as "no
+    baseline", which renders citations unlinked without touching the
+    database (enrichment short-circuits on a null pointer)."""
+
+    async def _read(_project_id):
+        return Generation(None, 0, False)
+
+    monkeypatch.setattr(query_service, "read_generation", _read)
+    yield
+
+
 @pytest.fixture
 def project(monkeypatch, tmp_path):
     """Unsaved Project + hermetic workspace — the direct service calls below
@@ -102,7 +116,9 @@ async def test_execute_query_applies_no_limiter(project, fake_adapter, fake_cach
         limiter.check("u1", str(project.id))
 
     prepared = await query_service._prepare_query(project, "local")
-    body = await query_service._execute_query(prepared, "local", "q", None)
+    body = await query_service._execute_query(
+        prepared, "local", "q", None, g0=Generation(None, 0, False)
+    )
     assert body["answer"]
 
 
@@ -120,7 +136,9 @@ async def test_run_query_and_the_core_produce_identical_bodies(
 ):
     direct = await query_service.run_query(project, user, "local", "q")
     prepared = await query_service._prepare_query(project, "local")
-    core = await query_service._execute_query(prepared, "local", "q", None)
+    core = await query_service._execute_query(
+        prepared, "local", "q", None, g0=Generation(None, 0, False)
+    )
     assert direct["answer"] == core["answer"]
     assert direct["citations"] == core["citations"]
     assert set(direct["timings"]) == set(core["timings"])

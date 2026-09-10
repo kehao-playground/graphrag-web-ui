@@ -141,7 +141,11 @@ async def test_owner_response_shape_with_citations(client, app, fake_adapter, fa
     assert body["context"] == [{"name": "sources", "rows": 2}]
     # marker id 2 joined against the sources frame text
     assert body["citations"] == [
-        {"label": "Sources", "ids": [2], "entries": [{"id": 2, "text": "文字二"}]}
+        {
+            "label": "Sources",
+            "ids": [2],
+            "entries": [{"id": 2, "text": "文字二", "source_name": None}],
+        }
     ]
     assert set(body["timings"]) == {"frames_ms", "search_ms", "citations_ms", "total_ms"}
     assert body["timings"]["total_ms"] >= body["timings"]["search_ms"]
