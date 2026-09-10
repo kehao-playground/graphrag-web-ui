@@ -12,6 +12,7 @@ list columns come from the frozen domain registry (schemas probed in
 from __future__ import annotations
 
 import datetime
+from collections.abc import Collection
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -207,6 +208,33 @@ def read_document_titles(root: Path) -> list[str] | None:
     with duckdb.connect(":memory:") as con:
         rows = con.execute("SELECT title FROM read_parquet(?)", [str(path)]).fetchall()
     return [str(r[0]) for r in rows if r[0] is not None]
+
+
+def resolve_document_titles(root: Path, document_ids: Collection[str]) -> dict[str, str]:
+    """{document_id: documents.title} for the ids given, in ONE duckdb read.
+
+    The resolver returns TITLES and stops there. Turning a title into a
+    filename is the recovery rule of spec 6.3, and that rule must be the one
+    that held when the artifacts were built - so the caller applies the
+    BASELINE SNAPSHOT's title_recovery, never today's settings.yaml
+    (services/citations.py).
+
+    Best-effort: a missing parquet yields {}, which renders citations
+    unlinked rather than failing the answer.
+    """
+    if not document_ids:
+        return {}
+    path = root / "output" / "documents.parquet"
+    if not path.is_file():
+        return {}
+    ids = list(document_ids)
+    placeholders = ", ".join("?" for _ in ids)
+    with duckdb.connect(":memory:") as con:
+        rows = con.execute(
+            f"SELECT id, title FROM read_parquet(?) WHERE id IN ({placeholders})",
+            [str(path), *ids],
+        ).fetchall()
+    return {str(r[0]): str(r[1]) for r in rows if r[1] is not None}
 
 
 def _clean(value: Any) -> Any:

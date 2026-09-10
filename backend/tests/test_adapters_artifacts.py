@@ -1,11 +1,13 @@
 import pandas as pd
 import pytest
 
+from graphrag_ui.adapters import artifacts as artifacts_module
 from graphrag_ui.adapters.artifacts import (
     ArtifactsNotIndexedError,
     get_row,
     graph,
     list_rows,
+    resolve_document_titles,
 )
 
 
@@ -135,3 +137,61 @@ def test_capped_graph_drops_edges_whose_endpoint_was_cut(ws):
 def test_graph_level_choice_is_unaffected_by_the_cap(ws):
     data = graph(ws, level=0, node_limit=2)
     assert data["level"] == 0 and data["levels"] == [0, 1]
+
+
+@pytest.fixture
+def docs_ws(tmp_path):
+    """Workspace whose output/ holds only documents.parquet."""
+
+    def make(documents):
+        out = tmp_path / "output"
+        out.mkdir(exist_ok=True)
+        ids, titles = zip(*documents)
+        pd.DataFrame({"id": list(ids), "title": list(titles)}).to_parquet(out / "documents.parquet")
+        return tmp_path
+
+    return make
+
+
+def _explode(message):
+    def boom(*args, **kwargs):
+        raise AssertionError(message)
+
+    return boom
+
+
+def test_resolve_document_titles_returns_only_requested_ids(docs_ws):
+    root = docs_ws(documents=[("d1", "a.md"), ("d2", "b.md"), ("d3", "c.md")])
+    assert resolve_document_titles(root, {"d1", "d3"}) == {"d1": "a.md", "d3": "c.md"}
+
+
+def test_unknown_ids_are_absent_not_none(docs_ws):
+    root = docs_ws(documents=[("d1", "a.md")])
+    assert resolve_document_titles(root, {"d1", "ghost"}) == {"d1": "a.md"}
+
+
+def test_empty_id_set_reads_nothing(docs_ws, monkeypatch):
+    """A question that cites no sources must not open duckdb at all."""
+    root = docs_ws(documents=[("d1", "a.md")])
+    monkeypatch.setattr(artifacts_module.duckdb, "connect", _explode("no read for an empty id set"))
+    assert resolve_document_titles(root, set()) == {}
+
+
+def test_missing_parquet_yields_an_empty_mapping(tmp_path):
+    """Best-effort: a missing documents.parquet renders citations unlinked,
+    it does not fail the answer."""
+    assert resolve_document_titles(tmp_path, {"d1"}) == {}
+
+
+def test_one_read_for_many_ids(docs_ws, monkeypatch):
+    root = docs_ws(documents=[(f"d{i}", f"f{i}.md") for i in range(50)])
+    reads = {"n": 0}
+    real = artifacts_module.duckdb.connect
+
+    def counting(*a, **kw):
+        reads["n"] += 1
+        return real(*a, **kw)
+
+    monkeypatch.setattr(artifacts_module.duckdb, "connect", counting)
+    out = resolve_document_titles(root, {f"d{i}" for i in range(50)})
+    assert len(out) == 50 and reads["n"] == 1
