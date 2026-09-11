@@ -82,7 +82,7 @@ the `text_units` frame that answered the query, not from a second read —
 sources). That is why the resolver takes **document** ids rather than
 text-unit ids.
 
-- [ ] **Step 1: Write the failing resolver tests**
+- [x] **Step 1: Write the failing resolver tests**
 
 Append to `backend/tests/test_adapters_artifacts.py`:
 
@@ -126,12 +126,12 @@ def test_one_read_for_many_ids(tmp_workspace, monkeypatch):
     assert len(out) == 50 and reads["n"] == 1
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `cd backend && uv run pytest tests/test_adapters_artifacts.py -q -k resolve`
 Expected: FAIL — `ImportError: cannot import name 'resolve_document_titles'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```python
 def resolve_document_titles(root: Path, document_ids: Collection[str]) -> dict[str, str]:
@@ -161,7 +161,7 @@ def resolve_document_titles(root: Path, document_ids: Collection[str]) -> dict[s
     return {str(r[0]): str(r[1]) for r in rows if r[1] is not None}
 ```
 
-- [ ] **Step 4-5: Run, gate, commit**
+- [x] **Step 4-5: Run, gate, commit**
 
 ```bash
 cd backend && uv run pytest tests/test_adapters_artifacts.py -q
@@ -240,7 +240,7 @@ field is empty whenever `title_recovery` is unavailable, so resolution would
 silently inherit a narrowing it has no reason to. The entry names are the
 primary record and cannot narrow.
 
-- [ ] **Step 1: Write the four barrier cases**
+- [x] **Step 1: Write the four barrier cases**
 
 Create `backend/tests/test_citation_guard.py`:
 
@@ -393,7 +393,7 @@ async def test_a_batch_run_is_guarded_identically(
 > frame load, or after G1) tests nothing: an implementation with no guard at
 > all would pass.
 
-- [ ] **Step 2: Write the source-resolution tests**
+- [x] **Step 2: Write the source-resolution tests**
 
 Create `backend/tests/test_citation_source.py`:
 
@@ -511,12 +511,12 @@ async def test_a_missing_baseline_renders_unlinked(client, artifacts_without_bas
     assert _all_source_names_null(body)
 ```
 
-- [ ] **Step 3: Run to verify they fail**
+- [x] **Step 3: Run to verify they fail**
 
 Run: `cd backend && uv run pytest tests/test_citation_guard.py tests/test_citation_source.py -q`
 Expected: FAIL — `ModuleNotFoundError: graphrag_ui.services.citations`.
 
-- [ ] **Step 4: Implement `services/citations.py`**
+- [x] **Step 4: Implement `services/citations.py`**
 
 ```python
 """Citation -> source resolution, bracketed by a generation guard (spec 7.4).
@@ -590,7 +590,7 @@ attach `None` to every `Sources` entry.
 `memo` is a per-run `dict[str, str | None]` the batch service threads through
 every question, which is what makes the call-count contract testable.
 
-- [ ] **Step 5: Wire the three call sites**
+- [x] **Step 5: Wire the three call sites**
 
 `_execute_query` and `stream_query` both read G0 before `_prepare_query`'s
 frame load and call `enrich_sources` in place of the bare `build_citations`
@@ -598,7 +598,7 @@ tail. `services/test_runs.py` passes its run-scoped memo. The `citations`
 payload shape gains `source_name` on `Sources` entries only, so the SSE
 `citations` event and the `POST /query` body both carry it.
 
-- [ ] **Step 6: Update the hand-maintained frontend `Citation` type**
+- [x] **Step 6: Update the hand-maintained frontend `Citation` type**
 
 `frontend/src/api/types.ts`:
 
@@ -614,7 +614,7 @@ export interface Citation {
 }
 ```
 
-- [ ] **Step 7: Run, regenerate, gate, commit**
+- [x] **Step 7: Run, regenerate, gate, commit**
 
 ```bash
 cd backend && uv run pytest tests/test_citation_guard.py tests/test_citation_source.py tests/test_query_api.py tests/test_query_stream_sse.py -q
@@ -668,7 +668,7 @@ with either — is **422**; a partially specified locator is a caller bug, and
 guessing an interpretation is how the bindings above get bypassed by
 accident.
 
-- [ ] **Step 1: Write the failing binding tests**
+- [x] **Step 1: Write the failing binding tests**
 
 Create `backend/tests/test_preview_locator.py`:
 
@@ -773,12 +773,12 @@ async def test_a_stored_source_name_whose_file_was_deleted_is_a_clean_404(
     assert r.status_code == 404
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `cd backend && uv run pytest tests/test_preview_locator.py -q`
 Expected: FAIL — 422 on the historic body (slice ① served `{passage}` only).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Replace `PreviewIn` with a discriminated pair validated by a model validator,
 keeping `extra="forbid"`:
@@ -820,7 +820,7 @@ class PreviewIn(BaseModel):
 `LocatorMismatch`, and the route maps it to 404 with a single fixed message
 — distinguishing them in the response would leak which binding failed.
 
-- [ ] **Step 4-6: Run, regenerate, gate, commit**
+- [x] **Step 4-6: Run, regenerate, gate, commit**
 
 ```bash
 cd backend && uv run pytest tests/test_preview_locator.py tests/test_files.py -q
@@ -874,7 +874,7 @@ without downloading every result. `artifacts_stale` is
 still read `indexed` from the baseline while `output/` holds a failed
 attempt's leftovers, and where citation links are switched off.
 
-- [ ] **Step 1: Write the failing health tests**
+- [x] **Step 1: Write the failing health tests**
 
 Append to `backend/tests/test_health.py`:
 
@@ -945,19 +945,19 @@ async def test_batch_health_rejects_an_oversized_id_list(client, alice_headers):
     assert r.status_code == 422
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `cd backend && uv run pytest tests/test_health.py -q`
 Expected: FAIL — 404 on `/api/projects/{id}/health`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `services/health.py` reuses `list_files` for the per-project counts rather
 than reimplementing the enumeration — one source of truth for what `removed`
 means. The batch endpoint loops the visible ids with the same function and
 projects the compact subset; cap `ids` at 200 entries.
 
-- [ ] **Step 4-6: Run, regenerate, gate, commit**
+- [x] **Step 4-6: Run, regenerate, gate, commit**
 
 ```bash
 cd backend && uv run pytest tests/test_health.py -q
@@ -1000,7 +1000,7 @@ existing `my_permissions` atoms — **no client-side role math**. Sidebar
 entries carry live badges: files → count of `new` + `modified`; jobs →
 `running`.
 
-- [ ] **Step 1: Write the failing routing tests**
+- [x] **Step 1: Write the failing routing tests**
 
 ```tsx
 test("a deep link lands on the right pane", async () => {
@@ -1040,12 +1040,12 @@ test("the files entry links to the state filter the overview uses", async () => 
 });
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `cd frontend && npm test -- ProjectDetail`
 Expected: FAIL — `/projects/p1/tests` renders the tab container, not a pane.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `App.tsx` nests the routes; `ProjectDetail` keeps the project and members
 queries and the permission computation, drops `Tabs`, and renders
@@ -1053,7 +1053,7 @@ queries and the permission computation, drops `Tabs`, and renders
 `Descriptions` + members card become the `members` pane. `ExplorePanel` and
 `SettingsPanel` move under the sidebar unchanged.
 
-- [ ] **Step 4-5: Both locales, frontend gate, commit**
+- [x] **Step 4-5: Both locales, frontend gate, commit**
 
 ```bash
 cd frontend && npm test && npm run lint && npx tsc -b --noEmit
@@ -1112,7 +1112,7 @@ When `ingest_check == "unavailable_title_column"`, rules 4-6 still apply but
 the card adds that silent-skip detection is off, so `skipped` is not
 evidence of health either way.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```ts
 const H = (over = {}) => ({
@@ -1182,19 +1182,19 @@ test("unavailable title_column adds a caveat without changing the ranking", asyn
 });
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `cd frontend && npm test -- ProjectOverview`
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `nextAction` is a pure `if`-ladder in the order above, returning
 `{ key, severity, target }`. `ProjectOverview` renders the card, four stat
 tiles (documents, pending, last index, rating summary) and two recent-activity
 mini-cards, and consumes `/health` only.
 
-- [ ] **Step 4-5: Both locales, frontend gate, commit**
+- [x] **Step 4-5: Both locales, frontend gate, commit**
 
 ```bash
 cd frontend && npm test && npm run lint && npx tsc -b --noEmit
@@ -1229,7 +1229,7 @@ lookup.** There is no endpoint to look one up, by design.
 link saying the document was removed**, rather than a dead 404 — the
 frontend must not call the preview endpoint for it.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```tsx
 test("a Sources citation with a source_name is clickable", async () => {
@@ -1288,23 +1288,23 @@ test("a project with only removed documents is flagged, not shown healthy", asyn
 });
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `cd frontend && npm test -- AnswerView Projects`
 Expected: FAIL — citations render as plain text.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `AnswerView` takes an added `origin?: { resultId: string } | null` prop and
 renders each `Sources` entry with a `source_name` as a button that opens the
 drawer with the matching locator variant. `Projects.tsx` issues one
 `GET /api/projects/health?ids=` for the whole visible list.
 
-- [ ] **Step 4: Both locales; frontend gate**
+- [x] **Step 4: Both locales; frontend gate**
 
 Run: `cd frontend && npm test && npm run lint && npx tsc -b --noEmit && npm run build`
 
-- [ ] **Step 5: Documentation and release notes**
+- [x] **Step 5: Documentation and release notes**
 
 - `README.md`: the full knowledge-manager loop end to end — upload → index →
   test → find the document at fault → fix → re-index. Mirror into
@@ -1325,7 +1325,7 @@ docker compose -f docker-compose.yml -f docker-compose.proxy-auth.yml config
 helm lint deploy/helm/graphrag-ui && helm template deploy/helm/graphrag-ui > /dev/null
 ```
 
-- [ ] **Step 6: Full gate and commit**
+- [x] **Step 6: Full gate and commit**
 
 ```bash
 cd backend && uv run pytest -q -m "not slow" && uv run ruff check && uv run ruff format --check && uv run mypy
