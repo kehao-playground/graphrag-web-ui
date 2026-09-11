@@ -19,10 +19,13 @@ import AnswerView from "./AnswerView";
 // to document, and skips keystrokes whose target is a text field — typing a
 // note can never rate. Rating the LAST result closes the drawer: the pass
 // is done.
-export default function ResultDrawer({ runId, resultId, onClose, onRated }: {
+export default function ResultDrawer({ projectId, runId, resultId, onClose, onRated }: {
   // runId beyond the plan's { resultId, onClose, onRated }: results are only
   // readable per run (GET /test-runs/{rid}/results), and that same ordered
   // list is what "advance to the next result" walks.
+  // projectId feeds AnswerView's citation links (spec §7.4): the preview
+  // locator binds to the project's files.
+  projectId: string;
   runId: string | null;
   resultId: string | null;
   onClose: () => void;
@@ -147,9 +150,14 @@ export default function ResultDrawer({ runId, resultId, onClose, onRated }: {
           </div>
           {current.error && <Alert type="error" showIcon message={current.error} />}
           <AnswerView
+            projectId={projectId}
             answer={current.answer ?? ""}
             citations={(current.citations as Citation[] | null) ?? []}
             timings={(current.timings as QueryTimings | null) ?? null}
+            // A stored run's citations pin to the artifacts that produced
+            // them: {resultId, entryId} lets the server re-read the stored
+            // passage instead of trusting current artifacts (spec §7.4).
+            origin={currentId !== null ? { resultId: currentId } : null}
           />
           <div>
             <Segmented

@@ -7,7 +7,7 @@ import {
 } from "antd";
 import type { TableProps } from "antd";
 import { api, detailOf } from "../api/client";
-import type { Project, UserBrief } from "../api/types";
+import type { BatchHealth, Project, UserBrief } from "../api/types";
 
 
 const FILE_TYPES: Project["input_file_type"][] = ["text", "csv", "json"];
@@ -33,6 +33,21 @@ export default function Projects() {
       if (!r.ok) throw new Error(await detailOf(r, "projects.loadFailed"));
       return (await r.json()) as Project[];
     },
+  });
+
+  // One round trip for the whole visible list (spec §7.5): the ids ride in
+  // the key so a changed list refetches, and a failed fetch resolves to
+  // null — a missing flag costs the column, not the page; the per-project
+  // overview owns surfacing errors.
+  const ids = useMemo(() => (projects ?? []).map((p) => p.id).join(","), [projects]);
+  const health = useQuery({
+    queryKey: ["projects", "health-batch", ids],
+    queryFn: async (): Promise<BatchHealth | null> => {
+      const r = await api(`/api/projects/health?ids=${ids}`);
+      return r.ok ? ((await r.json()) as BatchHealth) : null;
+    },
+    enabled: ids.length > 0,
+    retry: false,
   });
 
   useEffect(() => {
@@ -103,6 +118,31 @@ export default function Projects() {
       dataIndex: "input_file_type",
       width: 110,
       render: (v: string) => <Tag>{v}</Tag>,
+    },
+    {
+      title: t("projects.indexHealth"),
+      width: 160,
+      render: (_, p) => {
+        const h = health.data?.projects[p.id];
+        if (!h) return null;
+        // Flags, not a score (spec §9.3): the list says what is wrong, the
+        // per-project overview enumerates and orders it. `removed` leads
+        // because it is the one fault only a full index clears, and a
+        // project whose only fault is removed documents must not read
+        // healthy.
+        const pending = h.files.new + h.files.modified;
+        if (h.files.removed === 0 && pending === 0) return null;
+        return (
+          <>
+            {h.files.removed > 0 && (
+              <Tag color="red">{t("projects.healthRemoved")}</Tag>
+            )}
+            {pending > 0 && (
+              <Tag color="gold">{t("projects.healthPending", { count: pending })}</Tag>
+            )}
+          </>
+        );
+      },
     },
     {
       title: t("common.createdAt"),

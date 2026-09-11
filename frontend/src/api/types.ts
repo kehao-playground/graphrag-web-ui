@@ -22,6 +22,7 @@ export type Job = components["schemas"]["JobOut"];
 export type LastRun = components["schemas"]["LastRunOut"];
 export type Preflight = components["schemas"]["PreflightOut"];
 export type ProjectHealth = components["schemas"]["HealthOut"];
+export type BatchHealth = components["schemas"]["BatchHealthOut"];
 export type QuestionSet = components["schemas"]["SetOut"];
 export type Question = components["schemas"]["QuestionOut"];
 export type TestRun = components["schemas"]["RunOut"];

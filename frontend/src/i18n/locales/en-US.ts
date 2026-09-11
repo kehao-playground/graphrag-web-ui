@@ -129,6 +129,9 @@ const enUS = {
     deleted: "Project deleted",
     inputFormat: "Input format",
     owner: "Owner",
+    indexHealth: "Index health",
+    healthPending: "{{count}} to index",
+    healthRemoved: "Deleted documents still in the index",
     deleteTitle: "Delete project",
     deleteConfirm: "All files in the workspace will be deleted too. Are you sure?",
     pageTitle: "Projects",
@@ -370,6 +373,9 @@ const enUS = {
     methodDrift: "DRIFT", methodBasic: "Basic",
     failedRetry: "Query failed — try again later",
     citations: "Citations ({{count}})",
+    // A citation whose document no longer exists (spec §7.4): the link is
+    // disabled rather than left to 404.
+    sourceRemoved: "This document was removed",
     timings: "frames {{frames}}ms · search {{search}}ms · citations {{citations}}ms · total {{total}}ms",
   },
   workbench: {

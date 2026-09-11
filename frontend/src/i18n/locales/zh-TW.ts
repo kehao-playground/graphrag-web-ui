@@ -136,6 +136,9 @@ export default {
     deleted: "專案已刪除",
     inputFormat: "輸入格式",
     owner: "擁有者",
+    indexHealth: "索引健康",
+    healthPending: "{{count}} 待索引",
+    healthRemoved: "已刪除文件仍在索引中",
     deleteTitle: "刪除專案",
     deleteConfirm: "workspace 內所有檔案將一併刪除,確定嗎?",
     pageTitle: "專案",
@@ -377,6 +380,9 @@ export default {
     methodDrift: "DRIFT", methodBasic: "基本",
     failedRetry: "查詢失敗,請稍後再試",
     citations: "引用 ({{count}})",
+    // A citation whose document no longer exists (spec §7.4): the link is
+    // disabled rather than left to 404.
+    sourceRemoved: "文件已刪除",
     timings: "frames {{frames}}ms · 搜尋 {{search}}ms · 引用 {{citations}}ms · 總計 {{total}}ms",
   },
   workbench: {

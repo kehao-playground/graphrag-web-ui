@@ -103,8 +103,9 @@ function OverviewBody({ projectId, data }: { projectId: string; data: ProjectHea
 }
 
 // One stat tile: label above, value below. Counts render with their unit
-// ("3 份") rather than a bare number, so they never collide with the
-// sidebar's badge text in tests or screen readers.
+// rather than a bare number, so they never collide with the sidebar's
+// badge text in tests or screen readers.
+// zh-TW: the count unit is 份, as the stat value renders "3 份".
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <Card size="small" style={{ minWidth: 150 }}>

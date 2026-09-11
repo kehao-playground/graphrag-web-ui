@@ -158,7 +158,16 @@ export default function AdhocQuery({ projectId, canUse }: { projectId: string; c
         )}
       </Space>
 
-      <AnswerView answer={chunks.join("")} citations={citations} timings={timings} streaming={busy} />
+      <AnswerView
+        projectId={projectId}
+        answer={chunks.join("")}
+        citations={citations}
+        timings={timings}
+        streaming={busy}
+        // An ad-hoc answer has no stored artifacts to bind a citation to,
+        // so its links pin on the passage the citations payload carries.
+        origin={null}
+      />
 
       <Modal
         open={saveOpen}

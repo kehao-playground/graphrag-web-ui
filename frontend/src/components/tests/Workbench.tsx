@@ -379,6 +379,7 @@ export default function Workbench({ projectId, canUse, canRunJobs }: {
             // Keyed by the picked cell: a new pick remounts the drawer with
             // fresh state instead of prop-syncing the current result in.
             key={drawerFor ? `${drawerFor.runId}:${drawerFor.resultId}` : "closed"}
+            projectId={projectId}
             runId={drawerFor?.runId ?? null}
             resultId={drawerFor?.resultId ?? null}
             onClose={() => setDrawerFor(null)}

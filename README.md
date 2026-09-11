@@ -140,6 +140,36 @@ they actually asked.
 - No new environment variables; the bounds are domain constants
   (`MAX_QUESTIONS_PER_SET`, `MAX_QUESTION_CHARS`, `MATRIX_DEFAULT_RUNS`).
 
+### The knowledge manager's loop — closed (slice 3)
+
+Slices 1 and 2 built the parts; slice 3 wires the loop between them:
+**upload → index → test → find the document at fault → fix → re-index.**
+A knowledge manager uploads documents and runs a full `index`; the
+retrieval tests then ask the question set against that index. When an
+answer is wrong, its `Sources` citations name the documents they came
+from, and one click opens the cited document's preview centered on the
+passage that was used — the manager edits that document, and the next
+index run plus a re-run of the set shows whether the fix took. The
+overview page's action card names the single next action at any moment,
+and the project list flags faults (`3 to index`, `Deleted documents
+still in the index`) so a project that quietly drifted cannot read
+healthy.
+
+**Release notes — knowledge manager (slice 3):**
+
+- `Sources` citations now carry a `source_name`, resolved **with the
+  answer** at the moment it is produced — for ad-hoc queries and batch
+  runs alike. There is **no endpoint that resolves a citation to a
+  document after the fact**: a citation id is only meaningful against
+  the artifacts that produced it — a later build renumbers ids, so a
+  deferred lookup would silently open the *wrong* document. A
+  `source_name` whose file has since been deleted renders as a disabled
+  link saying the document was removed, rather than a dead 404.
+- The same conservatism governs links after a failed or interrupted
+  index: citation links stay off until a successful index promotes a new
+  baseline. `/health`'s `artifacts_stale` and the overview page's
+  action card ("Indexed output unavailable") are where the user sees why.
+
 
 ## Quickstart (15 minutes)
 

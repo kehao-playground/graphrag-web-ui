@@ -3,11 +3,11 @@ import { useTranslation } from "react-i18next";
 import { Descriptions, Drawer, Spin, Typography } from "antd";
 import { api, detailOf } from "../../api/client";
 
-// A locator pins WHERE in the document the window should center on. Slice 1
-// never passes one — the drawer opens from a row and shows the head window.
-// Slice 3 passes {resultId, entryId} for a stored run or {passage} for an
+// A locator pins WHERE in the document the window should center on. Slice ①
+// rows pass none — the drawer opens from a row and shows the head window.
+// Slice ③ passes {resultId, entryId} for a stored run or {passage} for an
 // ad-hoc query, picking the variant by where the answer came from (spec
-// 7.4); entryId is a number to match Citation.ids.
+// §7.4); entryId is a number to match Citation.ids.
 export type Locator = { resultId: string; entryId: number } | { passage: string };
 
 type PreviewOut = {
@@ -20,8 +20,8 @@ type PreviewOut = {
 export default function FilePreviewDrawer({ projectId, name, locator, onClose }: {
   projectId: string;
   name: string | null;
-  // Reserved for slice 3 (see Locator above); intentionally unread here so
-  // the prop's existence documents the contract without dead behavior.
+  // The pin for the window: absent = head window (GET), otherwise one of
+  // the two binding bodies (POST) — see Locator above.
   locator?: Locator;
   onClose: () => void;
 }) {
@@ -32,13 +32,19 @@ export default function FilePreviewDrawer({ projectId, name, locator, onClose }:
     queryKey: ["projects", projectId, "files", name, "preview", locator ?? null],
     queryFn: async (): Promise<PreviewOut> => {
       const base = `/api/projects/${projectId}/files/${encodeURIComponent(name!)}`;
-      const r = locator && "passage" in locator
-        ? await api(base + "/preview", {
+      // GET keeps slice ①'s head window untouched; a locator always POSTs
+      // its binding body (spec §7.4) — {result_id, entry_id} makes the
+      // server re-read the stored passage, {passage} searches the document
+      // for text the ad-hoc answer already cited.
+      const r = !locator
+        ? await api(base + "/preview")
+        : await api(base + "/preview", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ passage: locator.passage }),
-          })
-        : await api(base + "/preview");
+            body: JSON.stringify("passage" in locator
+              ? { passage: locator.passage }
+              : { result_id: locator.resultId, entry_id: locator.entryId }),
+          });
       if (!r.ok) throw new Error(await detailOf(r, "files.previewLoadFailed"));
       return (await r.json()) as PreviewOut;
     },
