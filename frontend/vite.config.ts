@@ -36,6 +36,9 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     globals: true,
+    // antd Table tests take ~1.7 s solo; under vitest 5's parallel
+    // scheduling on a busy dev machine they exceed the 5 s default.
+    testTimeout: 15_000,
     setupFiles: "./src/setupTests.ts",
     // Ignore exactly one unhandled error: React's jsdom-teardown race.
     // The predicate lives in src/testing so it is unit-tested against the
