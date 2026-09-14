@@ -91,7 +91,14 @@ async def test_real_dry_run_valid_then_corrupted_workspace(client, app):
     assert r.status_code == 200
     body = r.json()
     assert body["ok"] is True
-    assert "Dry run complete" in body["output"]
+    # graphrag >=3.1.2 routes pipeline logs to the workspace log file
+    # (default reporting.type: file), so a successful dry-run captures no
+    # stdout/stderr. The log line proves the CLI reached the dry-run exit
+    # branch; 3.1.0 only surfaced it on stderr via a logging bug
+    # (logger.info("...", True) printed a "--- Logging error ---"
+    # traceback — what this assert used to pin).
+    log = (ws_path(uuid.UUID(pid)) / "logs" / "indexing-engine.log").read_text()
+    assert "Dry run complete" in log
 
     # corrupted settings.yaml → graphrag config load fails → ok False (200)
     (ws_path(uuid.UUID(pid)) / "settings.yaml").write_text("{{{")

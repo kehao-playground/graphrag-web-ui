@@ -1,9 +1,9 @@
 version: 2
 updates:
-  # graphrag is pinned (==3.1.0) on purpose — AGENTS.md: bumping it means
-  # re-checking graphrag_input/input_config.py key names, because wrong keys
-  # are silently ignored (extra="allow"). Dependabot may still open the PR;
-  # it just must not be merged without that check.
+  # graphrag is pinned (==3.1.2, latest stable) on purpose — AGENTS.md:
+  # bumping it means re-checking graphrag_input/input_config.py key names,
+  # because wrong keys are silently ignored (extra="allow"). Dependabot
+  # may still open the PR; it just must not be merged without that check.
   - package-ecosystem: uv
     directory: /backend
     schedule: { interval: weekly }

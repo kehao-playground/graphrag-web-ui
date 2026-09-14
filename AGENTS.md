@@ -53,7 +53,11 @@ briefs; their Global Constraints always apply.
 ```bash
 # backend (Python 3.12, uv; Docker required for testcontainers; duckdb
 # reads explore parquet artifacts read-only)
-cd backend && uv run pytest -v          # 500 tests with GRAPHRAG_API_KEY (494 fast); 6 slow tests fork the real graphrag CLI (4 need the key, skipped without it); fast only: uv run pytest -m "not slow"
+# graphrag>=3.1.2 pulls lancedb>=0.37, which ships no macOS x86_64 wheels:
+# on Intel Macs `uv sync` fails — run backend gates in Docker instead
+# (ghcr.io/astral-sh/uv:python3.12-bookworm, mount the repo + docker.sock,
+# TESTCONTAINERS_RYUK_DISABLED=true, uv sync --frozen)
+cd backend && uv run pytest -v          # 539 tests with GRAPHRAG_API_KEY (533 fast); 6 slow tests fork the real graphrag CLI (4 need the key, skipped without it); fast only: uv run pytest -m "not slow"
 cd backend && uv run ruff check
 cd backend && uv run ruff format --check   # formatting is CI-enforced; `ruff format` to fix
 cd backend && uv run mypy                  # src/ must stay clean; CI-enforced
@@ -78,8 +82,8 @@ helm template deploy/helm/graphrag-ui > /dev/null
 ## Working Rules
 
 - TDD: failing test first, minimal implementation, green before commit.
-- graphrag is pinned (`==3.1.0`); do not bump without checking
-  `graphrag_input/input_config.py` key names (`input.type`,
+- graphrag is pinned (`==3.1.2`, latest stable); do not bump without
+  checking `graphrag_input/input_config.py` key names (`input.type`,
   `input.file_pattern` is a regex) — wrong keys are silently ignored
   (`extra="allow"`), so always read back and assert after writing
   `settings.yaml`.
