@@ -15,7 +15,7 @@ jobs:
       # setup-uv pinned exact — floating major tags discontinued after v8
       - uses: actions/checkout@v7
       # testcontainers needs docker — the GitHub ubuntu runner has it built in
-      - uses: astral-sh/setup-uv@v10.0.1
+      - uses: astral-sh/setup-uv@v10.1.0
         with:
           python-version: "3.12"
       - run: uv sync --dev
@@ -56,7 +56,7 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.0.1
+      - uses: astral-sh/setup-uv@v10.1.0
         with:
           python-version: "3.12"
       # --skip-editable: the environment contains graphrag-ui itself, which is
