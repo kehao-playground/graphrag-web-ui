@@ -1,5 +1,5 @@
 import { afterAll, afterEach } from "vitest";
-import "@testing-library/jest-dom";
+import "@testing-library/jest-dom/vitest";
 
 // jsdom lacks matchMedia; AntD's responsive observer needs it
 if (typeof window.matchMedia !== "function") {
