@@ -385,7 +385,7 @@ CHANGELOG and AGENTS.md counts. Mark §8 complete. PR, rebase-merge.
 | phase | status | date | artifact / PR | notes |
 |---|---|---|---|---|
 | plan | done | 2026-09-19 | this file | |
-| R1 | todo | | | |
+| R1 | done | 2026-09-19 | `reviews/2026-09-19-r1-architecture.md` (PR #28) | 66 findings (P1 3, P2 22, P3 41); all gates green; CI `audit` job red on transitive nltk advisories |
 | R2 | todo | | | |
 | R3 | todo | | | |
 | R4 | todo | | | |
