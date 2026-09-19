@@ -54,9 +54,15 @@ briefs; their Global Constraints always apply.
 # backend (Python 3.12, uv; Docker required for testcontainers; duckdb
 # reads explore parquet artifacts read-only)
 # graphrag>=3.1.2 pulls lancedb>=0.37, which ships no macOS x86_64 wheels:
-# on Intel Macs `uv sync` fails — run backend gates in Docker instead
-# (ghcr.io/astral-sh/uv:python3.12-bookworm, mount the repo + docker.sock,
-# TESTCONTAINERS_RYUK_DISABLED=true, uv sync --frozen)
+# on Intel Macs `uv sync` fails — run backend gates in Docker instead. The
+# named volumes keep the venv off the host tree and make reruns fast;
+# testcontainers reaches the host daemon through the mounted socket:
+#   docker run --rm -v "$PWD":/repo -w /repo/backend \
+#     -v /var/run/docker.sock:/var/run/docker.sock \
+#     -v graphrag-ui-uv-cache:/root/.cache/uv -v graphrag-ui-venv:/opt/venv \
+#     -e UV_PROJECT_ENVIRONMENT=/opt/venv -e TESTCONTAINERS_RYUK_DISABLED=true \
+#     ghcr.io/astral-sh/uv:python3.12-bookworm \
+#     sh -c 'uv sync --frozen -q && uv run ruff check && uv run ruff format --check && uv run mypy && uv run pytest -q -m "not slow"'
 cd backend && uv run pytest -v          # 539 tests with GRAPHRAG_API_KEY (533 fast); 6 slow tests fork the real graphrag CLI (4 need the key, skipped without it); fast only: uv run pytest -m "not slow"
 cd backend && uv run ruff check
 cd backend && uv run ruff format --check   # formatting is CI-enforced; `ruff format` to fix

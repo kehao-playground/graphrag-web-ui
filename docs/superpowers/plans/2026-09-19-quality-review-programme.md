@@ -42,10 +42,9 @@ duckdb over parquet, graphrag 3.1.2 (CLI subprocess + env-shielded
   finding; a spec that is itself wrong is also a finding (category
   `spec`).
 - **Intel Mac host** (`uname -m` = `x86_64`): `uv sync` fails on lancedb.
-  Backend gates run in Docker exactly as `AGENTS.md` describes
-  (`ghcr.io/astral-sh/uv:python3.12-bookworm`, mount repo + docker.sock,
-  `TESTCONTAINERS_RYUK_DISABLED=true`, `uv sync --frozen`). Frontend
-  gates run natively (Node 24).
+  Backend gates run in Docker with the exact command in `AGENTS.md`
+  "Commands" (named volumes for the venv and uv cache; docker.sock
+  mounted for testcontainers). Frontend gates run natively (Node 24).
 - **Fix waves obey AGENTS.md** without exception: layering, alembic-only
   schema changes, fixed env-var names, contract gate (`openapi.json` +
   `types.generated.ts` in the same commit), English comments, both
@@ -287,8 +286,10 @@ reviewer does not repeat the check.
 - [ ] `GRAPHRAG_API_KEY` valid for indexing (R4, V only).
 - [ ] Small real corpus for R4/V in a known path (record it in the R4
       doc so V reuses it).
-- [ ] Backend Docker gate recipe works on this host (run once before R1;
-      record the exact command in R1's intro).
+- [x] Backend Docker gate recipe works on this host — verified
+      2026-09-19: the command in AGENTS.md "Commands" (run from the repo
+      root) passed ruff, ruff format, mypy and 533 fast tests in 7 m 25 s;
+      cold `uv sync` 75 s, warm ~1 s via the named volumes.
 - [ ] `gh auth status` OK (fix waves).
 
 ## 6. File Structure
@@ -316,8 +317,8 @@ Execute phase R1 of docs/superpowers/plans/2026-09-19-quality-review-programme.m
 Read the plan (§1 constraints, §3 R1 brief, §4 format), AGENTS.md, and the
 specs index in docs/superpowers/specs/. Produce
 docs/superpowers/reviews/<today>-r1-architecture.md. Findings only, no
-code changes. Run the gates in Docker (Intel Mac) and record the exact
-command in the doc's intro. When done, update §8 of the plan, commit on
+code changes. Run the backend gates with the Docker command in AGENTS.md
+(Intel Mac). When done, update §8 of the plan, commit on
 a branch, open a PR, rebase-merge it.
 ```
 
