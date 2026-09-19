@@ -64,7 +64,7 @@ cd backend && uv run mypy                  # src/ must stay clean; CI-enforced
 
 # frontend (Node 24; jsdom+undici need >=22; explore graph renders via
 # react-sigma + graphology, lazy-loaded as a separate build chunk)
-cd frontend && npm test                 # vitest run (142 tests)
+cd frontend && npm test                 # vitest run (170 tests)
 cd frontend && npm run lint             # oxlint, ratcheted at 6 warnings
 cd frontend && npx tsc -b --noEmit
 cd frontend && npm run build
