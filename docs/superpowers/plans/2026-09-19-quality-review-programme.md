@@ -386,7 +386,7 @@ CHANGELOG and AGENTS.md counts. Mark §8 complete. PR, rebase-merge.
 |---|---|---|---|---|
 | plan | done | 2026-09-19 | this file | |
 | R1 | done | 2026-09-19 | `reviews/2026-09-19-r1-architecture.md` (PR #28, addendum PR #29) | 118 findings (P1 4, P2 48, P3 66) incl. `/code-review high` + `/simplify` addendum; all gates green; CI `audit` job red on transitive nltk advisories |
-| R2 | todo | | | |
+| R2 | done | 2026-09-19 | `reviews/2026-09-19-r2-correctness-security.md` | 39 findings (P0 3, P1 2, P2 10, P3 24) + 17 R1 rows dispositioned; P0s are graphrag config loading (`${VAR}` from the API environ, workspace `.env` merged into `os.environ`, unconfined storage `base_dir`); backend coverage 95% with greenlet tracing, frontend 82% lines |
 | R3 | todo | | | |
 | R4 | todo | | | |
 | T | todo | | | |
