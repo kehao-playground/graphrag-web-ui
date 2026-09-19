@@ -49,7 +49,7 @@ coverage data files were written into `backend/` by the container and moved out 
 | same with `COVERAGE_RCFILE` → `[run] concurrency = greenlet,thread` | 0 | `533 passed, 6 deselected in 718.77s`; **TOTAL 95%** (4339 stmts, 231 missed) |
 | `npx vitest run --coverage.enabled --coverage.provider=v8` | 0 | `26 files, 170 passed`; lines 81.95% (1063/1297), branches 75.29%, functions 74.57% |
 | `docker run … nginxinc/nginx-unprivileged:1.31-alpine` with `frontend/nginx.conf`; `curl -F file=@2MiB` | — | `413 text/html`, nginx log `client intended to send too large body: 2097347 bytes`; a 512 KiB body reaches the upstream (R2-04) |
-| `/security-review` identification sub-task | — | 3 findings + Verified OK list, recovered from the sub-task's transcript (its messages never reached this session); every item verified by hand against source (section below) |
+| `/security-review` identification sub-task | — | 3 findings + Verified OK list (recovered from the sub-task's transcript; the messages themselves arrived ~40 min late); every item verified by hand against source (section below) |
 | `/code-review high backend/src/graphrag_ui` | — | 11 findings (MEDIUM ×3, LOW ×8); 4 re-found R1 rows (R1-77, R1-06, R1-01, R1-04), 7 merged below |
 | `/code-review high frontend/src` | — | 10 findings; 4 re-found R1 rows (R1-83, R1-18 ×2, R1-21), 6 merged below |
 | `python -c` EmailStr probe in the Docker venv (email_validator 2.3.0) | 0 | `.local`, `.test`, `.invalid`, `.onion`, `localhost` rejected; `.internal` accepted (spec §9 wording partially wrong — see Verified OK) |
@@ -160,9 +160,9 @@ backend/deps, deploy, frontend/…, ci, spec).
 
 The skill reviews a diff; `main` had none, so its identification step was run as a sub-task over
 the whole tree with the skill's own instructions (>80% confidence, DoS / rate-limit / outdated-
-library classes excluded). The sub-task's report did not reach this session's inbox (its
-safety filter blocked the first, exploit-detailed version; the high-level rewrite was sent but
-never delivered) and was recovered from its transcript; its three findings, its below-threshold
+library classes excluded). The sub-task's report reached this session ~40 minutes late (its
+safety filter blocked the first, exploit-detailed version; the high-level rewrite was delayed), so
+it was first recovered from the sub-task's transcript and the late delivery cross-checked against it; its three findings, its below-threshold
 notes and its Verified OK list were then verified by hand against the source and, where a claim
 depended on a library, against the graphrag 3.1.2 / graphrag_storage / graphrag_llm / litellm /
 python-dotenv code in the Docker venv. The skill's own false-positive-filter step was therefore
