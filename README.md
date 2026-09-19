@@ -45,7 +45,7 @@ graph TB
             L2 --> L4["adapters/ — repos, FS, graphrag"]
         end
         PG[("postgres 16<br/>users · projects · jobs · audit")]
-        subgraph GR["graphrag 3.1.0 (pinned) — both touchpoints in adapters/"]
+        subgraph GR["graphrag 3.1.2 (pinned) — both touchpoints in adapters/"]
             CLI["graphrag CLI subprocess<br/>init · index · update"]
             LIB["graphrag.api in-process<br/>local · global · drift · basic"]
         end
@@ -96,18 +96,6 @@ A trustworthy baseline comes from a full `index` run; an `update` never
 creates one, so existing projects read every file as `new` until someone runs
 a full index.
 
-**Release notes — knowledge manager (slice 1):**
-
-- Input freeze: uploads, single/bulk deletes, `PUT .../settings`,
-  `PATCH .../env` and `DELETE .../env/{key}` now return **409
-  `project_indexing`** while an `index`/`update` job is queued or running.
-- `FileEntryOut.size` / `.modified_at` / `.sha256` are **nullable**, and
-  listings can contain rows with no file behind them (`removed` documents
-  still in the index).
-- Documents tab: per-file index state, client-side search and filters,
-  tags, bulk delete with a count-and-size confirmation, and a bounded
-  document preview (optionally centered on a passage).
-
 ### Tests — the retrieval-testing loop
 
 The **Tests** tab is the retrieval-testing loop. A knowledge manager saves a
@@ -126,20 +114,6 @@ granularity, because character diffs bury the real change in prose. Editing
 a question that has runs creates a new version; past runs keep the wording
 they actually asked.
 
-**Release notes — retrieval testing (slice 2):**
-
-- Test runs and index/update jobs are **mutually exclusive per project, in
-  both directions**: the one-active-job-per-project rule holds even when the
-  global `MAX_CONCURRENT_JOBS` budget is free, and the jobs page names the
-  same conflict from the other side (HTTP 409 `job_conflict`).
-- A batch run executes **inside the API process**, as interactive queries
-  already do: many sequential queries, not a new class of load — but
-  sustained, with `MAX_CONCURRENT_JOBS` as the throttle. It deliberately
-  bypasses the per-user interactive rate limit, which one 20-question batch
-  would otherwise consume outright.
-- No new environment variables; the bounds are domain constants
-  (`MAX_QUESTIONS_PER_SET`, `MAX_QUESTION_CHARS`, `MATRIX_DEFAULT_RUNS`).
-
 ### The knowledge manager's loop — closed (slice 3)
 
 Slices 1 and 2 built the parts; slice 3 wires the loop between them:
@@ -154,22 +128,6 @@ overview page's action card names the single next action at any moment,
 and the project list flags faults (`3 to index`, `Deleted documents
 still in the index`) so a project that quietly drifted cannot read
 healthy.
-
-**Release notes — knowledge manager (slice 3):**
-
-- `Sources` citations now carry a `source_name`, resolved **with the
-  answer** at the moment it is produced — for ad-hoc queries and batch
-  runs alike. There is **no endpoint that resolves a citation to a
-  document after the fact**: a citation id is only meaningful against
-  the artifacts that produced it — a later build renumbers ids, so a
-  deferred lookup would silently open the *wrong* document. A
-  `source_name` whose file has since been deleted renders as a disabled
-  link saying the document was removed, rather than a dead 404.
-- The same conservatism governs links after a failed or interrupted
-  index: citation links stay off until a successful index promotes a new
-  baseline. `/health`'s `artifacts_stale` and the overview page's
-  action card ("Indexed output unavailable") are where the user sees why.
-
 
 ## Quickstart (15 minutes)
 
@@ -186,7 +144,7 @@ healthy.
      validation rejects special-use domains
    - `BOOTSTRAP_ADMIN_PASSWORD`
 
-   All 15 base variables and their defaults are documented in
+   All 16 base variables and their defaults are documented in
    [`.env.example`](.env.example); the opt-in proxy-auth overlay adds its
    own set (see [OAuth2-Proxy authentication](#oauth2-proxy-authentication-optional)).
 3. **Start** — `docker compose up --build -d`. The UI is at `http://localhost:8080`.
@@ -237,8 +195,12 @@ in the trail can be edited or deleted through the API.
 
 ## Known caveats
 
-- graphrag is pinned to `==3.1.0`: newer 3.1.x releases pull `lancedb` versions that have
-  no macOS x86_64 wheel (see §13 of the design spec).
+- graphrag is pinned to `==3.1.2` (latest stable). Its `graphrag-vectors` dependency
+  pulls `lancedb>=0.37`, which ships no macOS x86_64 wheel — on Intel Macs `uv sync`
+  fails, so run the backend gates in a Linux container there (recipe in
+  [`AGENTS.md`](AGENTS.md)). CI (Linux) and Apple-silicon Macs are unaffected. Do not
+  bump graphrag without re-checking the `settings.yaml` key names it reads
+  (`AGENTS.md`, Working Rules).
 - On macOS, the `osxkeychain` credential helper blocks Docker in non-interactive
   sessions (SSH, agent terminals): `error getting credentials … keychain cannot
   be accessed` — even for public-image pulls/builds. Unlock the keychain first
@@ -304,7 +266,9 @@ npm run screenshots   # writes docs/assets/screenshots/{en,zh}/
 - [`deploy/helm/graphrag-ui`](deploy/helm/graphrag-ui) — Helm chart;
   [`values.yaml`](deploy/helm/graphrag-ui/values.yaml) documents every environment variable,
   and `NOTES.txt` prints an install-time quickstart (zh-TW).
-- [`docker-compose.yml`](docker-compose.yml) — single-host deployment; same 15 variables.
+- [`docker-compose.yml`](docker-compose.yml) — single-host deployment; same 16 variables
+  (`DATABASE_URL` and `WORKSPACES_DIR` are fixed inside the compose file, the rest
+  come from `.env`).
 
 ## OAuth2-Proxy authentication (optional)
 
@@ -362,6 +326,7 @@ allowlist, mode-switching caveats, and a manual smoke runbook):
 ## Contributing & docs
 
 - [CONTRIBUTING.md](CONTRIBUTING.md)
+- [CHANGELOG.md](CHANGELOG.md) — release notes per feature slice
 - Traditional Chinese (zh-TW) mirror: [`docs/zh-TW/README.md`](docs/zh-TW/README.md)
 - Design specs: [`docs/superpowers/specs/`](docs/superpowers/specs/)
 - OAuth2-Proxy guide: [`docs/oauth2-proxy.md`](docs/oauth2-proxy.md)
