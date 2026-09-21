@@ -1,0 +1,9 @@
+Ada Lovelace and Note G
+
+Augusta Ada King, Countess of Lovelace, was born in 1815, the only legitimate child of the poet Lord Byron. Her mother, Annabella Milbanke, arranged a rigorous education in mathematics, unusual for a woman of her time. Lovelace met Charles Babbage in 1833 at a party where he showed his Difference Engine prototype, and the two began a long correspondence about his machines.
+
+In 1842 Luigi Menabrea published a French description of the Analytical Engine in a Swiss journal. Lovelace translated it into English and, at Babbage's suggestion, appended her own notes, which ran three times the length of the original article. The translation with notes appeared in 1843 under the initials A.A.L.
+
+Note G, the last of her seven notes, laid out a step-by-step procedure for the engine to compute Bernoulli numbers, tracing the contents of each store column through the loop. It is widely described as the first published computer program. In the same notes she observed that the engine could manipulate symbols as well as numbers, and speculated that it might compose music if the relations of musical sounds could be expressed in its notation. She also cautioned that the engine "has no pretensions whatever to originate anything", a remark later cited by Alan Turing as "Lady Lovelace's objection" in his 1950 essay on machine intelligence.
+
+Lovelace died of cancer in 1852 at the age of thirty-six. The programming language Ada, standardised by the United States Department of Defense in 1980, was named in her honour.

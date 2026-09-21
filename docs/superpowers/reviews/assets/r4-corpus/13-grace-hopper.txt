@@ -1,0 +1,9 @@
+Grace Hopper and the Compiler
+
+Grace Murray Hopper earned a doctorate in mathematics from Yale in 1934 and taught at Vassar until she joined the United States Naval Reserve in 1943. She was assigned to Howard Aiken's Harvard Mark I project, where she wrote programs for the electromechanical machine and its successors and compiled the first operating manual for a computer. The often-repeated story of the "first computer bug", a moth found in a relay of the Mark II in 1947, comes from her group's logbook, although the word "bug" was already in engineering use.
+
+In 1949 Hopper joined the Eckert-Mauchly Computer Corporation to work on the UNIVAC I. Believing that programs should be written in a form closer to English and that the computer itself should translate them, she wrote the A-0 system in 1952, which assembled subroutines from a library according to a coded specification, and then the A-2 and the FLOW-MATIC language of 1957, which used English words for business data processing. Many colleagues told her computers could not understand English.
+
+FLOW-MATIC was the principal model for COBOL, the Common Business-Oriented Language, defined by the CODASYL committee in 1959 with Hopper as a technical adviser. COBOL became the standard language for business applications for decades and still runs a large share of financial transactions.
+
+Hopper returned to active Navy duty in 1967, retired as a rear admiral in 1986 at the age of seventy-nine, and died in 1992. The guided-missile destroyer USS Hopper is named after her, and she was awarded the Presidential Medal of Freedom posthumously in 2016.

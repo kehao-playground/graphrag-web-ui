@@ -1,0 +1,9 @@
+EDSAC at Cambridge
+
+The Electronic Delay Storage Automatic Calculator, EDSAC, was built at the University of Cambridge Mathematical Laboratory under Maurice Wilkes. Wilkes had read the von Neumann EDVAC report in 1946 and attended the Moore School lectures that summer. Rather than push the technology, he chose conservative, well-understood components so that the machine would be useful to researchers as soon as possible.
+
+EDSAC ran its first programs on 6 May 1949, computing a table of squares and a list of prime numbers. Its memory was 32 mercury delay lines, each storing 32 words of 17 bits, giving 1,024 words in total, later doubled. Programs were punched on paper tape and loaded by a small bootstrap held in read-only form on a set of uniselector switches, which Wilkes's colleague David Wheeler designed. Wheeler also introduced the closed subroutine and the "Wheeler jump" that returned control to the caller, and the laboratory kept a library of subroutines on tape that any user could combine.
+
+EDSAC was the first stored-program computer to provide a regular computing service. Users from other Cambridge departments included the radio astronomers, the crystallographers John Kendrew and Max Perutz, and the geneticist Ronald Fisher. Wilkes, Wheeler and Stanley Gill published "The Preparation of Programs for an Electronic Digital Computer" in 1951, the first textbook on programming.
+
+The catering company J. Lyons built a commercial version, LEO I, which ran its first business job, bakery valuations, in November 1951. EDSAC was replaced by EDSAC 2 in 1958. A replica has been under construction at the National Museum of Computing since 2011.

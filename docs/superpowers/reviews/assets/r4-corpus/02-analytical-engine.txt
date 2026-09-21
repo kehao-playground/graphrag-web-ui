@@ -1,0 +1,9 @@
+The Analytical Engine
+
+The Analytical Engine was Charles Babbage's design for a general-purpose mechanical computer, developed from 1834 onward. Unlike the Difference Engine, which could only evaluate one class of function, the Analytical Engine was programmable. Its architecture separated a "store", which held one thousand numbers of fifty decimal digits each, from a "mill", which performed the arithmetic. This division of memory from processing anticipated the structure of electronic computers a century later.
+
+Instructions and data entered the machine on punched cards, an idea Babbage borrowed from the Jacquard loom, where chains of cards controlled the pattern woven into silk. Operation cards told the mill which arithmetic to perform, and variable cards named the columns of the store to read from or write to. The design included conditional branching, so a sequence could repeat or skip depending on the sign of a result, and a mechanism to print or stamp results directly onto plates.
+
+Babbage never obtained funding to build the Analytical Engine, and only small trial pieces were constructed. His son Henry Prevost Babbage assembled part of the mill after his father's death and demonstrated it in 1910. The most complete description of the machine's capabilities came not from Babbage himself but from Luigi Menabrea, an Italian engineer who heard Babbage lecture in Turin in 1840, and from Ada Lovelace, who translated Menabrea's account and added extensive notes of her own.
+
+Historians regard the Analytical Engine as the first design for a Turing-complete machine, although the term did not exist until Alan Turing's work in 1936.

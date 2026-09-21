@@ -1,0 +1,9 @@
+UNIVAC I and the 1952 Election
+
+After leaving the University of Pennsylvania in 1946, J. Presper Eckert and John Mauchly founded the Eckert-Mauchly Computer Corporation to build a general-purpose computer for business and government customers. Short of money, they sold the firm to Remington Rand in 1950. The first UNIVAC I, the Universal Automatic Computer, was delivered to the United States Census Bureau on 31 March 1951, making it the first commercial computer produced in the United States.
+
+UNIVAC I used about 5,200 vacuum tubes, weighed thirteen tons and stored 1,000 words of twelve characters in mercury delay lines. Its notable innovation was magnetic tape for input and output; each metal tape could hold more than a million characters, replacing punched cards for bulk data. The machine could perform about 1,900 operations per second. Forty-six units were built, at prices of over a million dollars each.
+
+On election night in November 1952, CBS television used a UNIVAC I to predict the presidential result. With a small fraction of the vote counted, the program written by Max Woodbury and the Remington Rand staff forecast a landslide for Dwight Eisenhower, 438 electoral votes to 93, when pollsters expected a close race. The network's producers distrusted the figure and withheld it until the actual count confirmed it; the final tally was 442 to 89. The broadcast introduced the word "computer" to a wide public.
+
+Grace Hopper joined Eckert-Mauchly in 1949 and wrote the first compiler, A-0, for the UNIVAC I in 1952.

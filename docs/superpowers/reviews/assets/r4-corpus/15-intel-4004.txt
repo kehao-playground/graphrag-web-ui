@@ -1,0 +1,9 @@
+The Intel 4004 Microprocessor
+
+In 1969 the Japanese calculator maker Busicom asked Intel, then a two-year-old memory company, to build a set of twelve custom chips for a new line of printing calculators. Ted Hoff, Intel's applications manager, argued that a single general-purpose processor with the calculator logic in software would be simpler. Stanley Mazor helped define the architecture, and Federico Faggin, who joined Intel from Fairchild in 1970, led the chip design using the silicon-gate MOS process he had developed. Masatoshi Shima of Busicom contributed to the logic design and later joined Intel.
+
+The resulting 4004 was delivered to Busicom in early 1971 and announced publicly in November 1971. It was a 4-bit processor with about 2,300 transistors on a die of roughly 12 square millimetres, ran at 740 kilohertz and could execute about 92,000 instructions per second. It came with three companion chips: the 4001 ROM, the 4002 RAM and the 4003 shift register, together called the MCS-4 family. Intel negotiated the right to sell the chips to other customers in exchange for a lower price to Busicom.
+
+The 4004 was followed by the 8-bit 8008 in 1972 and the 8080 in 1974, which powered the Altair 8800 and the beginning of the personal computer industry. Intel's 8086 of 1978 began the x86 line, and its architecture, like IBM's System/360 instruction set, is still in use, an example of how early design decisions persist.
+
+Faggin, Hoff and Mazor received the National Medal of Technology in 2009 for the invention of the microprocessor.

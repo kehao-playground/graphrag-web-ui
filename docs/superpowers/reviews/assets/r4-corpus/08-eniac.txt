@@ -1,0 +1,9 @@
+ENIAC
+
+The Electronic Numerical Integrator and Computer, ENIAC, was built at the Moore School of Electrical Engineering at the University of Pennsylvania under a contract from the United States Army's Ballistic Research Laboratory. Its purpose was to compute artillery firing tables, which had previously been calculated by teams of human "computers", mostly women, using desk calculators. John Mauchly proposed the machine in 1942 and J. Presper Eckert was its chief engineer; construction began in 1943 and the machine was announced to the public in February 1946.
+
+ENIAC contained about 18,000 vacuum tubes, weighed thirty tons, occupied a room of about 1,800 square feet, and drew 150 kilowatts. It worked in decimal, with twenty accumulators each holding a ten-digit number, and could perform about 5,000 additions per second, roughly a thousand times faster than the electromechanical Harvard Mark I. Programming was done by setting switches and plugging cables between units, a job that could take days. Six women, among them Jean Bartik, Betty Holberton and Kay McNulty, developed the first programs and the techniques for using the machine.
+
+The first production calculation, run in late 1945, was a feasibility study for the hydrogen bomb rather than a firing table. In 1948, with advice from John von Neumann, the machine was converted to a stored-program style of operation using its function tables, which slowed it but made it far easier to set up.
+
+ENIAC moved to the Aberdeen Proving Ground in 1947 and ran until October 1955. Eckert and Mauchly left the university in 1946 to found their own company, which produced the UNIVAC I.
