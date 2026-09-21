@@ -1,0 +1,9 @@
+Konrad Zuse and the Z3
+
+Konrad Zuse was a civil engineer in Berlin who, tired of the repetitive structural calculations in his job at the Henschel aircraft works, began building calculating machines in his parents' living room in 1936. His first machine, the Z1, used thin metal plates sliding in slots as binary memory and was mechanically unreliable. The Z2 replaced the arithmetic unit with telephone relays to test the idea.
+
+The Z3, completed in May 1941, used about 2,600 electromechanical relays. It operated on 22-bit binary floating-point numbers, had a memory of 64 words, and read its program from punched 35-millimetre film stock. It could perform an addition in about a third of a second and a multiplication in three seconds. Programs were sequences of instructions without a conditional jump, and Zuse did not consider loops that depended on data; a 1998 paper by Raúl Rojas nevertheless showed the machine was Turing-complete in principle.
+
+The German Aircraft Research Institute partly funded the work but did not regard it as important, and the Z3 was destroyed in an Allied bombing raid on Berlin in 1943. A working reconstruction built by Zuse's company in 1961 is displayed at the Deutsches Museum in Munich.
+
+Zuse went on to design Plankalkül between 1942 and 1945, a high-level programming language that predated FORTRAN, although it was not implemented until 2000. After the war he founded Zuse KG, which built the Z4 for ETH Zurich in 1950 and sold commercial computers until Siemens absorbed it in 1967. Zuse died in 1995.

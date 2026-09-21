@@ -284,8 +284,8 @@ reviewer does not repeat the check.
 - [ ] Docker running; `.env` with a strong `JWT_SECRET` and routable
       bootstrap admin email.
 - [ ] `GRAPHRAG_API_KEY` valid for indexing (R4, V only).
-- [ ] Small real corpus for R4/V in a known path (record it in the R4
-      doc so V reuses it).
+- [x] Small real corpus for R4/V in a known path — committed at
+      `docs/superpowers/reviews/assets/r4-corpus/` (15 documents, 2026-09-21).
 - [x] Backend Docker gate recipe works on this host — verified
       2026-09-19: the command in AGENTS.md "Commands" (run from the repo
       root) passed ruff, ruff format, mypy and 533 fast tests in 7 m 25 s;
@@ -388,7 +388,7 @@ CHANGELOG and AGENTS.md counts. Mark §8 complete. PR, rebase-merge.
 | R1 | done | 2026-09-19 | `reviews/2026-09-19-r1-architecture.md` (PR #28, addendum PR #29) | 118 findings (P1 4, P2 48, P3 66) incl. `/code-review high` + `/simplify` addendum; all gates green; CI `audit` job red on transitive nltk advisories |
 | R2 | done | 2026-09-19 | `reviews/2026-09-19-r2-correctness-security.md` | 39 findings (P0 3, P1 2, P2 10, P3 24) + 17 R1 rows dispositioned; P0s are graphrag config loading (`${VAR}` from the API environ, workspace `.env` merged into `os.environ`, unconfined storage `base_dir`); backend coverage 95% with greenlet tracing, frontend 82% lines |
 | R3 | done | 2026-09-19 | `reviews/2026-09-19-r3-functionality-ops.md` | 36 findings (P0 1, P1 3, P2 14, P3 18) + spec-vs-shipped matrix for all six specs; clean-clone quickstart passed all ten steps via the API incl. one real `standard` index, which reproduced R1-67 on the happy path (every file `skipped`, `source_name` null — R3-01 P0); proxy compose overlay broken (`web:80`), default helm postgres image unpullable, `/api/ready` always 200 (R3-02/03/04 P1) |
-| R4 | todo | | | |
+| R4 | done | 2026-09-21 | `reviews/2026-09-21-r4-ux.md` + `reviews/assets/r4-*.png` (165) + `reviews/assets/r4-corpus/` | 42 findings (P1 6, P2 22, P3 14) from a full nine-step walkthrough in both languages on a 15-document real corpus (one `standard` index, 2 m 19 s); P1s are a false "modified by someone else" modal on any 409 (R4-01), Form mode showing empty model fields (R4-02), the retrieval page dead-ending without a question set (R4-03), the overview telling new projects to index nothing / to re-index after R3-01 (R4-04/05), and citations linking only on the SSE route (R4-40); 18 R1–R3 hand-offs dispositioned with screenshots |
 | T | todo | | | |
 | F1 | todo | | | wave themes set at T |
 | F2 | todo | | | |

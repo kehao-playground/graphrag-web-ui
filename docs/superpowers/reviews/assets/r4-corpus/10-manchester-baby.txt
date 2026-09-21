@@ -1,0 +1,9 @@
+The Manchester Baby
+
+The Small-Scale Experimental Machine, nicknamed the Baby, was built at the University of Manchester by Frederic Williams, Tom Kilburn and Geoff Tootill. It was designed to test the Williams tube, a memory device that stored bits as charged spots on the face of a cathode-ray tube and refreshed them continuously. Williams had developed the tube at the Telecommunications Research Establishment during the war and brought the work to Manchester in 1946.
+
+The Baby ran its first program on 21 June 1948. It had a memory of 32 words of 32 bits, seven instructions, and could execute about 700 instructions per second. The first program, written by Kilburn, found the highest proper factor of 2 to the power 18 by trial subtraction and took 52 minutes to run, executing about 3.5 million instructions. It was the first machine in the world to run a program stored electronically in memory, satisfying the design described in von Neumann's EDVAC report.
+
+The Baby was quickly expanded into the Manchester Mark 1, on which Alan Turing wrote programs after he moved to Manchester in 1948, and which added a magnetic drum for secondary storage and index registers, an innovation the Manchester team called the B-tube. Ferranti built a commercial version, the Ferranti Mark 1, delivered in February 1951, which is usually counted as the first commercially available general-purpose electronic computer.
+
+A working replica of the Baby, completed in 1998 for the fiftieth anniversary, is displayed at the Science and Industry Museum in Manchester.

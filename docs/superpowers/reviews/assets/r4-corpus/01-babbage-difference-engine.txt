@@ -1,0 +1,9 @@
+Charles Babbage and the Difference Engine
+
+Charles Babbage was born in London in 1791 and studied mathematics at Cambridge, where he helped found the Analytical Society with John Herschel and George Peacock. In 1822 he proposed the Difference Engine, a mechanical calculator designed to tabulate polynomial functions by the method of finite differences. The machine was meant to remove the transcription and arithmetic errors that plagued printed tables of logarithms and astronomical values, which navigators and engineers depended on.
+
+The British government funded the project from 1823, and the engineer Joseph Clement built the precision parts in his workshop. Only a demonstration portion, roughly one seventh of the full design, was ever assembled; it still works and is held by the Science Museum in London. Disputes over money between Babbage and Clement stopped the work in 1833, and the government formally withdrew its support in 1842 after spending about seventeen thousand pounds.
+
+Babbage later produced an improved design, Difference Engine No. 2, between 1847 and 1849. It was never built in his lifetime. In 1991 the Science Museum completed a working Difference Engine No. 2 to the original drawings, using tolerances achievable in the nineteenth century, and the machine calculated correctly. A second copy was finished in 2008 for the Computer History Museum in California.
+
+Babbage's frustration with the Difference Engine led him toward a far more ambitious machine, the Analytical Engine, which he worked on from 1834 until his death in 1871.

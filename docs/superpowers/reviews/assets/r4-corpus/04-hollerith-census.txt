@@ -1,0 +1,9 @@
+Herman Hollerith and the 1890 Census
+
+Herman Hollerith was born in Buffalo, New York, in 1860 and studied at the Columbia School of Mines. Working for the United States Census Office after the 1880 count, he saw that hand tallying had taken most of a decade and that the 1890 census would take even longer. He devised a system in which each person's answers were punched as holes in a card, and an electric tabulating machine read the cards by pressing spring-loaded pins through the holes into cups of mercury, closing circuits that advanced counting dials.
+
+Hollerith patented the method in 1889 and won the Census Office's competition against two rival systems. The 1890 census of about 62 million people was tabulated in roughly two years, and the cost saving was estimated at five million dollars. His sorting box let clerks group cards by any punched field, which made cross-tabulation practical for the first time.
+
+In 1896 Hollerith founded the Tabulating Machine Company. It leased machines to railways, insurers and foreign census bureaus. In 1911 it merged with two other firms into the Computing-Tabulating-Recording Company, which Thomas J. Watson Sr. joined in 1914 and renamed International Business Machines in 1924. Hollerith retired from active management before the renaming and died in 1929.
+
+The 80-column punched card that IBM standardised in 1928 descended directly from Hollerith's design and remained a dominant input medium for computers, including the IBM System/360, into the 1970s.

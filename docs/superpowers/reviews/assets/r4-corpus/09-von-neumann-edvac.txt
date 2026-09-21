@@ -1,0 +1,9 @@
+John von Neumann and the EDVAC Report
+
+John von Neumann was born in Budapest in 1903 and was already a leading mathematician when he joined the Institute for Advanced Study in Princeton in 1933. His wartime consulting for the Manhattan Project and for the Army's Ballistic Research Laboratory led him to the Moore School in 1944, where ENIAC was under construction. He joined the discussions among Eckert, Mauchly and Herman Goldstine about a successor machine that would avoid ENIAC's laborious cable programming.
+
+In June 1945 Goldstine circulated von Neumann's "First Draft of a Report on the EDVAC". The document described a computer whose instructions were held in the same memory as its data, organised into an arithmetic unit, a control unit, memory, and input and output, connected so that instructions were fetched and executed one at a time. Because only von Neumann's name appeared on the draft, the design became known as the von Neumann architecture, to the lasting resentment of Eckert and Mauchly, who felt their contributions had been erased. The circulation of the draft also placed the ideas in the public domain and undermined later patent claims on the stored-program concept.
+
+The EDVAC itself, built at the Moore School with mercury delay-line memory, did not run until 1951. Meanwhile the report's ideas were realised first in Britain, at Manchester in 1948 and Cambridge in 1949, and von Neumann's own IAS machine at Princeton was completed in 1951 and copied at several laboratories.
+
+Von Neumann also contributed to game theory, quantum mechanics and cellular automata. He died in 1957.

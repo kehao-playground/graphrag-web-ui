@@ -1,0 +1,9 @@
+Colossus at Bletchley Park
+
+Colossus was a series of electronic computers built during the Second World War to help break the Lorenz cipher, which the German high command used for teleprinter traffic and which British codebreakers called "Tunny". The cipher was more complex than Enigma, and the statistical method devised by Bill Tutte to recover the machine's wheel settings required an enormous number of comparisons.
+
+Tommy Flowers, an engineer at the Post Office Research Station at Dollis Hill, proposed doing the counting with thermionic valves rather than relays. Senior staff doubted that a machine with more than a thousand valves could run reliably, so Flowers financed part of the prototype himself. Colossus Mark 1 ran at Bletchley Park in February 1944 with about 1,600 valves; the Mark 2, operational from June 1944, just before the Normandy landings, used about 2,400 valves and processed intercepted text read from paper tape at 5,000 characters per second.
+
+Ten Colossus machines were in service by the end of the war. They were programmed by plugboards and switches rather than stored instructions, so they were special-purpose rather than general-purpose computers, but they were the first large electronic digital machines to operate. Winston Churchill ordered most of them dismantled, and the project stayed secret until the 1970s, which is why the American ENIAC was long described as the first electronic computer.
+
+A team led by Tony Sale rebuilt a working Colossus Mark 2 at the National Museum of Computing at Bletchley Park; it was completed in 2007. Flowers received little recognition in his lifetime and died in 1998.
