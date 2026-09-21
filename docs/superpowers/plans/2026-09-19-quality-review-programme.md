@@ -389,10 +389,43 @@ CHANGELOG and AGENTS.md counts. Mark §8 complete. PR, rebase-merge.
 | R2 | done | 2026-09-19 | `reviews/2026-09-19-r2-correctness-security.md` | 39 findings (P0 3, P1 2, P2 10, P3 24) + 17 R1 rows dispositioned; P0s are graphrag config loading (`${VAR}` from the API environ, workspace `.env` merged into `os.environ`, unconfined storage `base_dir`); backend coverage 95% with greenlet tracing, frontend 82% lines |
 | R3 | done | 2026-09-19 | `reviews/2026-09-19-r3-functionality-ops.md` | 36 findings (P0 1, P1 3, P2 14, P3 18) + spec-vs-shipped matrix for all six specs; clean-clone quickstart passed all ten steps via the API incl. one real `standard` index, which reproduced R1-67 on the happy path (every file `skipped`, `source_name` null — R3-01 P0); proxy compose overlay broken (`web:80`), default helm postgres image unpullable, `/api/ready` always 200 (R3-02/03/04 P1) |
 | R4 | done | 2026-09-21 | `reviews/2026-09-21-r4-ux.md` + `reviews/assets/r4-*.png` (165) + `reviews/assets/r4-corpus/` | 42 findings (P1 6, P2 22, P3 14) from a full nine-step walkthrough in both languages on a 15-document real corpus (one `standard` index, 2 m 19 s); P1s are a false "modified by someone else" modal on any 409 (R4-01), Form mode showing empty model fields (R4-02), the retrieval page dead-ending without a question set (R4-03), the overview telling new projects to index nothing / to re-index after R3-01 (R4-04/05), and citations linking only on the SSE route (R4-40); 18 R1–R3 hand-offs dispositioned with screenshots |
-| T | todo | | | |
-| F1 | todo | | | wave themes set at T |
-| F2 | todo | | | |
-| F3 | todo | | | |
+| T | done | 2026-09-21 | `reviews/backlog.md` | 235 rows (P0 5, P1 14, P2 94, P3 122) cut into 36 one-session waves, approved 2026-09-21 as proposed; R1-67 raised to P0 (= R3-01); 20 same-fix pairs share a wave; R1-15 and R1-36 won't-fix; decisions D1–D8 recorded in the backlog header; P0/P1 all closed by F12, F32–F36 are P3-only |
+| F1 | todo | | | Config trust boundary |
+| F2 | todo | | | First-index truth and citation linking |
+| F3 | todo | | | Deploy P1s, upload cap, readiness |
+| F4 | todo | | | Job state machine |
+| F5 | todo | | | Write-path races and input mutation |
+| F6 | todo | | | Sessions and auth |
+| F7 | todo | | | Frontend substrate — API client and error boundary |
+| F8 | todo | | | Frontend substrate — query factories and client defaults |
+| F9 | todo | | | Settings pane |
+| F10 | todo | | | Overview and jobs state |
+| F11 | todo | | | Question-set lifecycle and the retrieval landing |
+| F12 | todo | | | Documents pane |
+| F13 | todo | | | Backend API substrate — `require_project` and coded errors |
+| F14 | todo | | | Contract — fields and response models |
+| F15 | todo | | | Contract — envelopes, paging, error schema |
+| F16 | todo | | | Answers and citations |
+| F17 | todo | | | Admin, members and access |
+| F18 | todo | | | Explore |
+| F19 | todo | | | Copy and terminology |
+| F20 | todo | | | Visual polish and dates |
+| F21 | todo | | | Listing and health hot path |
+| F22 | todo | | | Query path and event-loop blocking |
+| F23 | todo | | | `services/files.py` split |
+| F24 | todo | | | Runtime ops and observability |
+| F25 | todo | | | Ops docs and deploy knobs |
+| F26 | todo | | | CI gates, dependencies and coverage config |
+| F27 | todo | | | Services cohesion |
+| F28 | todo | | | Job log viewer and progress |
+| F29 | todo | | | Workbench polish |
+| F30 | todo | | | `files_routes` and api cleanups |
+| F31 | todo | | | Artifacts, log tail and runner efficiency |
+| F32 | todo | | | Contract — naming and ids |
+| F33 | todo | | | Adapters and service hardening |
+| F34 | todo | | | Frontend structure leftovers |
+| F35 | todo | | | Test gaps |
+| F36 | todo | | | Spec errata |
 | V | todo | | | |
 
 Statuses: `todo` · `in progress` · `done` · `skipped (reason)`. A
