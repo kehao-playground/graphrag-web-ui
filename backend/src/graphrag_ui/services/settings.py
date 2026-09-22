@@ -6,8 +6,6 @@ bytes so trailing-newline or encoding drift never fools the lock.
 """
 
 import hashlib
-import os
-import string
 import uuid
 
 import yaml
@@ -15,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.adapters.models import Project, SettingsVersion
+from graphrag_ui.adapters.workspace_env import read_workspace_env, substitute_placeholders
 from graphrag_ui.services.audit import audit
 from graphrag_ui.services.project_lock import assert_input_unfrozen, lock_project
 from graphrag_ui.services.projects import ws_path
@@ -84,25 +83,14 @@ async def write_settings(
             "settings_invalid_yaml", f"invalid yaml: {e}", {"reason": str(e)}
         ) from e
 
-    # graphrag 3.1.0 runs STRICT string.Template substitution on settings.yaml
-    # BEFORE parsing it (load_config.py): a lone "$" or an undefined
-    # ${PLACEHOLDER} makes the CLI unable to load the workspace. Validate the
-    # same way here — os.environ overlaid by the workspace .env KEY=VALUE
-    # pairs, mirroring graphrag's env loading order.
-    env = dict(os.environ)
-    env_path = ws_path(project.id) / ".env"
-    if env_path.exists():
-        for raw in env_path.read_text().splitlines():
-            line = raw.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, _, value = line.partition("=")
-            env[key.strip()] = value.strip()
+    # graphrag runs STRICT string.Template substitution on settings.yaml
+    # BEFORE parsing it: a lone "$" or an undefined ${PLACEHOLDER} makes the
+    # workspace unloadable. Validate against the workspace .env ALONE — the
+    # adapter substitutes from the same source (R2-01), so a placeholder the
+    # API process could resolve (${JWT_SECRET}) is just as invalid here.
     try:
-        string.Template(content).substitute(env)
+        substitute_placeholders(content, read_workspace_env(ws_path(project.id)))
     except (ValueError, KeyError) as e:
-        # KeyError: ${X} with X in neither environ nor .env — equally
-        # unloadable by the CLI; same 400 as an invalid "$".
         raise SettingsValidationError(
             "settings_invalid_placeholder", "invalid $ placeholder in settings"
         ) from e

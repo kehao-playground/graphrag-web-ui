@@ -98,7 +98,7 @@ Sizes count the row efforts (S < 1 h, M half a session, L a session) with same-f
 | F32 | Contract — naming and ids | 5 | 3 S + 2 M | P3 |
 | F33 | Adapters and service hardening | 9 | 9 S | P3 |
 | F34 | Frontend structure leftovers | 6 | 4 S + 2 M | P3 |
-| F35 | Test gaps | 5 | 5 S | P3 |
+| F35 | Test gaps | 6 | 6 S | P3 |
 | F36 | Spec errata | 6 | 5 S + 1 M | P3 |
 
 ### F1 — Config trust boundary
@@ -502,6 +502,7 @@ Route-level lazy pages behind F7's boundary and an anchored vendor regex, the fo
 - **R2-36** (P3/S, `tests`) slow tests key-gated; fixed sleeps are flaky candidates
 - **R1-40** (P3/S, `backend/adapters`) test-only code shipped in production modules
 - **R1-41** (P3/S, `backend/adapters`) ORM `TestRun`/`TestResult` trip pytest collection
+- **F1-01** (P3/S, `frontend/pages`) `ProjectDetail.test.tsx` overview-heading flake under the full `npm test` run (found mid-F1)
 
 ### F36 — Spec errata
 
@@ -760,3 +761,4 @@ All 235 rows, verbatim from the review documents, ranked by severity, then effor
 | R4-39 | P3 | M | frontend/components | The graph has no legend or default level: most nodes render grey, the *Level* select is empty on load, labels overlap heavily, clicking a node opens nothing, and there are no zoom/reset controls; the browser logs WebGL "GPU stall due to ReadPixels" warnings on every frame. | `r4-07-graph-zh.png`, `r4-07-graph-search-zh.png`, `r4-07-graph-en-1920.png`; step-7 console notes; `components/GraphView.tsx` | Show the selected level (default 0) and a community-colour legend (top-N communities + "other"), open the Explore row drawer on node click, add zoom/reset controls, hide labels below a zoom threshold; check `renderer` settings for the ReadPixels warning. | F18 | open |
 | R1-117 | P3 | M | frontend/pages | The projects page fetches the complete `/api/users` list for every visitor solely to render owner names (one row per project); the same `["users"]` query is also mounted by `ProjectDetail` for the members picker (R1-56). | `src/pages/Projects.tsx:56-68` (no `enabled` gate, comment explains the N+1 it avoids); `src/pages/ProjectDetail.tsx:146-158`; also /simplify E-27 | Have `ProjectOut` carry `owner_email`/`owner_display_name` (one join in `list_projects`, `response_model` update, regenerated types) and drop the users query from the list page; the members picker keeps its gated query. | F32 | open |
 | R3-26 | P3 | M | spec | Settings-editor deviations to record or close: form mode lacks the storage and vector_store blocks §6.2 lists; no per-project vector-store container-name uniqueness check (§6.4 — harmless with the default LanceDB path, wrong for Azure AI Search/Cosmos users); the 409 modal shows two full texts rather than a diff (§7); and changing `input_file_type` via the editor (§6.5) is not offered — README says "fixed at creation", so this one is a deliberate divergence the spec never recorded. | `components/SettingsPanel.tsx:184-330`; `services/settings.py:60-105`; spec `2026-08-19:205,213-217,222`; `README.md:157-158` | Amend the spec (§6.5 → locked at creation; §6.2 → the three form blocks shipped, storage/vector_store deferred), and either implement a line diff in the conflict modal (a 30-line pure function) or drop the word "diff" from §7. | F36 | open |
+| F1-01 | P3 | S | frontend/pages | `ProjectDetail.test.tsx` (`/projects/:id redirects to the overview pane`, sometimes also `the files entry links to the state filter`) fails under the full `npm test` run on the Intel Mac host (26 isolated workers, ~3 s startup each) with `Unable to find role="heading" and name "知識庫健康度"` — the overview heading has not rendered before the default `findBy*` timeout; the file passes alone every time and the failure reproduces on a clean `main`, so it is load-dependent, not a regression. Found while running the F1 gates. | `npm test` on `main` at `067525d`: `1 failed \| 169 passed`; `npx vitest run src/pages/__tests__/ProjectDetail.test.tsx`: `9 passed` | Raise the `findBy*` timeout for that file (or `testTimeout` in `vitest.config.ts`) and/or reduce isolation cost (`isolate: false` for the pages suite); add it to R2-36's flaky-candidates list. | F35 | open |

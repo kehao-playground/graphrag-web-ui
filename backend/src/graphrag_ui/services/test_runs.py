@@ -84,9 +84,10 @@ def workspace_config_revision(root: Path) -> str:
     end of settings.yaml to the start of .env would produce the same digest,
     and a deleted .env would be indistinguishable from an empty one.
 
-    The name says workspace, not effective: graphrag also resolves ${...}
-    against the process os.environ, which this digest cannot see and the
-    console does not manage. Being a sha256 of file bytes, it identifies a
+    The name says workspace, not effective: settings.yaml and .env are the
+    whole placeholder input (adapters/workspace_env.py), but the graphrag
+    version and the operator's subprocess passthrough (proxy, CA bundle)
+    are outside the digest. Being a sha256 of file bytes, it identifies a
     configuration without exposing any value in it (spec 7.2).
     """
     digest = hashlib.sha256()

@@ -7,11 +7,12 @@ spec §13 verification table)."""
 import asyncio
 import contextlib
 import json
-import os
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+
+from graphrag_ui.adapters.workspace_env import subprocess_env
 
 _ERROR_TAIL_CHARS = 4000
 _CANCEL_GRACE_S = 30.0
@@ -60,17 +61,14 @@ class IndexRunner:
         heartbeat: Callable[[], Awaitable[None]],
         cancel_requested: Callable[[], bool],
     ) -> RunResult:
-        # litellm (graphrag's LLM layer) warns "No module named 'botocore'"
-        # at import for the unused bedrock/sagemaker integrations; its handler
-        # level comes from LITELLM_LOG, so default it to ERROR to keep job
-        # logs clean. setdefault: an operator's explicit DEBUG wins.
-        env = dict(os.environ)
-        env.setdefault("LITELLM_LOG", "ERROR")
+        # Allowlisted environment + the workspace .env (R2-01): the child
+        # must not see JWT_SECRET, DATABASE_URL or any other API secret,
+        # since settings.yaml `${VAR}` placeholders resolve from its environ.
         proc = await asyncio.create_subprocess_exec(
             *self._prefix,
             *argv,
             cwd=root,
-            env=env,
+            env=subprocess_env(root),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
