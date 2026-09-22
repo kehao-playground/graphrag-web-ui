@@ -215,6 +215,15 @@ async def test_real_corpus_standard_index_then_incremental_update(runner_client,
     assert '"status": "succeeded"' in sse.text
     documents = ws / "output" / "documents.parquet"
     assert pq.read_metadata(documents).num_rows == 3
+    # R1-67 / R3-01: the baseline attributes the titles the run PRODUCED, so
+    # a first index reports every ingested file indexed — not skipped.
+    listing = (await client.get(f"/api/projects/{pid}/files", headers=admin)).json()
+    assert listing["ingest_check"] == "available"
+    assert {f["name"]: f["index_state"] for f in listing["files"]} == {
+        name: "indexed" for name in DOCS
+    }
+    health = (await client.get(f"/api/projects/{pid}/health", headers=admin)).json()
+    assert health["files"]["indexed"] == len(DOCS) and health["files"]["skipped"] == 0
 
     # --- incremental update: mutate one doc, add a fourth ---
     await _upload(
@@ -248,3 +257,11 @@ async def test_real_corpus_standard_index_then_incremental_update(runner_client,
     assert len(list((ws / "update_output").iterdir())) <= get_settings().update_output_keep_latest
     # Merge landed the fourth document (spec §13 row 1: 3 → 4).
     assert pq.read_metadata(documents).num_rows == 4
+    # Post-update baseline (spec 5.2c mirror table): the added document is
+    # indexed, the same-name edit was not re-ingested and stays modified.
+    states = {
+        f["name"]: f["index_state"]
+        for f in (await client.get(f"/api/projects/{pid}/files", headers=admin)).json()["files"]
+    }
+    assert states["aurora.txt"] == "modified"
+    assert all(states[name] == "indexed" for name in EXTRA_DOC), states

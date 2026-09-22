@@ -150,6 +150,15 @@ async def test_real_corpus_query_basic_post_local_stream_rate_limit(
     assert entries and all(e["text"] is not None for e in entries), (
         "every marker id must join text_units text via sources aliasing"
     )
+    # R3-01 / R4-40: the citation -> document loop closes on the POST route
+    # too — a first index attributes its titles and the non-stream path
+    # maps hrids through the cached parquet frames.
+    source_entries = [
+        e for c in first["citations"] if c["label"] == "Sources" for e in c["entries"]
+    ]
+    assert source_entries and any(e["source_name"] in DOCS for e in source_entries), first[
+        "citations"
+    ]
     assert set(first["timings"]) == TIMING_KEYS
     assert all(v > 0 for v in first["timings"].values())
     assert secret not in r.text
