@@ -107,11 +107,20 @@ def _scan_start_state(root: Path) -> tuple[dict[str, str], list[str] | None, str
             # a promoted .tmp-* would haunt the union listing as `removed`.
             if p.is_file() and not p.name.startswith("."):
                 entries[p.name] = sha256_file(p)
+    titles, title_recovery = _scan_titles(root)
+    return entries, titles, title_recovery
+
+
+def _scan_titles(root: Path) -> tuple[list[str] | None, str]:
+    """documents.title as it stands on disk right now, plus the recovery
+    verdict from the settings.yaml beside it. Both snapshot rows read this:
+    the start row before the CLI spawns, the baseline row after it exits
+    (spec 5.2c: "evaluated at the moment they are written")."""
     titles = read_document_titles(root)
     settings_path = root / "settings.yaml"
     data = yaml.safe_load(settings_path.read_text()) if settings_path.is_file() else None
     title_recovery = "unavailable_title_column" if title_column_configured(data) else "available"
-    return entries, titles, title_recovery
+    return titles, title_recovery
 
 
 async def bump_artifact_epoch(session: AsyncSession, project_id: uuid.UUID) -> int:
@@ -139,6 +148,14 @@ async def promote(session: AsyncSession, job: Job) -> None:
     nothing without a previous baseline; with one, a new baseline row is
     ALWAYS written - when title recovery was unavailable at either capture
     the entries carry forward verbatim, otherwise advance_entries applies.
+
+    The baseline's attributable set is recovered from the documents.parquet
+    the run PRODUCED, never copied from the start row: the start row was
+    captured before the CLI spawned, against the previous output (none at
+    all on a first index), so copying it marked every file the run had just
+    ingested `skipped` (R1-67 / R3-01). The candidates are the new baseline's
+    own entry names — for an update that is previous ∪ start, so a document
+    deleted from input/ but still in the merged index stays attributable.
     """
     if job.status != "succeeded" or job.type not in FREEZING_JOB_TYPES:
         return
@@ -159,6 +176,10 @@ async def promote(session: AsyncSession, job: Job) -> None:
             entries = prev_entries
     else:
         entries = await entries_of(session, start.id)
+    titles, title_recovery = await asyncio.to_thread(_scan_titles, ws_path(job.project_id))
+    attributable: list[str] = []
+    if title_recovery == "available":
+        attributable = sorted(recover_filenames(titles or [], frozenset(entries)))
     # Scalar SELECT, not the identity map: bump_artifact_epoch may have run
     # through this same session, leaving a stale instance behind.
     epoch = (
@@ -168,8 +189,8 @@ async def promote(session: AsyncSession, job: Job) -> None:
         job_id=job.id,
         project_id=job.project_id,
         kind="baseline",
-        attributable_titles=list(start.attributable_titles),
-        title_recovery=start.title_recovery,
+        attributable_titles=attributable,
+        title_recovery=title_recovery,
         artifact_epoch=epoch,
     )
     session.add(row)
