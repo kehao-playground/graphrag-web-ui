@@ -166,11 +166,15 @@ async def _execute_query(
     memo: dict[str, str | None] | None = None,
 ) -> dict:
     """search -> citations -> timings. Non-streaming only: the adapter's
-    search returns context_data, which is what these citations join
-    against. Streaming has no context_data and keeps its own tail in
-    stream_query. `g0` is the generation the caller read BEFORE the frame
-    load (spec 7.4 step 1) — the guard must bracket the documents read that
-    enrichment performs after the search, so it cannot be read here."""
+    search returns context_data, which is what the citation ENTRY TEXT
+    joins against. The hrid -> document map comes from the cached parquet
+    frames the search was handed instead: graphrag's context text-units
+    frame has no document_id column, so joining it linked nothing on this
+    path while the stream route linked fine (R4-40). Streaming has no
+    context_data and keeps its own tail in stream_query. `g0` is the
+    generation the caller read BEFORE the frame load (spec 7.4 step 1) —
+    the guard must bracket the documents read that enrichment performs
+    after the search, so it cannot be read here."""
     exec_start = time.perf_counter()
     search_start = time.perf_counter()
     try:
@@ -187,9 +191,12 @@ async def _execute_query(
     search_ms = (time.perf_counter() - search_start) * 1000
 
     citations_start = time.perf_counter()
+    text_units = _text_units_frame(prepared.frames)
+    if text_units is None:  # modes that load no text_units table (global)
+        text_units = _text_units_frame(context)
     citations = await enrich_sources(
         build_citations(answer, _flatten_frames(context)),
-        _text_units_frame(context),
+        text_units,
         prepared.root,
         prepared.project_id,
         g0=g0,

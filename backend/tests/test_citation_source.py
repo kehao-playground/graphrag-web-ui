@@ -7,6 +7,7 @@ indexed workspace with real baseline rows and a real documents.parquet —
 the resolver, the recovery rule, and the guard all run for real.
 """
 
+import json
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -24,6 +25,7 @@ from graphrag_ui.adapters.models import (
     TestResult,
     TestRun,
 )
+from sqlalchemy import select
 from graphrag_ui.adapters.workspace import FakeInitializer
 from graphrag_ui.api.projects_routes import get_initializer
 from graphrag_ui.config import get_settings
@@ -84,6 +86,40 @@ def _wire_frames(fake_adapter: FakeSearchAdapter, fake_cache: FakeFrameCache) ->
     fake_cache.frames = {"text_units": unit}
 
 
+def _wire_real_shapes(fake_adapter: FakeSearchAdapter, fake_cache: FakeFrameCache) -> None:
+    """The two frame shapes graphrag 3.1.x actually hands us (R4-40): the
+    search CONTEXT text-units frame carries int ids and text but NO
+    document_id column; the cached PARQUET frame carries hash ids,
+    human_readable_id and document_id. Only the parquet can map a cited
+    hrid to its document."""
+    fake_adapter.context = {
+        "sources": pd.DataFrame({"id": [1], "text": [UNIT_TEXT]}),
+        "entities": pd.DataFrame({"id": [7], "name": ["E7"]}),
+    }
+    fake_cache.frames = {
+        "text_units": pd.DataFrame(
+            {
+                "id": ["a3f9" * 32],
+                "human_readable_id": [1],
+                "text": [UNIT_TEXT],
+                "document_id": ["d1"],
+            }
+        )
+    }
+
+
+def _sse_citations(body: str) -> list:
+    data = None
+    event = None
+    for line in body.splitlines():
+        if line.startswith("event: "):
+            event = line[len("event: ") :]
+        elif line.startswith("data: ") and event == "citations":
+            data = json.loads(line[len("data: ") :])
+    assert data is not None, body
+    return data
+
+
 async def _api_project(client, app, *, name="Cite", input_file_type="text") -> tuple[str, Project]:
     """Activated alice + FakeInitializer project; yields (pid, project row)."""
     app.dependency_overrides[get_initializer] = FakeInitializer
@@ -115,6 +151,25 @@ async def indexed_project_api(client, app, db_session, fake_adapter, fake_cache)
     await promote_baseline(db_session, project, ["file-a.md"], epoch=1)
     _wire_frames(fake_adapter, fake_cache)
     return alice, pid
+
+
+@pytest.fixture
+async def real_shape_project_api(client, app, db_session, fake_adapter, fake_cache):
+    """indexed_project_api with the real graphrag frame shapes wired in
+    (see _wire_real_shapes); yields (alice headers, pid, token)."""
+    pid, alice = await _api_project(client, app, name="RS")
+    project = await _project_row(db_session, pid)
+    root = ws_path(project.id)
+    (root / "input" / "file-a.md").write_text(UNIT_TEXT)
+    write_documents(root, [("d1", "file-a.md")])
+    await promote_baseline(db_session, project, ["file-a.md"], epoch=1)
+    _wire_real_shapes(fake_adapter, fake_cache)
+    token = (
+        await client.post(
+            "/api/auth/login", json={"email": "alice@test.local", "password": "alice-pass-2"}
+        )
+    ).json()["access_token"]
+    return alice, pid, token
 
 
 @pytest.fixture
@@ -274,6 +329,56 @@ async def test_stored_run_citations_never_re_resolve(client, run_with_citations,
     results = (await client.get(f"/api/test-runs/{run_id}/results", headers=alice)).json()
     entry = results["results"][0]["citations"][0]["entries"][0]
     assert entry["source_name"] == "file-a.md"
+
+
+async def test_post_and_stream_link_the_same_document(client, real_shape_project_api):
+    """R4-40: for the same question the stream route linked file-a.md while
+    POST /query shipped source_name null, because the non-stream path
+    joined the search context (no document_id column) instead of the
+    cached parquet frames the search was handed. Both doors must agree."""
+    alice, pid, token = real_shape_project_api
+    body = (
+        await client.post(
+            f"/api/projects/{pid}/query", headers=alice, json={"method": "local", "query": "q"}
+        )
+    ).json()
+    sources = [c for c in body["citations"] if c["label"] == "Sources"]
+    assert sources and sources[0]["entries"][0]["source_name"] == "file-a.md"
+    assert sources[0]["entries"][0]["text"] == UNIT_TEXT  # entry text still from the context
+
+    async with client.stream(
+        "GET",
+        f"/api/projects/{pid}/query/stream",
+        params={"method": "local", "query": "q", "token": token},
+    ) as resp:
+        assert resp.status_code == 200
+        streamed = "".join([line + "\n" async for line in resp.aiter_lines()])
+    stream_sources = [c for c in _sse_citations(streamed) if c["label"] == "Sources"]
+    assert stream_sources[0]["entries"][0]["source_name"] == "file-a.md"
+
+
+async def test_stored_batch_results_link_documents(db_session, run_ready, fake_adapter, fake_cache):
+    """R4-40, batch door: every stored result of a run must carry a non-null
+    source_name for its Sources entries — the rating drawer renders the
+    stored citations and never re-resolves."""
+    fake_adapter.answer = "Answer body [Data: Sources (1)]."
+    fake_adapter.context = {"sources": pd.DataFrame({"id": [1], "text": [UNIT_TEXT]})}
+    fake_cache.frames = {
+        "text_units": pd.DataFrame(
+            {"id": ["h1"], "human_readable_id": [1], "text": [UNIT_TEXT], "document_id": ["d1"]}
+        )
+    }
+    await execute_test_run(run_ready.job_id, run_ready.root, cancel_requested=lambda: False)
+
+    rows = (
+        (await db_session.execute(select(TestResult).where(TestResult.run_id == run_ready.run_id)))
+        .scalars()
+        .all()
+    )
+    assert rows
+    for row in rows:
+        entries = [e for c in row.citations for e in c["entries"] if c["label"] == "Sources"]
+        assert entries and all(e["source_name"] == "file-1.md" for e in entries), row.citations
 
 
 async def test_adhoc_citations_do_not_re_resolve_either(client, indexed_project_api):
