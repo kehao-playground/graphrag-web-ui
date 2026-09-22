@@ -53,3 +53,59 @@ def test_a_long_secret_that_merely_contains_the_placeholder_is_allowed():
     # happens to embed it.
     value = "dev-secret-change-me" + "0123456789abcdef"
     assert Settings(auth_mode="local", jwt_secret=value).jwt_secret == value
+
+
+# --- BOOTSTRAP_ADMIN_PASSWORD (R3-14) ---
+# The same argument as JWT_SECRET: `.env.example` ships a placeholder and
+# compose only checks presence, so a deployment that replaced JWT_SECRET
+# alone would run with a publicly known admin credential until someone —
+# anyone — logged in first and owned it.
+
+
+def test_local_mode_rejects_the_shipped_bootstrap_placeholder():
+    with pytest.raises(ValueError, match="BOOTSTRAP_ADMIN_PASSWORD"):
+        Settings(
+            auth_mode="local",
+            jwt_secret=STRONG,
+            bootstrap_admin_password="bootstrap-admin-change-me",
+        )
+
+
+def test_local_mode_rejects_short_bootstrap_password():
+    with pytest.raises(ValueError, match="BOOTSTRAP_ADMIN_PASSWORD"):
+        Settings(auth_mode="local", jwt_secret=STRONG, bootstrap_admin_password="x" * 11)
+
+
+def test_bootstrap_placeholder_check_is_case_and_whitespace_insensitive():
+    with pytest.raises(ValueError, match="BOOTSTRAP_ADMIN_PASSWORD"):
+        Settings(
+            auth_mode="local",
+            jwt_secret=STRONG,
+            bootstrap_admin_password="  Bootstrap-Admin-Change-Me ",
+        )
+
+
+def test_empty_bootstrap_password_still_means_do_not_create():
+    # Empty is the documented "no bootstrap admin" switch, not a weak password.
+    assert (
+        Settings(
+            auth_mode="local", jwt_secret=STRONG, bootstrap_admin_password=""
+        ).bootstrap_admin_password
+        == ""
+    )
+
+
+def test_local_mode_accepts_12_char_bootstrap_password():
+    s = Settings(auth_mode="local", jwt_secret=STRONG, bootstrap_admin_password="x" * 12)
+    assert s.bootstrap_admin_password == "x" * 12
+
+
+def test_proxy_mode_ignores_bootstrap_password():
+    # bootstrap_admin() is a no-op in proxy mode (spec §5.2), so a leftover
+    # placeholder there is inert — demanding a change would be noise.
+    s = Settings(
+        auth_mode="proxy",
+        proxy_auth_secret=STRONG,
+        bootstrap_admin_password="bootstrap-admin-change-me",
+    )
+    assert s.auth_mode == "proxy"
