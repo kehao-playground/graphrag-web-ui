@@ -391,7 +391,7 @@ New `docker-compose.proxy-auth.yml` used as
   that flag loads the legacy TOML format and rejects the YAML;
   `api_routes` / `email_domains` stay env/legacy options, which is
   allowed: neither is on the alpha-config removed-options list) that:
-  - upstream = `http://web:80`, provider/issuer/client IDs come from
+  - upstream = `http://web:8080` (nginx-unprivileged listens on 8080), provider/issuer/client IDs come from
     `.env` via compose interpolation of the config `content:`;
   - `injectRequestHeaders` in the **v7.14.0+ nested form**:
     ```yaml

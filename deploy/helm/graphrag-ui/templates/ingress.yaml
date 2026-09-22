@@ -9,7 +9,13 @@
     {{- $_ := set $auth "signin" (printf "https://%s/oauth2/start?rd=$escaped_request_uri" .Values.ingress.host) }}
   {{- end }}
 {{- end }}
-{{- $sse := dict "nginx.ingress.kubernetes.io/proxy-buffering" "off" "nginx.ingress.kubernetes.io/proxy-read-timeout" "3600" }}
+{{/* Shared per-path annotations: SSE needs buffering off and a long read timeout (spec §8.2);
+     uploads need the body-size cap raised above ingress-nginx's 1m default, or every file over
+     1 MiB dies as an HTML 413 before the web nginx (which allows 1g) and the api's own
+     UPLOAD_MAX_FILE_MB check ever see it. Sized from uploadMaxFileMb plus 1 MiB of multipart
+     and JSON-envelope slack so the api stays the authority on the limit. */}}
+{{- $bodySize := printf "%dm" (add .Values.uploadMaxFileMb 1) }}
+{{- $shared := dict "nginx.ingress.kubernetes.io/proxy-buffering" "off" "nginx.ingress.kubernetes.io/proxy-read-timeout" "3600" "nginx.ingress.kubernetes.io/proxy-body-size" $bodySize }}
 {{- $authAnnotations := dict }}
 {{- if .Values.proxyAuth.enabled }}
   {{- $authAnnotations = dict "nginx.ingress.kubernetes.io/auth-url" $auth.url "nginx.ingress.kubernetes.io/auth-response-headers" "X-Forwarded-Email,X-Forwarded-Preferred-Username,X-Proxy-Secret" }}
@@ -23,11 +29,7 @@ metadata:
     {{- include "graphrag-ui.labels" . | nindent 4 }}
   annotations:
     # SSE (spec §8.2): the ingress must disable buffering and extend the read timeout, or streamed queries stall
-    nginx.ingress.kubernetes.io/proxy-buffering: "off"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
-    {{- with .Values.ingress.annotations }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
+    {{- toYaml (merge (dict) $shared .Values.ingress.annotations) | nindent 4 }}
 spec:
   {{- with .Values.ingress.className }}
   ingressClassName: {{ . }}
@@ -51,8 +53,8 @@ spec:
                 name: {{ include "graphrag-ui.fullname" . }}-web
                 port: { number: 80 }
 {{- else }}
-{{- $apiAnnotations := merge (dict) $sse $authAnnotations .Values.ingress.annotations }}
-{{- $appAnnotations := merge (dict) $sse $authAnnotations (dict "nginx.ingress.kubernetes.io/auth-signin" $auth.signin) .Values.ingress.annotations }}
+{{- $apiAnnotations := merge (dict) $shared $authAnnotations .Values.ingress.annotations }}
+{{- $appAnnotations := merge (dict) $shared $authAnnotations (dict "nginx.ingress.kubernetes.io/auth-signin" $auth.signin) .Values.ingress.annotations }}
 # /api sends no signin redirect: fetch clients get 401 instead of an HTML redirect-to-login (spec decision 5)
 apiVersion: networking.k8s.io/v1
 kind: Ingress

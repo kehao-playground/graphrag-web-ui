@@ -148,7 +148,8 @@ healthy.
      Generate one with `openssl rand -hex 32`
    - `BOOTSTRAP_ADMIN_EMAIL` — must use a routable domain, **not** `.local`: login
      validation rejects special-use domains
-   - `BOOTSTRAP_ADMIN_PASSWORD`
+   - `BOOTSTRAP_ADMIN_PASSWORD` — at least 12 characters and not the `.env.example`
+     placeholder; the API refuses to start otherwise
 
    All 16 base variables and their defaults are documented in
    [`.env.example`](.env.example); the opt-in proxy-auth overlay adds its
@@ -165,6 +166,8 @@ healthy.
    creation and decides which file extensions uploads accept.
 6. **Upload the corpus** — files go to the project workspace `input/`. Per-file cap
    `UPLOAD_MAX_FILE_MB`, per-project quota `PROJECT_QUOTA_MB`; exceeding either → 413.
+   The shipped nginx and the Helm ingress are sized for that cap; if you put another
+   proxy in front, raise its body-size limit too (nginx defaults to 1 MiB).
 
    ![Project files](docs/assets/screenshots/en/project-files.png)
 
@@ -271,7 +274,10 @@ npm run screenshots   # writes docs/assets/screenshots/{en,zh}/
 
 - [`deploy/helm/graphrag-ui`](deploy/helm/graphrag-ui) — Helm chart;
   [`values.yaml`](deploy/helm/graphrag-ui/values.yaml) documents every environment variable,
-  and `NOTES.txt` prints an install-time quickstart (zh-TW).
+  and `NOTES.txt` prints an install-time quickstart. The bundled PostgreSQL defaults to the
+  frozen `bitnamilegacy/postgresql:16.6.0` mirror (Bitnami's 2025 registry reorg removed the
+  public semver tags): it pulls, but gets no further patches — for production set
+  `externalDatabase.url` or point `postgresql.image.*` at a maintained source.
 - [`docker-compose.yml`](docker-compose.yml) — single-host deployment; same 16 variables
   (`DATABASE_URL` and `WORKSPACES_DIR` are fixed inside the compose file, the rest
   come from `.env`).
