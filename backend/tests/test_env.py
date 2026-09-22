@@ -243,3 +243,40 @@ async def test_set_env_key_rollback_leaves_no_audit_row_when_write_fails(
         await db_session.execute(select(AuditLog).where(AuditLog.action == "env.key_set"))
     ).scalars()
     assert list(rows) == []
+
+
+async def test_reserved_key_is_400_and_never_reaches_disk(client, app, db_session):
+    """R2-02: names that redirect or intercept the subprocess's traffic
+    (proxies, CA bundles) or change its process (PATH, PYTHON*) are refused
+    with a coded 400, before any row or write."""
+    alice = await _alice(client, app)
+    pid = await _make_project(client, alice)
+
+    for key in ("HTTPS_PROXY", "SSL_CERT_FILE", "PATH", "PYTHONPATH"):
+        r = await _set(client, alice, pid, key, "http://attacker.example")
+        assert r.status_code == 400, (key, r.text)
+        assert r.json()["code"] == "env_reserved_key"
+        assert r.json()["params"] == {"key": key}
+    assert not _env_path(pid).exists()
+    assert await _env_audit(db_session, pid) == []
+
+
+async def test_delete_referenced_key_is_400_and_leaves_disk_unchanged(client, app, db_session):
+    """R2-01 (3): deleting a key that settings.yaml still references would
+    make a loadable workspace silently unloadable on the next query — refuse
+    it; the key stays, and only the audit row of the earlier set exists."""
+    alice = await _alice(client, app)
+    pid = await _make_project(client, alice)
+    assert (await _set(client, alice, pid, "GRAPHRAG_API_KEY", SECRET)).status_code == 204
+    settings_path = ws_path(pid) / "settings.yaml"
+    settings_path.write_text(
+        settings_path.read_text() + "models:\n  api_key: ${GRAPHRAG_API_KEY}\n"
+    )
+
+    r = await client.delete(f"/api/projects/{pid}/env/GRAPHRAG_API_KEY", headers=alice)
+    assert r.status_code == 400, r.text
+    assert r.json()["code"] == "env_key_referenced"
+    assert r.json()["params"] == {"key": "GRAPHRAG_API_KEY"}
+    assert SECRET not in r.text
+    assert f"GRAPHRAG_API_KEY={SECRET}" in _env_path(pid).read_text()
+    assert await _env_audit(db_session, pid) == [("env.key_set", {"key": "GRAPHRAG_API_KEY"})]

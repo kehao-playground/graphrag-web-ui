@@ -121,3 +121,31 @@ async def test_read_stats_index_and_update(tmp_path):
 async def test_read_stats_missing_returns_none(tmp_path):
     assert read_stats("index", tmp_path) is None
     assert read_stats("update", tmp_path) is None
+
+
+async def test_subprocess_env_is_allowlisted_and_carries_workspace_env(tmp_path, monkeypatch):
+    """R2-01 (1): the child never inherits the API process environment.
+    JWT_SECRET/DATABASE_URL must be absent (a settings.yaml `${JWT_SECRET}`
+    would otherwise ship the signing key to an attacker-chosen api_base), the
+    workspace .env pairs must be present (the CLI's own load_dotenv adds
+    nothing new), and reserved names in an old .env are not forwarded."""
+    monkeypatch.setenv("JWT_SECRET", "process-secret")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@db/x")
+    monkeypatch.delenv("HTTPS_PROXY", raising=False)  # operator passthrough, off here
+    (tmp_path / ".env").write_text("GRAPHRAG_API_KEY=sk-workspace\nHTTPS_PROXY=http://evil\n")
+    r = IndexRunner(argv_prefix=("sh", "-c"))
+    log = log_path_for(tmp_path, uuid.uuid4())
+    res = await r.run(
+        argv=["env; exit 0"],
+        root=tmp_path,
+        log_path=log,
+        job_type="index",
+        heartbeat=_hb,
+        cancel_requested=lambda: False,
+    )
+    assert res.status == "succeeded"
+    lines = log.read_text().splitlines()
+    assert "GRAPHRAG_API_KEY=sk-workspace" in lines
+    assert not any(
+        line.startswith(("JWT_SECRET=", "DATABASE_URL=", "HTTPS_PROXY=")) for line in lines
+    )

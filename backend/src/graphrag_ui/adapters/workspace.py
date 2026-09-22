@@ -6,6 +6,8 @@ from typing import Protocol
 
 import yaml
 
+from graphrag_ui.adapters.workspace_env import subprocess_env
+
 # Key names verified against graphrag source: the format key is input.type
 # (InputConfig.type; there is no file_type field), and the storage backend is
 # a separate top-level section input_storage.type. file_pattern is a regex
@@ -23,12 +25,13 @@ _INIT_MODEL = "gpt-4.1"
 
 _INIT_EMBEDDING = "text-embedding-3-large"
 
-# graphrag_common.load_config runs string.Template(text).substitute(os.environ)
-# over the whole settings.yaml BEFORE parsing it: any literal "$" that is not a
-# "${VAR}" placeholder must be escaped as "$$" or config loading dies with
-# "Invalid placeholder in string" (verified against graphrag 3.1.0). Our
-# file_pattern regexes end in "$", so they must be escaped on disk; graphrag
-# un-escapes them back to the real regex.
+# graphrag_common.load_config runs strict string.Template substitution over
+# the whole settings.yaml BEFORE parsing it (from the workspace .env only —
+# see adapters/workspace_env.py): any literal "$" that is not a "${VAR}"
+# placeholder must be escaped as "$$" or config loading dies with "Invalid
+# placeholder in string" (verified against graphrag 3.1.0). Our file_pattern
+# regexes end in "$", so they must be escaped on disk; graphrag un-escapes
+# them back to the real regex.
 #
 # graphrag 3.1.0 index --dry-run without --skip-validation calls
 # validate_config_names(), which fires REAL completion/embedding requests
@@ -84,6 +87,7 @@ class GraphragInitInitializer:
                 check=True,
                 capture_output=True,
                 timeout=300,
+                env=subprocess_env(root),
             )
         except subprocess.CalledProcessError as e:
             # str(e) carries only the exit code; the real root cause is on
@@ -158,6 +162,9 @@ def _dry_run(root: Path) -> dict:
             check=False,
             capture_output=True,
             timeout=_DRY_RUN_TIMEOUT,
+            # R2-01: the dry-run loads settings.yaml with the same `${VAR}`
+            # substitution as a real run and echoes its output to the client
+            env=subprocess_env(root),
         )
     except subprocess.TimeoutExpired as e:
         # POSIX run() already captured partial output into the exception

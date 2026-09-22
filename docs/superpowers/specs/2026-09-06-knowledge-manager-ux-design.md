@@ -687,9 +687,11 @@ capture, the CLI's own read, and promotion — three different
 configurations inside one run.
 
 Freezing `settings.yaml` alone is not enough. graphrag runs strict
-`string.Template` substitution over `settings.yaml` **before** parsing it,
-against `os.environ` overlaid by the workspace `.env`; the existing
-validator mirrors that order deliberately (`settings.py:84-90`). So
+`string.Template` substitution over `settings.yaml` **before** parsing it;
+the console confines that substitution to the workspace `.env` alone
+(`adapters/workspace_env.py`, fix wave F1 — the process environment is
+never a placeholder source), and the write-side validator resolves
+against the same file. So
 `input.title_column: ${TITLE_COLUMN}` resolves through `.env`, and
 `services/env_file.py::set_env_key` (`env_file.py:102`) and
 `delete_env_key` (`env_file.py:124`) take no lock either. An unfrozen `.env` moves the effective configuration
@@ -820,13 +822,14 @@ to the start of `.env` would produce the same digest, and a deleted `.env`
 would be indistinguishable from an empty one.
 
 **The name is `workspace_config_revision`, not `config_revision`, because
-it identifies the workspace files and nothing more.** graphrag also
-resolves `${...}` against the process `os.environ` (§6.3), which this
-digest cannot see and the console does not manage; it changes only on
-redeploy or restart. Claiming the field identifies the *effective*
-configuration would be claiming more than it can carry. Being a sha256 of
-file bytes, it identifies a configuration without exposing any value in
-it.
+it identifies the workspace files and nothing more.** Since fix wave F1
+the workspace `.env` is the only `${...}` source, so the two files are the
+whole placeholder input; what the digest still cannot see is the graphrag
+package version and the operator passthrough environment of the
+subprocess (proxy, CA bundle), which change only on redeploy. Claiming the
+field identifies the *effective* configuration would still be claiming
+more than it can carry. Being a sha256 of file bytes, it identifies a
+configuration without exposing any value in it.
 
 `services/runner_loop.py::_execute` currently hard-codes
 `IndexRunner().run(argv=...)`. It grows a dispatch on `job.type`:

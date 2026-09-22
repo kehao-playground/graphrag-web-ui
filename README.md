@@ -25,6 +25,12 @@ Short sketch (full detail in the [design spec](docs/superpowers/specs/)):
     (`adapters/graphrag_search.py` — shielded because graphrag's dependency chain loads
     `.env`/dotenv into `os.environ` on import; the adapter snapshots and restores the
     environment around that import).
+  - Both touchpoints sit inside one trust boundary (`adapters/workspace_env.py`): the
+    `${VAR}` placeholders in a project's `settings.yaml` resolve from that project's
+    `.env` **only**, never from the API process environment, and the CLI subprocess gets
+    an allowlisted environment (PATH, locale, `NLTK_DATA`, proxy/CA passthrough) plus the
+    workspace pairs — never the API's secrets. Process-level names (`PATH`, `PYTHON*`,
+    `*_PROXY`, CA bundles) are refused as `.env` keys.
 - **Database** — PostgreSQL 16 (SQLAlchemy async + asyncpg); Alembic migrations run
   automatically at API startup.
 - **Project workspaces** — the app's name for each project's GraphRAG root

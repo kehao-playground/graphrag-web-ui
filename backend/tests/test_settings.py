@@ -331,3 +331,26 @@ async def test_put_with_env_backed_placeholder_succeeds(client, app, db_session)
     assert r.status_code == 200, r.text
     assert _settings_path(pid).read_text() == content
     assert len(await _versions(db_session, pid)) == 1
+
+
+async def test_put_with_process_env_placeholder_is_400(client, app, db_session, monkeypatch):
+    """R2-01 (3): the API process environment is not a placeholder source.
+    ${JWT_SECRET} (set for every test app) and any other process variable
+    must be rejected exactly like an unknown name — only the workspace .env
+    resolves placeholders, and the file on disk stays untouched."""
+    monkeypatch.setenv("OPERATOR_ONLY", "present-in-process")
+    alice = await _alice(client, app)
+    pid = await _make_project(client, alice)
+    got = (await client.get(f"/api/projects/{pid}/settings", headers=alice)).json()
+
+    for name in ("JWT_SECRET", "DATABASE_URL", "OPERATOR_ONLY"):
+        r = await client.put(
+            f"/api/projects/{pid}/settings",
+            headers=alice,
+            json={"content": f"x: ${{{name}}}\n", "expected_hash": got["content_hash"]},
+        )
+        assert r.status_code == 400, (name, r.text)
+        assert r.json()["code"] == "settings_invalid_placeholder"
+
+    assert _settings_path(pid).read_text() == got["content"]
+    assert await _versions(db_session, pid) == []

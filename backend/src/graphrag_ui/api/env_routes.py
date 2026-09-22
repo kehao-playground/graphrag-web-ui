@@ -115,6 +115,9 @@ def register_env_routes(app):
             raise ApiError(
                 status.HTTP_404_NOT_FOUND, "env_key_not_found", "key not found"
             ) from None
+        except EnvValidationError as e:
+            # env_key_referenced: settings.yaml still needs the key
+            raise ApiError(status.HTTP_400_BAD_REQUEST, e.code, str(e), e.params) from None
         except ProjectIndexingError as e:
             raise ApiError(status.HTTP_409_CONFLICT, e.code, str(e), e.params) from None
         return Response(status_code=status.HTTP_204_NO_CONTENT)

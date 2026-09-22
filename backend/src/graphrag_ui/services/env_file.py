@@ -5,11 +5,13 @@ error messages must never include a value (routes rely on that).
 """
 
 import re
+import string
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.adapters.models import Project
+from graphrag_ui.domain.env_keys import is_reserved_env_key
 from graphrag_ui.services.audit import audit
 from graphrag_ui.services.project_lock import assert_input_unfrozen, lock_project
 from graphrag_ui.services.projects import ws_path
@@ -73,6 +75,10 @@ def _validate(key: str, value: str) -> None:
     echo str(e))."""
     if not _KEY_RE.fullmatch(key):
         raise EnvValidationError("env_invalid_key", f"invalid key: {key}", {"key": key})
+    if is_reserved_env_key(key):
+        # R2-02: the .env is handed to the graphrag subprocess verbatim, so a
+        # proxy/CA/PATH name here would redirect or intercept its traffic
+        raise EnvValidationError("env_reserved_key", f"reserved key: {key}", {"key": key})
     if "\n" in value or "\r" in value:
         raise EnvValidationError("env_value_single_line", "value must be a single line")
 
@@ -89,6 +95,19 @@ def _upsert_lines(project: Project, key: str, value: str) -> list[str]:
     if not replaced:
         out.append(f"{key}={value}")
     return out
+
+
+def _assert_not_referenced(project: Project, key: str) -> None:
+    """R2-01 (3): settings.yaml is substituted from the .env alone, so
+    removing a key it references would leave the workspace unloadable at the
+    next query — refuse instead of failing silently later."""
+    path = ws_path(project.id) / "settings.yaml"
+    if not path.is_file():
+        return
+    if key in string.Template(path.read_text()).get_identifiers():
+        raise EnvValidationError(
+            "env_key_referenced", f"key referenced by settings.yaml: {key}", {"key": key}
+        )
 
 
 def _remove_lines(project: Project, key: str) -> list[str]:
@@ -139,6 +158,7 @@ async def delete_env_key(
         await lock_project(session, project.id)
         await assert_input_unfrozen(session, project.id)
         lines = _remove_lines(project, key)
+        _assert_not_referenced(project, key)
         await audit(session, actor_id, "env.key_deleted", "project", str(project.id), {"key": key})
         await session.flush()
         _atomic_write(project, lines)

@@ -14,14 +14,17 @@ from pathlib import Path
 from typing import Any, Protocol
 
 import pandas as pd
+import yaml
+
+from graphrag_ui.adapters.workspace_env import read_workspace_env, substitute_placeholders
 
 # litellm (pulled in by graphrag) runs load_dotenv() AT IMPORT TIME, which
 # walks up from the CWD and merges the nearest .env into os.environ — in
 # dev that silently overrides app settings defaults (repo-root .env's
 # PROJECT_QUOTA_MB once broke the files quota mid-suite). Snapshot/restore
-# the environment around the import so the side effect stays local; the
-# intentional workspace-.env loading at query time (load_config(root)) is
-# untouched.
+# the environment around the import so the side effect stays local. Query-
+# time loading never touches os.environ either: load_config below reads the
+# workspace .env into a per-call dict (R2-02).
 _environ_before_import = os.environ.copy()
 # Same litellm noise as index_runner (botocore pre-load warnings on import);
 # the handler level is read from LITELLM_LOG at import time, so default it
@@ -40,10 +43,13 @@ try:
         local_search_streaming,
     )
 
-    # NOTE: import the FUNCTION from the submodule — `from graphrag.config
-    # import load_config` binds the submodule (import system shadows the
-    # re-export), which is not callable.
-    from graphrag.config.load_config import load_config as _graphrag_load_config
+    # graphrag.config.load_config(root) is NOT used: it substitutes `${VAR}`
+    # from os.environ (R2-01), load_dotenv()s the workspace .env into the
+    # process (R2-02) and os.chdir()s into the workspace (R2-06). The
+    # graphrag_common loader underneath takes all three as flags plus a
+    # parser hook, which is where the workspace-only substitution goes.
+    from graphrag.config.models.graph_rag_config import GraphRagConfig
+    from graphrag_common.config import load_config as _graphrag_common_load_config
 finally:
     os.environ.clear()
     os.environ.update(_environ_before_import)
@@ -64,11 +70,88 @@ class ConfigLoadError(RuntimeError):
     """graphrag load_config failed (bad settings.yaml / template / workspace .env)."""
 
 
+# settings.yaml fields graphrag reads as filesystem paths and resolves against
+# the process cwd (GraphRagConfig validators call Path(x).resolve(); prompts
+# and FileStorage open them relative to cwd). With set_cwd=False the API
+# process stays where it is, so these are anchored to the workspace root
+# here. Storage sections only when their backend is the local filesystem —
+# for blob/cosmosdb base_dir is a container path.
+_FILE_STORAGE_SECTIONS: tuple[tuple[str, ...], ...] = (
+    ("input_storage",),
+    ("output_storage",),
+    ("update_output_storage",),
+    ("reporting",),
+    ("cache", "storage"),
+)
+_PROMPT_FIELDS: tuple[tuple[str, str], ...] = (
+    ("extract_graph", "prompt"),
+    ("summarize_descriptions", "prompt"),
+    ("extract_claims", "prompt"),
+    ("community_reports", "graph_prompt"),
+    ("community_reports", "text_prompt"),
+    ("local_search", "prompt"),
+    ("global_search", "map_prompt"),
+    ("global_search", "reduce_prompt"),
+    ("global_search", "knowledge_prompt"),
+    ("drift_search", "prompt"),
+    ("drift_search", "reduce_prompt"),
+    ("basic_search", "prompt"),
+)
+
+
+def _anchor(section: Any, field: str, root: Path) -> None:
+    value = section.get(field) if isinstance(section, dict) else None
+    if isinstance(value, str) and value and not Path(value).is_absolute():
+        section[field] = str(root / value)
+
+
+def _section(data: dict[str, Any], keys: tuple[str, ...]) -> Any:
+    node: Any = data
+    for key in keys:
+        node = node.get(key) if isinstance(node, dict) else None
+    return node
+
+
+def _anchor_relative_paths(data: dict[str, Any], root: Path) -> dict[str, Any]:
+    for keys in _FILE_STORAGE_SECTIONS:
+        section = _section(data, keys)
+        if isinstance(section, dict) and section.get("type", "file") == "file":
+            _anchor(section, "base_dir", root)
+    vector_store = data.get("vector_store")
+    if isinstance(vector_store, dict) and vector_store.get("type", "lancedb") == "lancedb":
+        _anchor(vector_store, "db_uri", root)
+    for section_name, field in _PROMPT_FIELDS:
+        _anchor(data.get(section_name), field, root)
+    return data
+
+
 def load_config(root: Path):
-    """Wrap graphrag.config.load_config so config failures surface as one type."""
+    """GraphRagConfig for the workspace at `root`, loaded inside the trust
+    boundary: `${VAR}` substituted from the workspace .env alone, nothing
+    merged into os.environ, no chdir, relative paths anchored to `root`.
+    Every failure (missing placeholder, YAML, pydantic) surfaces as one type.
+    """
+    root = root.resolve()  # anchored paths must not depend on the process cwd
+    env = read_workspace_env(root)
+
+    def _parse(text: str) -> dict[str, Any]:
+        try:
+            data = yaml.safe_load(substitute_placeholders(text, env))
+        except KeyError as exc:
+            raise ValueError(f"placeholder not in workspace .env: {exc}") from exc
+        if not isinstance(data, dict):
+            raise TypeError("settings.yaml is not a mapping")
+        return _anchor_relative_paths(data, root)
+
     try:
-        return _graphrag_load_config(root)
-    except Exception as exc:  # ValueError/Template/YAML/… — single stable wrap
+        return _graphrag_common_load_config(
+            config_initializer=GraphRagConfig,
+            config_path=root,
+            set_cwd=False,
+            parse_env_vars=False,
+            config_parser=_parse,
+        )
+    except Exception as exc:  # ValueError/Template/YAML/pydantic — single stable wrap
         raise ConfigLoadError(str(exc)) from exc
 
 

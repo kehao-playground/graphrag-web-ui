@@ -27,6 +27,11 @@ drift / basic 四種搜尋模式，全部透過 SSE 串流並附行內引用。�
     `graphrag.api`（`adapters/graphrag_search.py` —— 之所以隔離，是因為
     graphrag 的相依鏈會在 import 時將 `.env`/dotenv 載入 `os.environ`；
     adapter 會在該 import 前後快照並還原環境）。
+  - 兩個接觸點都位於同一個信任邊界內（`adapters/workspace_env.py`）：專案
+    `settings.yaml` 的 `${VAR}` 佔位符**只**從該專案的 `.env` 解析，絕不從 API
+    程序的環境變數解析；CLI 子程序拿到的是白名單環境（PATH、語系、`NLTK_DATA`、
+    proxy/CA 直通）加上工作區的鍵值 —— 絕不包含 API 的機密。程序層級的名稱
+    （`PATH`、`PYTHON*`、`*_PROXY`、CA bundle）不能作為 `.env` 的 key。
 - **資料庫** —— PostgreSQL 16（SQLAlchemy async + asyncpg）；Alembic 遷移會在
   API 啟動時自動執行。
 - **專案工作區（workspace）** —— 本應用對「每個專案的 GraphRAG 根目錄」的

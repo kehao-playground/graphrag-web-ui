@@ -66,8 +66,10 @@ export default {
     env_key_value_required: "需要提供 key 與 value",
     env_value_too_large: "value 過大",
     env_invalid_key: "無效的 key:{{key}}",
+    env_reserved_key: "保留的 key：{{key}}（程序與代理設定不能逐專案設定）",
     env_value_single_line: "value 必須是單行",
     env_key_not_found: "找不到 key",
+    env_key_referenced: "settings.yaml 仍引用 {{key}}，請先移除該佔位符",
     // users
     email_registered: "email 已被註冊",
     user_self_change_forbidden: "無法變更自己的角色或啟用狀態",

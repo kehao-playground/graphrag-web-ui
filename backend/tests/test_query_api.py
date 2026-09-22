@@ -192,13 +192,14 @@ async def test_rate_limit_third_post_429(client, app, fake_adapter, fake_cache, 
 
 
 def test_load_config_binds_function_not_submodule():
-    """`from graphrag.config import load_config` binds the SUBMODULE (the
-    import system shadows the package re-export), which is not callable —
-    every fake-adapter test passed while real queries 500'd. Found by the
-    real-corpus slow test; guarded here so the fast suite catches regressions."""
+    """`from graphrag.config import load_config` once bound the SUBMODULE (the
+    import system shadows a package re-export), which is not callable —
+    every fake-adapter test passed while real queries 500'd. The adapter now
+    imports graphrag_common's loader, whose package has the same
+    `load_config.py` submodule; guarded here so the fast suite catches it."""
     from graphrag_ui.adapters import graphrag_search as gsa
 
-    assert callable(gsa._graphrag_load_config)
+    assert callable(gsa._graphrag_common_load_config)
 
 
 def test_adapter_kwargs_match_graphrag_signatures():
