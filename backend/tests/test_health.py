@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy.exc import OperationalError
 
 from graphrag_ui.adapters import models
 from graphrag_ui.adapters.models import (
@@ -14,7 +15,9 @@ from graphrag_ui.adapters.models import (
     User,
 )
 from graphrag_ui.adapters.workspace import FakeInitializer
+from graphrag_ui.api import health_routes
 from graphrag_ui.api.projects_routes import get_initializer
+from graphrag_ui.config import get_settings
 from graphrag_ui.domain.role_catalog import ROLE_ID_VIEWER
 from graphrag_ui.main import create_app
 from graphrag_ui.services.projects import ws_path
@@ -44,6 +47,66 @@ async def test_ready_with_db(client):
     body = r.json()
     assert body["db"] == "ok"
     assert body["graphrag"]  # version string cached at startup
+
+
+# --- readiness must FAIL the probe when it is not ready (R3-04 / R2-22) ---
+# The Helm readinessProbe is an httpGet, so only the status code reaches
+# kubelet: a 200 carrying {"db": "error"} keeps routing traffic to a pod
+# that cannot serve it. The JSON body stays for operators reading it.
+
+
+class _RefusingFactory:
+    """Stands in for the session factory when Postgres is unreachable.
+
+    asyncpg surfaces a refused/unroutable connection as a bare OSError, not
+    a SQLAlchemyError, which used to escape the handler as an unstructured
+    500 — precisely when an operator needs the structured body.
+    """
+
+    def __init__(self, exc: BaseException):
+        self._exc = exc
+
+    def __call__(self):
+        return self
+
+    async def __aenter__(self):
+        raise self._exc
+
+    async def __aexit__(self, *a):
+        return False
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        pytest.param(OperationalError("SELECT 1", {}, Exception("auth failed")), id="sqlalchemy"),
+        pytest.param(ConnectionRefusedError(111, "Connection refused"), id="oserror"),
+    ],
+)
+async def test_ready_is_503_when_the_db_is_unreachable(client, monkeypatch, exc):
+    monkeypatch.setattr(health_routes, "get_session_factory", lambda: _RefusingFactory(exc))
+    r = await client.get("/api/ready")
+    assert r.status_code == 503
+    body = r.json()
+    assert body["db"] == "error"
+    assert body["disk_ok"] is True  # the other checks are still reported
+
+
+async def test_ready_is_503_below_the_disk_watermark(client, monkeypatch):
+    monkeypatch.setenv("DISK_WATERMARK_MB", str(10**9))  # more than any CI disk has
+    get_settings.cache_clear()
+    r = await client.get("/api/ready")
+    assert r.status_code == 503
+    body = r.json()
+    assert body["db"] == "ok"
+    assert body["disk_ok"] is False
+
+
+async def test_ready_is_503_when_graphrag_is_not_installed(client, app):
+    app.state.graphrag_version = "not-installed"
+    r = await client.get("/api/ready")
+    assert r.status_code == 503
+    assert r.json()["graphrag"] == "not-installed"
 
 
 # --- knowledge-base health aggregates (spec 7.5) ---

@@ -130,6 +130,21 @@ class AuthConfigOut(BaseModel):
     auth_mode: Literal["local", "proxy"]
 
 
+class ReadyOut(BaseModel):
+    """Readiness report (spec §8.2 / §10). Served with 200 when every check
+    passes and 503 otherwise — the Helm readinessProbe is status-code based,
+    so a failing check has to change the code, not only the body."""
+
+    db: Literal["ok", "error"]
+    graphrag: str  # installed version, or "not-installed" (detected once at startup)
+    disk_free_mb: int
+    disk_ok: bool  # disk_free_mb >= DISK_WATERMARK_MB
+
+    @property
+    def ready(self) -> bool:
+        return self.db == "ok" and self.disk_ok and self.graphrag != "not-installed"
+
+
 class JobCreateIn(BaseModel):
     type: Literal["index", "update"]
     method: Literal["standard", "fast"]
