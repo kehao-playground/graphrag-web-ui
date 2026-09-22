@@ -103,6 +103,15 @@ jobs:
           OAUTH2_PROXY_COOKIE_SECRET: Y2ktY29va2llLXNlY3JldC0zMg==
           OAUTH2_PROXY_REDIRECT_URL: http://localhost:8080/oauth2/callback
         run: docker compose -f docker-compose.yml -f docker-compose.proxy-auth.yml config
+      # The overlay's oauth2-proxy upstream must point at the port the web
+      # nginx actually listens on: the image moved 80 -> 8080 once and the
+      # overlay silently 502'd for weeks (R3-02). The full compose smoke
+      # (R2-15) will exercise it for real; this keeps the two files honest.
+      - name: proxy-auth overlay upstream matches the web nginx listen port
+        run: |
+          port=$(sed -n 's/^ *listen \([0-9][0-9]*\);.*/\1/p' frontend/nginx.conf)
+          test -n "$port"
+          grep -q "uri: http://web:${port}$" docker-compose.proxy-auth.yml
       # Guards the compose image builds: catches Dockerfile drift that unit
       # tests never see (e.g. missing .npmrc once broke `npm ci` in-container)
       - run: docker compose build
@@ -118,3 +127,36 @@ jobs:
           helm template deploy/helm/graphrag-ui --set postgresql.enabled=false \
             --set externalDatabase.url=postgresql+asyncpg://u:p@h:5432/d \
             | grep -q 'postgresql+asyncpg://u:p@h:5432/d' && echo "external DB wired"
+      # Every registry image the default render references must be pullable:
+      # the bundled postgres once pointed at a tag Docker Hub no longer had
+      # (R3-03), so a default `helm install` sat in ImagePullBackOff. The
+      # chart's own api/web images carry no registry and are built locally.
+      - name: default-render images exist on their registries
+        run: |
+          helm template deploy/helm/graphrag-ui \
+            | sed -n 's/^ *image: *"\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' | sort -u | grep '/' \
+            | while read -r image; do
+                docker manifest inspect "$image" > /dev/null || { echo "MISSING $image"; exit 1; }
+                echo "ok $image"
+              done
+      # Ingress carries the upload body-size cap (R3-15): uploadMaxFileMb + 1 MiB slack
+      - name: ingress proxy-body-size tracks uploadMaxFileMb
+        run: |
+          helm template deploy/helm/graphrag-ui --set ingress.enabled=true --set uploadMaxFileMb=120 \
+            | grep -q 'nginx.ingress.kubernetes.io/proxy-body-size: 121m'
+      # proxy-auth misconfigurations fail at render time, not as a 401 wall
+      # (R3-17). `if … ; then exit 1` rather than `! …`: bash's errexit
+      # ignores a negated pipeline, so `!` would never fail the step.
+      - name: proxy-auth render guards
+        run: |
+          if helm template deploy/helm/graphrag-ui --set proxyAuth.enabled=true \
+              --set 'proxyAuth.emailDomains={example.com}' > /dev/null 2>&1; then
+            echo "rendered without ingress.enabled"; exit 1
+          fi
+          if helm template deploy/helm/graphrag-ui --set ingress.enabled=true --set proxyAuth.enabled=true \
+              --set 'proxyAuth.emailDomains={example.com}' > /dev/null 2>&1; then
+            echo "rendered without ingress.host"; exit 1
+          fi
+          helm template deploy/helm/graphrag-ui --set ingress.enabled=true --set ingress.host=graphrag.example.com \
+              --set proxyAuth.enabled=true --set 'proxyAuth.emailDomains={example.com}' \
+            | grep -q 'auth-signin: https://graphrag.example.com/oauth2/start'
