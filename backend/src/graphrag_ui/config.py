@@ -8,6 +8,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # for a real JWT_SECRET. Matched whole (after strip/lower), never as a
 # substring — a generated secret that happens to embed one is still fine.
 _PLACEHOLDER_SECRETS = frozenset({"", "dev-secret-change-me", "change-me", "changeme"})
+# Same idea for the bootstrap admin: the `.env.example` literal, matched
+# whole. Empty is NOT in this set — it is the documented "create no admin"
+# switch (services/auth.bootstrap_admin), not a weak password.
+_PLACEHOLDER_PASSWORDS = frozenset({"bootstrap-admin-change-me", "change-me", "changeme"})
+_BOOTSTRAP_PASSWORD_MIN_LEN = 12
 
 
 class Settings(BaseSettings):
@@ -70,6 +75,29 @@ class Settings(BaseSettings):
             raise ValueError(
                 "AUTH_MODE=local requires JWT_SECRET >= 32 characters — generate one "
                 "with `openssl rand -hex 32`"
+            )
+        return self
+
+    # The bootstrap admin is the first — for a while the only — account, and
+    # whoever logs in with it first owns the deployment. Compose's `:?` guard
+    # checks presence only, so a `cp .env.example .env` that replaced
+    # JWT_SECRET alone still ships the placeholder; must_change_password is
+    # the second line of defence, this is the first. Local mode only:
+    # bootstrap_admin() is a no-op in proxy mode (spec §5.2).
+    @model_validator(mode="after")
+    def _local_mode_needs_real_bootstrap_password(self) -> "Settings":
+        password = self.bootstrap_admin_password
+        if self.auth_mode != "local" or not password:
+            return self
+        if password.strip().lower() in _PLACEHOLDER_PASSWORDS:
+            raise ValueError(
+                "BOOTSTRAP_ADMIN_PASSWORD is still the shipped placeholder — set a real "
+                "password (or leave it empty to create no bootstrap admin)"
+            )
+        if len(password) < _BOOTSTRAP_PASSWORD_MIN_LEN:
+            raise ValueError(
+                f"BOOTSTRAP_ADMIN_PASSWORD must be >= {_BOOTSTRAP_PASSWORD_MIN_LEN} characters "
+                "(or empty to create no bootstrap admin)"
             )
         return self
 
