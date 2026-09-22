@@ -61,19 +61,24 @@ ingress:
   enabled: false
   className: ""        # e.g. nginx; must match the cluster's ingress controller
   host: ""             # e.g. graphrag.example.com; empty string = catch-all
-  annotations:         # SSE: nginx.ingress.kubernetes.io/proxy-buffering: "off"
-    {}                 # (proxy-buffering off and the long read timeout are built into the template; put extra annotations here)
+  annotations:         # extra annotations; the template already sets proxy-buffering "off",
+    {}                 # proxy-read-timeout 3600 (SSE) and proxy-body-size <uploadMaxFileMb + 1>m
+                       # (uploads — ingress-nginx's 1m default would 413 anything larger)
 
 externalDatabase:
   url: ""              # e.g. postgresql+asyncpg://user:pw@host:5432/graphrag; required when postgresql.enabled=false
 
 postgresql:
   enabled: true        # when false, externalDatabase.url must be set
-  # Align with tests (testcontainers postgres:16-alpine); bitnami chart 18.x accepts PG16 tags.
-  # Registry caveat: since Bitnami's 2025 reorg, Docker Hub has no public semver tags
-  # (bitnami/postgresql:16.8.0 → 404 → ImagePullBackOff). Configure a registry mirror or
-  # point image.registry/repository at a reachable source (e.g. repository: bitnamilegacy/postgresql).
-  image: { tag: "16.8.0" }
+  # PG16 to match the test containers (postgres:16-alpine); bitnami chart 18.x accepts it.
+  # Registry caveat: since Bitnami's 2025 reorg, Docker Hub's bitnami/postgresql carries
+  # only `latest` (a newer major that would not open a PG16 data directory), so the
+  # default points at the frozen bitnamilegacy mirror. Its newest PG16 build is 16.6.0
+  # (verified with `docker manifest inspect`; CI re-checks it) and it receives no further
+  # security patches — for production use externalDatabase.url, or point
+  # image.registry/repository/tag at a maintained source (Bitnami Secure Images, an
+  # internal mirror).
+  image: { repository: bitnamilegacy/postgresql, tag: "16.6.0-debian-12-r2" }
   auth: { username: graphrag, password: "", database: graphrag }
   # Bundled-DB note: DATABASE_URL is assembled at render time with the
   # password taken from auth.password — set auth.password explicitly when the
@@ -95,9 +100,11 @@ bootstrapAdmin:
   #   validation rejects special-use domains; the account gets created but
   #   cannot log in (422), leaving the first deployment without an admin
   email: ""            # admin account created at first startup (empty string = do not create)
-  password: ""
+  password: ""         # >= 12 chars and not the .env.example placeholder — validated by the
+                       # api at startup like jwtSecret (a no-op in proxy mode)
 
 uploadMaxFileMb: 50    # UPLOAD_MAX_FILE_MB — single-file upload limit in MiB; exceed → 413
+                       # (also sizes the ingress proxy-body-size annotation, see ingress.annotations)
 projectQuotaMb: 5000   # PROJECT_QUOTA_MB — per-project storage quota in MiB (input/+output/); exceed → 413
 maxConcurrentJobs: 2   # MAX_CONCURRENT_JOBS — concurrent indexing jobs; 0 disables the runner loop
 jobLogRetentionDays: 30        # JOB_LOG_RETENTION_DAYS — days to keep succeeded job log files

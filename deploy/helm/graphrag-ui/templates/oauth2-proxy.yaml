@@ -1,3 +1,16 @@
+{{/* Proxy mode is only reachable through the ingress: it is the nginx-ingress auth-url/auth-signin
+     annotations that carry the identity headers to the api. Without an ingress the release renders
+     cleanly (api in AUTH_MODE=proxy, oauth2-proxy with a static upstream) and then answers 401 to
+     everything, with nothing in the app to fix; bundled mode without a concrete host renders the
+     signin redirect as https:///oauth2/start. Both are render-time errors, not runtime puzzles. */}}
+{{- if .Values.proxyAuth.enabled }}
+{{- if not .Values.ingress.enabled }}
+{{- fail "proxyAuth.enabled requires ingress.enabled=true: the identity headers reach the api only through the ingress auth-url/auth-signin annotations (spec 2026-08-27 §7.2). Set ingress.enabled=true with a concrete ingress.host, or leave proxyAuth.enabled=false." }}
+{{- end }}
+{{- if and (not .Values.proxyAuth.external.url) (not .Values.ingress.host) }}
+{{- fail "proxyAuth.enabled with a chart-managed oauth2-proxy requires a concrete ingress.host: the auth-signin redirect is built as https://<ingress.host>/oauth2/start and an empty host renders https:///oauth2/start. Set ingress.host, or set proxyAuth.external.url to reuse an instance with its own hostname." }}
+{{- end }}
+{{- end }}
 {{/* Chart-managed proxy-auth Secret (client/cookie/proxy-auth): rendered whenever proxyAuth is
      enabled without an existingSecret — including external mode, where the api's PROXY_AUTH_SECRET
      secretKeyRef must still resolve. Nothing Secret-shaped renders when existingSecret is set. */}}

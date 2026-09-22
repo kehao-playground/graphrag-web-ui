@@ -54,7 +54,10 @@ configs:
         upstreams:
           - id: web
             path: /
-            uri: http://web:80
+            # 8080: the web image is nginx-unprivileged (see frontend/
+            # nginx.conf); CI resolves this upstream against the rendered
+            # web service so a port change cannot orphan the overlay again
+            uri: http://web:8080
       providers:
         - id: primary
           provider: ${OAUTH2_PROXY_PROVIDER:-oidc}

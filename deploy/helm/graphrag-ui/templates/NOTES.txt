@@ -1,53 +1,72 @@
-GraphRAG Web UI 已部署為 release「{{ .Release.Name }}」。
+GraphRAG Web UI is deployed as release "{{ .Release.Name }}".
 
-1. 取得入口
+1. Reach the app
 {{- if .Values.ingress.enabled }}
-   Ingress 已啟用{{ with .Values.ingress.host }} —— https://{{ . }}{{ end }}（請確認 ingressClassName 對應叢集上的 controller）
+   Ingress is enabled{{ with .Values.ingress.host }} — https://{{ . }}{{ end }} (make sure ingressClassName matches the cluster's controller).
+   Uploads: the ingress carries proxy-body-size {{ add .Values.uploadMaxFileMb 1 }}m (uploadMaxFileMb + 1 MiB slack) so
+   files up to UPLOAD_MAX_FILE_MB reach the api; raise the same limit on any extra proxy in front of the cluster.
 {{- else }}
-   Ingress 未啟用，請先 port-forward 前端：
+   Ingress is disabled — port-forward the web service first:
      kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "graphrag-ui.fullname" . }}-web 8080:80
-   → 開啟 http://localhost:8080：SPA 由 web pod 提供；/api/ 由 web 的 nginx 反向代理，
-     上游名稱 `api` 經 chart 建立的 ExternalName alias service 解析到
-     {{ include "graphrag-ui.fullname" . }}-api（要直接除錯 API，可另外 port-forward 該 svc）
+   → open http://localhost:8080: the web pod serves the SPA and its nginx reverse-proxies /api/;
+     the upstream name `api` resolves through the chart's ExternalName alias service to
+     {{ include "graphrag-ui.fullname" . }}-api (port-forward that svc separately to debug the API directly).
 {{- end }}
 
-2. 首次登入（bootstrap admin）
-   以 values 的 bootstrapAdmin.email / bootstrapAdmin.password 登入
-   （兩者皆為空字串 = 不建立帳號，屆時沒有任何使用者可登入，務必擇一提供）。
-   ⚠ email 必須是真實可路由的網域，不可用 .local —— 登入驗證會拒絕 special-use domains。
+2. First sign-in
+{{- if .Values.proxyAuth.enabled }}
+   Sign in through your identity provider — oauth2-proxy fronts every request and the api
+   provisions users from the forwarded identity. The bootstrap admin is a no-op in proxy mode
+   (spec 2026-08-27 §5.2): proxyAuth.adminEmails ({{ .Values.proxyAuth.adminEmails | join ", " | default "empty" }})
+   is what grants the user_admin + ops roles.
+{{- else }}
+   Log in with bootstrapAdmin.email / bootstrapAdmin.password from values
+   (both empty = no account is created and nobody can log in — set one of the two paths).
+   ⚠ The email must be a real routable domain, never .local — login validation rejects special-use domains.
+   ⚠ The password must be at least 12 characters and not the .env.example placeholder — the api
+     refuses to start otherwise (CrashLoopBackOff with the reason in its log).
+{{- end }}
 
-3. 檢查
+3. Check
      kubectl get pods,svc,pvc -n {{ .Release.Namespace }}
+{{- if and .Values.postgresql.enabled (eq .Values.postgresql.image.repository "bitnamilegacy/postgresql") }}
+
+ℹ Bundled PostgreSQL: the default image is the frozen bitnamilegacy/postgresql mirror
+  ({{ .Values.postgresql.image.repository }}:{{ .Values.postgresql.image.tag }}) — it pulls, but receives no
+  further security patches (Bitnami's 2025 registry reorg removed the public semver tags). For
+  production point externalDatabase.url at a managed database, or set postgresql.image.* to a
+  maintained source.
+{{- end }}
 {{- if and .Values.postgresql.enabled (not .Values.postgresql.auth.password) }}
 
-⚠ 內建 PostgreSQL 已啟用，但 postgresql.auth.password 為空 ——
-   DATABASE_URL 在 render 時由 auth 值拼接而成，沒有密碼會連不上。
-   請 --set postgresql.auth.password=<密碼> 後 helm upgrade。
+⚠ The bundled PostgreSQL is enabled but postgresql.auth.password is empty —
+   DATABASE_URL is assembled at render time from the auth values and cannot connect without one.
+   Run helm upgrade with --set postgresql.auth.password=<password>.
 {{- end }}
 {{- if and (not .Values.postgresql.enabled) (not .Values.externalDatabase.url) }}
 
-⚠ postgresql.enabled=false 且 externalDatabase.url 未設定 —— render 應已失敗，請檢查 values。
+⚠ postgresql.enabled=false and externalDatabase.url is unset — the render should already have failed; check your values.
 {{- end }}
 {{- if and (not .Values.existingSecret) (not .Values.jwtSecret) }}
 
-⚠ jwtSecret 未設定 —— api 會在啟動時拒絕空值或佔位值（pod 進入 CrashLoopBackOff，
-   原因寫在其日誌中）。請 --set jwtSecret=<至少 32 字元的隨機字串> 後 helm upgrade；
-   產生方式：openssl rand -hex 32。
+⚠ jwtSecret is unset — the api refuses an empty or placeholder value at startup (the pod enters
+   CrashLoopBackOff with the reason in its log). Run helm upgrade with --set jwtSecret=<random string
+   of at least 32 characters>; generate one with: openssl rand -hex 32.
 {{- end }}
 {{- if not .Values.api.image.repository }}
 
-ℹ api.image / web.image 未指定 repository —— 使用本機測試用的預設名稱
-  （graphrag-ui-api / graphrag-ui-web，tag 預設為 chart appVersion {{ .Chart.AppVersion }}）。
-  正式部署請在 values 指定 registry 的 repository/tag。
+ℹ api.image / web.image have no repository — the local-testing default names are used
+  (graphrag-ui-api / graphrag-ui-web, tag defaults to the chart appVersion {{ .Chart.AppVersion }}).
+  Set the registry repository/tag in values for a real deployment.
 {{- end }}
 {{- if .Values.proxyAuth.enabled }}
 
-ℹ proxyAuth 已啟用 —— 存取由 oauth2-proxy 外部驗證把關
-  （{{ if .Values.proxyAuth.external.url }}外部實例 {{ .Values.proxyAuth.external.url }}{{ else }}chart 自帶的 Deployment {{ include "graphrag-ui.fullname" . }}-oauth2-proxy{{ end }}）。
-  proxyAuth.emailDomains 是「必填」的登入允許清單（["*"] = 開放註冊）；
-  PROXY_ADMIN_EMAILS（proxyAuth.adminEmails）是緊急授予 `user_admin` + `ops` 角色的管道。
+ℹ proxyAuth is enabled — access is gated by oauth2-proxy external auth
+  ({{ if .Values.proxyAuth.external.url }}external instance {{ .Values.proxyAuth.external.url }}{{ else }}the chart's own Deployment {{ include "graphrag-ui.fullname" . }}-oauth2-proxy{{ end }}).
+  proxyAuth.emailDomains is the REQUIRED sign-in allowlist (["*"] = open registration);
+  PROXY_ADMIN_EMAILS (proxyAuth.adminEmails) is the break-glass path to the `user_admin` + `ops` roles.
 {{- if .Values.proxyAuth.external.url }}
-  外部實例自行掌管登入允許清單 —— 請在該實例上設定 email 網域限制
-  （chart 的 proxyAuth.emailDomains 對它不生效）。
+  The external instance owns the sign-in allowlist — restrict the email domains on that instance
+  (the chart's proxyAuth.emailDomains has no effect on it).
 {{- end }}
 {{- end }}

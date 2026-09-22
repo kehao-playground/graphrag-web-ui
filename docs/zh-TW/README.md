@@ -135,7 +135,8 @@ flowchart LR
      可以為任何帳號簽出 token。請以 `openssl rand -hex 32` 產生
    - `BOOTSTRAP_ADMIN_EMAIL` —— 必須使用可路由的網域，**不可**用 `.local`：
      登入驗證會拒絕特殊用途網域
-   - `BOOTSTRAP_ADMIN_PASSWORD`
+   - `BOOTSTRAP_ADMIN_PASSWORD` —— 至少 12 字元，且不可沿用 `.env.example`
+     的佔位值；否則 API 會拒絕啟動
 
    全部 16 個基礎變數與其預設值皆記錄於
    [`.env.example`](../../.env.example)；選用的 proxy-auth overlay 另有
@@ -151,6 +152,8 @@ flowchart LR
    在建立時即固定，並決定上傳接受的副檔名。
 6. **上傳語料** —— 檔案會進入專案工作區的 `input/`。單檔上限
    `UPLOAD_MAX_FILE_MB`，每專案配額 `PROJECT_QUOTA_MB`；超過任一上限 → 413。
+   隨附的 nginx 與 Helm ingress 已依此上限設定；若前方另有代理，也請一併
+   調高其 body-size 限制（nginx 預設僅 1 MiB）。
 
    ![專案檔案](../assets/screenshots/zh/project-files.png)
 
@@ -248,7 +251,10 @@ npm run screenshots   # 寫入 docs/assets/screenshots/{en,zh}/
 
 - [`deploy/helm/graphrag-ui`](../../deploy/helm/graphrag-ui) — Helm chart;
   [`values.yaml`](../../deploy/helm/graphrag-ui/values.yaml) 記錄了每個環境變數，
-  且 `NOTES.txt` 會在安裝時印出快速開始指引（zh-TW）。
+  且 `NOTES.txt` 會在安裝時印出快速開始指引。內建的 PostgreSQL 預設使用已凍結的
+  `bitnamilegacy/postgresql:16.6.0` 鏡像（Bitnami 2025 年 registry 重組後，公開的
+  semver 標籤已不存在）：拉得到，但不再有安全更新 —— 正式環境請設定
+  `externalDatabase.url`，或把 `postgresql.image.*` 指向持續維護的來源。
 - [`docker-compose.yml`](../../docker-compose.yml) —— 單機部署；同樣的 16 個變數
   （`DATABASE_URL` 與 `WORKSPACES_DIR` 固定寫在 compose 檔內，其餘來自 `.env`）。
 
