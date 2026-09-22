@@ -17,6 +17,11 @@ import pandas as pd
 import yaml
 
 from graphrag_ui.adapters.workspace_env import read_workspace_env, substitute_placeholders
+from graphrag_ui.domain.settings_confinement import (
+    FILE_STORAGE_SECTIONS,
+    PROMPT_FIELDS,
+    confinement_violations,
+)
 
 # litellm (pulled in by graphrag) runs load_dotenv() AT IMPORT TIME, which
 # walks up from the CWD and merges the nearest .env into os.environ — in
@@ -75,28 +80,11 @@ class ConfigLoadError(RuntimeError):
 # and FileStorage open them relative to cwd). With set_cwd=False the API
 # process stays where it is, so these are anchored to the workspace root
 # here. Storage sections only when their backend is the local filesystem —
-# for blob/cosmosdb base_dir is a container path.
-_FILE_STORAGE_SECTIONS: tuple[tuple[str, ...], ...] = (
-    ("input_storage",),
-    ("output_storage",),
-    ("update_output_storage",),
-    ("reporting",),
-    ("cache", "storage"),
-)
-_PROMPT_FIELDS: tuple[tuple[str, str], ...] = (
-    ("extract_graph", "prompt"),
-    ("summarize_descriptions", "prompt"),
-    ("extract_claims", "prompt"),
-    ("community_reports", "graph_prompt"),
-    ("community_reports", "text_prompt"),
-    ("local_search", "prompt"),
-    ("global_search", "map_prompt"),
-    ("global_search", "reduce_prompt"),
-    ("global_search", "knowledge_prompt"),
-    ("drift_search", "prompt"),
-    ("drift_search", "reduce_prompt"),
-    ("basic_search", "prompt"),
-)
+# for blob/cosmosdb base_dir is a container path. The field lists live in
+# the domain module that also decides confinement (R2-03), so the anchor
+# and the check can never disagree about which fields are paths.
+_FILE_STORAGE_SECTIONS = FILE_STORAGE_SECTIONS
+_PROMPT_FIELDS = PROMPT_FIELDS
 
 
 def _anchor(section: Any, field: str, root: Path) -> None:
@@ -113,6 +101,11 @@ def _section(data: dict[str, Any], keys: tuple[str, ...]) -> Any:
 
 
 def _anchor_relative_paths(data: dict[str, Any], root: Path) -> dict[str, Any]:
+    # Confinement before anchoring: an escaping path must fail the load,
+    # never be anchored and opened (R2-03).
+    escapes = confinement_violations(data)
+    if escapes:
+        raise ValueError(f"settings point outside the workspace: {', '.join(escapes)}")
     for keys in _FILE_STORAGE_SECTIONS:
         section = _section(data, keys)
         if isinstance(section, dict) and section.get("type", "file") == "file":

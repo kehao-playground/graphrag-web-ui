@@ -105,3 +105,22 @@ async def test_real_dry_run_valid_then_corrupted_workspace(client, app):
     r2 = await client.post(f"/api/projects/{pid}/dry-run", headers=alice)
     assert r2.status_code == 200
     assert r2.json()["ok"] is False
+
+
+async def test_dry_run_reports_an_escaping_workspace_without_forking(client, app, monkeypatch):
+    """R2-03: the dry-run loads the same settings.yaml the index would; an
+    escaping one is refused as validation DATA (ok=false) and the CLI is
+    never forked against it."""
+    _admin, alice, pid = await _fake_project(client, app)
+
+    async def must_not_run(root):
+        raise AssertionError("dry_run must not execute for an escaping workspace")
+
+    monkeypatch.setattr("graphrag_ui.api.dry_run_routes.dry_run", must_not_run)
+    path = ws_path(uuid.UUID(pid)) / "settings.yaml"
+    path.write_text(path.read_text() + "input_storage:\n  base_dir: /data/workspaces\n")
+
+    r = await client.post(f"/api/projects/{pid}/dry-run", headers=alice)
+    assert r.status_code == 200, r.text
+    assert r.json()["ok"] is False
+    assert "input_storage.base_dir" in r.json()["output"]

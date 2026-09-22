@@ -16,6 +16,7 @@ from graphrag_ui.config import get_settings
 from graphrag_ui.domain.jobs import build_argv
 from graphrag_ui.services.project_lock import lock_project
 from graphrag_ui.services.projects import ws_path
+from graphrag_ui.services.settings import check_workspace_settings
 
 
 class JobConflictError(RuntimeError):
@@ -33,6 +34,9 @@ async def enqueue(
     project_id = str(project.id)  # snapshot: rollback() expires instances
     root = ws_path(project.id)
     argv = build_argv(type, method, root)
+    # R2-03: never spawn the CLI against a settings.yaml that points storage,
+    # prompts or the vector store outside this workspace (SettingsValidationError).
+    await asyncio.to_thread(check_workspace_settings, project)
     settings = get_settings()
     # Measure the workspaces ROOT (spec §6.1), not the possibly-missing
     # project dir; create the root if needed so disk_usage has a target.
