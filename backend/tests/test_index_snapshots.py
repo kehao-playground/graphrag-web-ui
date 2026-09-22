@@ -9,6 +9,7 @@ the same to a document that was retried and dropped again.
 
 import uuid
 
+import pandas as pd
 import pytest
 import yaml
 
@@ -21,7 +22,9 @@ from graphrag_ui.adapters.models import (
 )
 from graphrag_ui.adapters.workspace import FakeInitializer
 from graphrag_ui.config import get_settings
+from graphrag_ui.services import files as files_service
 from graphrag_ui.services import index_snapshots
+from graphrag_ui.services.files import list_files
 from graphrag_ui.services.projects import ws_path
 
 
@@ -59,10 +62,29 @@ async def _job(db_session, project, type_="index", status="running") -> Job:
     return job
 
 
+def _write_documents(root, titles: list[str]) -> None:
+    """What the CLI leaves behind: output/documents.parquet with one row per
+    ingested document, `title` = the input filename (text reader)."""
+    out = root / "output"
+    out.mkdir(exist_ok=True)
+    pd.DataFrame({"id": [f"d{i}" for i in range(len(titles))], "title": titles}).to_parquet(
+        out / "documents.parquet"
+    )
+
+
+async def _states(db_session, project) -> dict[str, str]:
+    await db_session.refresh(project)
+    listing = await list_files(db_session, project)
+    return {f["name"]: f["index_state"] for f in listing["files"]}
+
+
 def _stub_hash(monkeypatch) -> None:
     """Hashes the tests can name literally: sha256_file -> "hash-<content>".
-    capture_start resolves it from index_snapshots' module globals."""
+    capture_start resolves it from index_snapshots' module globals and the
+    listing's _scan_input from files' — both are stubbed so a listing over
+    a promoted baseline compares like with like."""
     monkeypatch.setattr(index_snapshots, "sha256_file", lambda p: f"hash-{p.read_text()}")
+    monkeypatch.setattr(files_service, "sha256_file", lambda p: f"hash-{p.read_text()}")
 
 
 @pytest.fixture
@@ -332,3 +354,103 @@ async def test_start_snapshot_skips_dotfile_leftovers(db_session, project_with_f
 
     rows = await index_snapshots.entries_of(db_session, sid)
     assert set(rows) == {"a.md", "b.md"}
+
+
+async def test_index_promotes_the_post_run_title_set_not_the_pre_run_one(
+    db_session, project_with_files
+):
+    """R1-67 / R3-01: on a fresh project the start snapshot is captured
+    before the CLI runs, when there is no documents.parquet at all, so its
+    attributable set is empty. The baseline must carry the set recovered
+    from the parquet the run PRODUCED (spec 5.2c / 6.3), or every first
+    index reports every file `skipped`."""
+    project, _ = project_with_files  # input/: a.md, b.md; no output/ yet
+    job = await _job(db_session, project)
+    sid = await index_snapshots.capture_start(db_session, project.id, job.id)
+    start = await db_session.get(IndexSnapshot, sid)
+    assert start.attributable_titles == []  # pre-run: nothing indexed yet
+
+    _write_documents(ws_path(project.id), ["a.md"])  # b.md silently dropped
+    job.status = "succeeded"
+    await index_snapshots.promote(db_session, job)
+    await db_session.commit()
+
+    baseline = await index_snapshots.baseline_row(db_session, project.id)
+    assert baseline.title_recovery == "available"
+    assert baseline.attributable_titles == ["a.md"]
+    assert await _states(db_session, project) == {"a.md": "indexed", "b.md": "skipped"}
+    # The start row keeps the pre-run set: advance_entries needs it as `pre`.
+    await db_session.refresh(start)
+    assert start.attributable_titles == []
+
+
+async def test_index_with_every_document_ingested_reports_everything_indexed(
+    db_session, project_with_files
+):
+    """The happy path the quickstart reproduced as all-skipped."""
+    project, _ = project_with_files
+    job = await _job(db_session, project)
+    await index_snapshots.capture_start(db_session, project.id, job.id)
+    _write_documents(ws_path(project.id), ["a.md", "b.md"])
+    job.status = "succeeded"
+    await index_snapshots.promote(db_session, job)
+    await db_session.commit()
+
+    assert await _states(db_session, project) == {"a.md": "indexed", "b.md": "indexed"}
+
+
+async def test_update_promotes_the_titles_of_the_merged_output(db_session, project_with_files):
+    """An update's baseline must attribute the documents the merge landed,
+    including the ones THIS run ingested — the pre-run set cannot know them,
+    so copying it marks every newly added file `skipped`."""
+    project, _ = project_with_files
+    root = ws_path(project.id)
+    first = await _job(db_session, project)
+    await index_snapshots.capture_start(db_session, project.id, first.id)
+    _write_documents(root, ["a.md", "b.md"])
+    first.status = "succeeded"
+    await index_snapshots.promote(db_session, first)
+    await db_session.commit()
+
+    (root / "input" / "c.md").write_text("C")  # ingested by the update
+    (root / "input" / "d.md").write_text("D")  # offered, dropped
+    upd = await _job(db_session, project, type_="update")
+    await index_snapshots.capture_start(db_session, project.id, upd.id)
+    _write_documents(root, ["a.md", "b.md", "c.md"])  # merged output
+    upd.status = "succeeded"
+    await index_snapshots.promote(db_session, upd)
+    await db_session.commit()
+
+    baseline = await index_snapshots.baseline_row(db_session, project.id)
+    assert baseline.attributable_titles == ["a.md", "b.md", "c.md"]
+    assert await _states(db_session, project) == {
+        "a.md": "indexed",
+        "b.md": "indexed",
+        "c.md": "indexed",
+        "d.md": "skipped",
+    }
+
+
+async def test_update_keeps_a_removed_document_attributable(db_session, project_with_files):
+    """A file deleted from input/ stays in the index after an update
+    (deleted_inputs discarded, spec 5.2c); its title is still in the merged
+    parquet and must stay attributable so a citation into it resolves."""
+    project, _ = project_with_files
+    root = ws_path(project.id)
+    first = await _job(db_session, project)
+    await index_snapshots.capture_start(db_session, project.id, first.id)
+    _write_documents(root, ["a.md", "b.md"])
+    first.status = "succeeded"
+    await index_snapshots.promote(db_session, first)
+    await db_session.commit()
+
+    (root / "input" / "b.md").unlink()
+    upd = await _job(db_session, project, type_="update")
+    await index_snapshots.capture_start(db_session, project.id, upd.id)
+    upd.status = "succeeded"
+    await index_snapshots.promote(db_session, upd)  # documents.parquet still lists b.md
+    await db_session.commit()
+
+    baseline = await index_snapshots.baseline_row(db_session, project.id)
+    assert baseline.attributable_titles == ["a.md", "b.md"]
+    assert await _states(db_session, project) == {"a.md": "indexed", "b.md": "removed"}
