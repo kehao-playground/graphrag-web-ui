@@ -26,6 +26,7 @@ from graphrag_ui.domain.permissions import Atom, can
 from graphrag_ui.services import jobs as jobs_service
 from graphrag_ui.services.jobs import DiskWatermarkError, JobConflictError
 from graphrag_ui.services.projects import get_member_perms, ws_path
+from graphrag_ui.services.settings import SettingsValidationError
 
 
 def job_out(j: Job) -> dict:
@@ -91,6 +92,8 @@ def register_jobs_routes(app):
             raise ApiError(
                 status.HTTP_409_CONFLICT, "disk_watermark", "not enough free disk space"
             ) from None
+        except SettingsValidationError as e:  # settings.yaml on disk escapes the workspace
+            raise ApiError(status.HTTP_400_BAD_REQUEST, e.code, str(e), e.params) from None
         return job_out(job)
 
     @router.get("/projects/{pid}/jobs", response_model=list[JobOut])

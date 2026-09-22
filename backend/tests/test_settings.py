@@ -354,3 +354,77 @@ async def test_put_with_process_env_placeholder_is_400(client, app, db_session, 
 
     assert _settings_path(pid).read_text() == got["content"]
     assert await _versions(db_session, pid) == []
+
+
+async def test_put_storage_path_leaving_the_workspace_is_400(client, app, db_session):
+    """R2-03: graphrag resolves every storage base_dir with Path.resolve()
+    and no root check, and the index subprocess owns the whole workspaces
+    volume — `input_storage.base_dir: ../` would ingest every other
+    project's documents and .env. The write is refused and the disk
+    untouched."""
+    alice = await _alice(client, app)
+    pid = await _make_project(client, alice)
+    got = (await client.get(f"/api/projects/{pid}/settings", headers=alice)).json()
+
+    for content in (
+        "input_storage:\n  type: file\n  base_dir: ../\n",
+        "output_storage:\n  base_dir: /data/workspaces\n",
+        "cache:\n  storage:\n    base_dir: ../../x\n",
+        "vector_store:\n  db_uri: ../other/lancedb\n",
+        "extract_graph:\n  prompt: ../other/.env\n",
+        "reporting:\n  type: blob\n  connection_string: x\n",
+    ):
+        r = await client.put(
+            f"/api/projects/{pid}/settings",
+            headers=alice,
+            json={"content": content, "expected_hash": got["content_hash"]},
+        )
+        assert r.status_code == 400, (content, r.text)
+        assert r.json()["code"] == "settings_path_escape", content
+        assert r.json()["params"]["field"], content
+
+    assert _settings_path(pid).read_text() == got["content"]
+    assert await _versions(db_session, pid) == []
+
+
+async def test_put_escape_through_an_env_placeholder_is_400(client, app):
+    """The check runs on the SUBSTITUTED document: `${DIR}` with DIR=../
+    in the workspace .env is the same escape spelled indirectly."""
+    alice = await _alice(client, app)
+    pid = await _make_project(client, alice)
+    (ws_path(pid) / ".env").write_text("DIR=../\n")
+    got = (await client.get(f"/api/projects/{pid}/settings", headers=alice)).json()
+    r = await client.put(
+        f"/api/projects/{pid}/settings",
+        headers=alice,
+        json={
+            "content": "input_storage:\n  base_dir: ${DIR}\n",
+            "expected_hash": got["content_hash"],
+        },
+    )
+    assert r.status_code == 400
+    assert r.json()["code"] == "settings_path_escape"
+
+
+async def test_put_changing_the_input_format_is_400(client, app):
+    """input.type is locked at creation (D6); the same type with a narrowed
+    file_pattern is an ordinary edit and passes."""
+    alice = await _alice(client, app)
+    pid = await _make_project(client, alice)  # input_file_type text
+    got = (await client.get(f"/api/projects/{pid}/settings", headers=alice)).json()
+
+    r = await client.put(
+        f"/api/projects/{pid}/settings",
+        headers=alice,
+        json={"content": "input:\n  type: csv\n", "expected_hash": got["content_hash"]},
+    )
+    assert r.status_code == 400 and r.json()["code"] == "settings_input_locked"
+    assert r.json()["params"] == {"field": "input.type"}
+
+    ok = "input:\n  type: text\n  file_pattern: .*\\.md$$\n"
+    r = await client.put(
+        f"/api/projects/{pid}/settings",
+        headers=alice,
+        json={"content": ok, "expected_hash": got["content_hash"]},
+    )
+    assert r.status_code == 200, r.text

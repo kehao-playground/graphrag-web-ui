@@ -103,3 +103,20 @@ def test_missing_env_file_and_bad_yaml_are_config_errors(tmp_path):
     (root / "settings.yaml").write_text("completion_models: [\n")
     with pytest.raises(ConfigLoadError):
         load_config(root)
+
+
+def test_an_escaping_path_is_a_config_error_not_an_anchor(tmp_path):
+    """R2-03, the in-process door: the query path loads the same file; a
+    lancedb db_uri or prompt outside the workspace must fail the load
+    rather than be anchored and opened."""
+    root = _workspace(tmp_path / "ws", "k")
+    (root / "settings.yaml").write_text(
+        _SETTINGS.replace("db_uri: output/lancedb", "db_uri: ../other/output/lancedb")
+    )
+    with pytest.raises(ConfigLoadError, match="vector_store.db_uri"):
+        load_config(root)
+    (root / "settings.yaml").write_text(
+        _SETTINGS.replace("prompt: prompts/local_search_system_prompt.txt", "prompt: ../x/.env")
+    )
+    with pytest.raises(ConfigLoadError, match="local_search.prompt"):
+        load_config(root)

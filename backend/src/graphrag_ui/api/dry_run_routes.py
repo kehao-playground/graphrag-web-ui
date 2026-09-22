@@ -4,6 +4,7 @@
 failures (CLI missing) become 5xx. No audit rows.
 """
 
+import asyncio
 import uuid
 
 from fastapi import APIRouter, Depends, status
@@ -15,6 +16,7 @@ from graphrag_ui.api.errors import ApiError
 from graphrag_ui.api.projects_routes import _forbidden, _project_or_404
 from graphrag_ui.domain.permissions import Atom, can
 from graphrag_ui.services.projects import get_member_perms, ws_path
+from graphrag_ui.services.settings import SettingsValidationError, check_workspace_settings
 
 
 class DryRunOut(BaseModel):
@@ -38,6 +40,12 @@ def register_dry_run_routes(app):
             await get_member_perms(db, pid, user.id),
         ):
             raise _forbidden()
+        try:
+            # R2-03: an escaping settings.yaml is a validation failure like
+            # any other — reported as data, and the CLI is never forked on it.
+            await asyncio.to_thread(check_workspace_settings, project)
+        except SettingsValidationError as e:
+            return DryRunOut(ok=False, output=str(e))
         try:
             # module-level import above: tests monkeypatch dry_run_routes.dry_run
             result = await dry_run(ws_path(project.id))

@@ -201,3 +201,36 @@ async def test_preflight_active_and_last_run(client, app):
     assert pre2["last_run"]["total_runtime_seconds"] == 12.5
     assert pre2["last_run"]["num_documents"] == 7
     assert pre2["last_run"]["update_documents"] == 2
+
+
+async def test_enqueue_refuses_a_workspace_whose_settings_escape(client, app):
+    """R2-03: settings.yaml can predate the write-side validator or be moved
+    by a .env edit (`${DIR}`), so enqueue re-validates the file on disk and
+    never spawns the CLI against an escaping configuration."""
+    _, alice, _ = await _setup_users(client, app)
+    pid = await _project(client, alice)
+    path = ws_path(uuid.UUID(pid)) / "settings.yaml"
+    original = path.read_text()
+    path.write_text(original + "output_storage:\n  base_dir: ../\n")
+
+    r = await client.post(
+        f"/api/projects/{pid}/jobs", headers=alice, json={"type": "index", "method": "fast"}
+    )
+    assert r.status_code == 400, r.text
+    assert r.json()["code"] == "settings_path_escape"
+    assert r.json()["params"] == {"field": "output_storage.base_dir"}
+    assert (await client.get(f"/api/projects/{pid}/jobs", headers=alice)).json() == []
+
+    # the indirect spelling: a confined placeholder moved by the .env
+    path.write_text(original + "output_storage:\n  base_dir: ${OUT}\n")
+    (ws_path(uuid.UUID(pid)) / ".env").write_text("OUT=../\n")
+    r = await client.post(
+        f"/api/projects/{pid}/jobs", headers=alice, json={"type": "index", "method": "fast"}
+    )
+    assert r.status_code == 400 and r.json()["code"] == "settings_path_escape"
+
+    (ws_path(uuid.UUID(pid)) / ".env").write_text("OUT=output\n")
+    r = await client.post(
+        f"/api/projects/{pid}/jobs", headers=alice, json={"type": "index", "method": "fast"}
+    )
+    assert r.status_code == 201, r.text

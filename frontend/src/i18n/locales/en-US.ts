@@ -57,6 +57,8 @@ const enUS = {
     settings_too_large: "Settings content too large",
     settings_invalid_yaml: "Invalid YAML: {{reason}}",
     settings_invalid_placeholder: "Invalid $ placeholder in settings",
+    settings_path_escape: "Settings point graphrag outside the project workspace: {{field}}",
+    settings_input_locked: "The input format is fixed at project creation: {{field}}",
     version_not_found: "Version not found",
     env_invalid_body: "Invalid body",
     env_key_value_required: "key and value are required",

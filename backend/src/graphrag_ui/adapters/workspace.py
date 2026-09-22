@@ -7,13 +7,15 @@ from typing import Protocol
 import yaml
 
 from graphrag_ui.adapters.workspace_env import subprocess_env
+from graphrag_ui.domain.settings_confinement import INPUT_FILE_PATTERNS
 
 # Key names verified against graphrag source: the format key is input.type
 # (InputConfig.type; there is no file_type field), and the storage backend is
 # a separate top-level section input_storage.type. file_pattern is a regex
 # (TextFileReader default r".*\.txt$"), not a glob. text covers txt+md
-# (spec §2 allowlist).
-_FILE_PATTERNS = {"text": r".*\.(txt|md)$", "csv": r".*\.csv$", "json": r".*\.json$"}
+# (spec §2 allowlist). The regexes live in the domain module because the
+# settings validator pins input.file_pattern to them (D6).
+_FILE_PATTERNS = INPUT_FILE_PATTERNS
 _ALLOWED = set(_FILE_PATTERNS)
 
 # graphrag init's --model/--embedding declare prompt= in typer: with a non-TTY

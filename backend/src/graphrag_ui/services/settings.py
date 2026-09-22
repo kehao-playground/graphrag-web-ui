@@ -7,6 +7,7 @@ bytes so trailing-newline or encoding drift never fools the lock.
 
 import hashlib
 import uuid
+from pathlib import Path
 
 import yaml
 from sqlalchemy import select
@@ -14,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.adapters.models import Project, SettingsVersion
 from graphrag_ui.adapters.workspace_env import read_workspace_env, substitute_placeholders
+from graphrag_ui.domain.settings_confinement import confinement_violations, input_pin_violations
 from graphrag_ui.services.audit import audit
 from graphrag_ui.services.project_lock import assert_input_unfrozen, lock_project
 from graphrag_ui.services.projects import ws_path
@@ -65,7 +67,8 @@ async def write_settings(
     Raises SettingsConflictError when the disk hash differs from expected_hash
     (checked first — a stale editor must resync before any validation),
     SettingsValidationError when the content exceeds MAX_CONTENT_BYTES, is
-    not parseable YAML, or breaks graphrag's $ placeholder rules, and
+    not parseable YAML, breaks graphrag's $ placeholder rules, or would
+    take graphrag outside the workspace (validate_settings_content), and
     ProjectIndexingError when an index/update job holds the project — the
     re-check runs inside the project lock in _commit_settings, so a frozen
     write never touches the file on disk.
@@ -76,28 +79,70 @@ async def write_settings(
 
     if len(content.encode()) > MAX_CONTENT_BYTES:
         raise SettingsValidationError("settings_too_large", "settings content too large")
+    validate_settings_content(ws_path(project.id), content, project.input_file_type)
+
+    new_hash = _hash_bytes(content.encode())
+    await _commit_settings(session, project, content, new_hash, actor_id)
+    return new_hash
+
+
+def validate_settings_content(root: Path, content: str, input_file_type: str) -> None:
+    """Everything that makes a settings.yaml unloadable or unsafe for the
+    workspace at `root`, as SettingsValidationError: YAML syntax, the $
+    placeholder rules, and the workspace confinement of R2-03.
+
+    graphrag runs STRICT string.Template substitution on settings.yaml
+    BEFORE parsing it: a lone "$" or an undefined ${PLACEHOLDER} makes the
+    workspace unloadable. Placeholders resolve against the workspace .env
+    ALONE — the adapter substitutes from the same source (R2-01), so a
+    placeholder the API process could resolve (${JWT_SECRET}) is just as
+    invalid here. The confinement rules run on the SUBSTITUTED document,
+    since `${DIR}` can spell `../` just as well as the literal.
+    """
     try:
         yaml.safe_load(content)
     except yaml.YAMLError as e:
         raise SettingsValidationError(
             "settings_invalid_yaml", f"invalid yaml: {e}", {"reason": str(e)}
         ) from e
-
-    # graphrag runs STRICT string.Template substitution on settings.yaml
-    # BEFORE parsing it: a lone "$" or an undefined ${PLACEHOLDER} makes the
-    # workspace unloadable. Validate against the workspace .env ALONE — the
-    # adapter substitutes from the same source (R2-01), so a placeholder the
-    # API process could resolve (${JWT_SECRET}) is just as invalid here.
     try:
-        substitute_placeholders(content, read_workspace_env(ws_path(project.id)))
+        substituted = substitute_placeholders(content, read_workspace_env(root))
     except (ValueError, KeyError) as e:
         raise SettingsValidationError(
             "settings_invalid_placeholder", "invalid $ placeholder in settings"
         ) from e
+    try:
+        data = yaml.safe_load(substituted)
+    except yaml.YAMLError as e:
+        raise SettingsValidationError(
+            "settings_invalid_yaml", f"invalid yaml: {e}", {"reason": str(e)}
+        ) from e
+    escapes = confinement_violations(data)
+    if escapes:
+        field = ", ".join(escapes)
+        raise SettingsValidationError(
+            "settings_path_escape",
+            f"settings point graphrag outside the project workspace: {field}",
+            {"field": field},
+        )
+    pins = input_pin_violations(data, input_file_type)
+    if pins:
+        field = ", ".join(pins)
+        raise SettingsValidationError(
+            "settings_input_locked",
+            f"the input format is fixed at project creation: {field}",
+            {"field": field},
+        )
 
-    new_hash = _hash_bytes(content.encode())
-    await _commit_settings(session, project, content, new_hash, actor_id)
-    return new_hash
+
+def check_workspace_settings(project: Project) -> None:
+    """Re-validate the settings.yaml ON DISK against the current .env before
+    anything hands it to graphrag (enqueue, dry-run). The write-side check
+    is not enough on its own: the file may predate the validator, and a
+    `${DIR}` path that was confined when written moves with the .env.
+    Sync file reads — callers run it in a thread."""
+    content, _ = read_settings(project)
+    validate_settings_content(ws_path(project.id), content, project.input_file_type)
 
 
 async def _commit_settings(

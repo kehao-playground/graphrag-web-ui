@@ -60,6 +60,8 @@ export default {
     settings_too_large: "設定內容過大",
     settings_invalid_yaml: "YAML 無法解析:{{reason}}",
     settings_invalid_placeholder: "設定內含無效的 $ 佔位符",
+    settings_path_escape: "設定將 graphrag 指向專案工作區之外：{{field}}",
+    settings_input_locked: "輸入格式在建立專案時即已固定：{{field}}",
     version_not_found: "版本不存在",
     // env
     env_invalid_body: "無效的請求內容",
