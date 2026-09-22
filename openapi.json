@@ -1461,6 +1461,39 @@
         "title": "RatingsOut",
         "type": "object"
       },
+      "ReadyOut": {
+        "description": "Readiness report (spec \u00a78.2 / \u00a710). Served with 200 when every check\npasses and 503 otherwise \u2014 the Helm readinessProbe is status-code based,\nso a failing check has to change the code, not only the body.",
+        "properties": {
+          "db": {
+            "enum": [
+              "ok",
+              "error"
+            ],
+            "title": "Db",
+            "type": "string"
+          },
+          "disk_free_mb": {
+            "title": "Disk Free Mb",
+            "type": "integer"
+          },
+          "disk_ok": {
+            "title": "Disk Ok",
+            "type": "boolean"
+          },
+          "graphrag": {
+            "title": "Graphrag",
+            "type": "string"
+          }
+        },
+        "required": [
+          "db",
+          "graphrag",
+          "disk_free_mb",
+          "disk_ok"
+        ],
+        "title": "ReadyOut",
+        "type": "object"
+      },
       "RefreshIn": {
         "properties": {
           "refresh_token": {
@@ -5502,10 +5535,22 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ReadyOut"
+                }
               }
             },
             "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadyOut"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           }
         },
         "summary": "Ready"

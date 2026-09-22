@@ -28,7 +28,6 @@ KNOWN_UNTYPED = {
     "GET /api/projects/{pid}/artifacts/{table}",
     "GET /api/projects/{pid}/artifacts/{table}/{hrid}",
     "GET /api/projects/{pid}/query/stream",
-    "GET /api/ready",
     "PATCH /api/projects/{pid}/env",
     "POST /api/admin/users/{user_id}/reset-password",
     "POST /api/auth/change-password",

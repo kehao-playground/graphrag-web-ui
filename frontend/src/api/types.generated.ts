@@ -1426,6 +1426,25 @@ export interface components {
             /** Unrated */
             unrated: number;
         };
+        /**
+         * ReadyOut
+         * @description Readiness report (spec §8.2 / §10). Served with 200 when every check
+         *     passes and 503 otherwise — the Helm readinessProbe is status-code based,
+         *     so a failing check has to change the code, not only the body.
+         */
+        ReadyOut: {
+            /**
+             * Db
+             * @enum {string}
+             */
+            db: "ok" | "error";
+            /** Disk Free Mb */
+            disk_free_mb: number;
+            /** Disk Ok */
+            disk_ok: boolean;
+            /** Graphrag */
+            graphrag: string;
+        };
         /** RefreshIn */
         RefreshIn: {
             /** Refresh Token */
@@ -3738,7 +3757,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ReadyOut"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadyOut"];
                 };
             };
         };
