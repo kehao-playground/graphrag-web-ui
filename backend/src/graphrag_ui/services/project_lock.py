@@ -42,6 +42,16 @@ async def freezing_job(session: AsyncSession, project_id: uuid.UUID) -> Job | No
     ).scalar_one_or_none()
 
 
+async def active_job(session: AsyncSession, project_id: uuid.UUID) -> Job | None:
+    """Any queued/running job, test_run included - the predicate for work
+    that must not overlap a job of any type (project deletion)."""
+    return (
+        await session.execute(
+            select(Job).where(Job.project_id == project_id, Job.status.in_(_ACTIVE)).limit(1)
+        )
+    ).scalar_one_or_none()
+
+
 async def assert_input_unfrozen(session: AsyncSession, project_id: uuid.UUID) -> None:
     """Raise ProjectIndexingError when an index/update job holds the project.
     Call this AFTER lock_project within the committing transaction."""

@@ -16,6 +16,7 @@ from graphrag_ui.adapters.workspace import (
 from graphrag_ui.api.deps import CurrentUser, DbSession, Principal, get_current_user
 from graphrag_ui.api.errors import ApiError
 from graphrag_ui.domain.permissions import Atom, can, effective_project_perms
+from graphrag_ui.services.errors import JobConflictError
 from graphrag_ui.services.projects import (
     MemberOwnerProtectedError,
     create_project,
@@ -161,7 +162,14 @@ def register_projects_routes(app):
     async def delete_one(project_id: uuid.UUID, db: DbSession, user: CurrentUser):
         project = await _project_or_404(db, project_id)
         await _require(db, project, user, Atom.project_manage)
-        await delete_project(db, project, actor_id=user.id)
+        try:
+            await delete_project(db, project, actor_id=user.id)
+        except JobConflictError:
+            raise ApiError(
+                status.HTTP_409_CONFLICT,
+                "job_conflict",
+                "this project has a job in progress",
+            ) from None
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @router.get("/{project_id}/members", response_model=list[MemberOut])

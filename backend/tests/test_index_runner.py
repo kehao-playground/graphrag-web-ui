@@ -149,3 +149,53 @@ async def test_subprocess_env_is_allowlisted_and_carries_workspace_env(tmp_path,
     assert not any(
         line.startswith(("JWT_SECRET=", "DATABASE_URL=", "HTTPS_PROXY=")) for line in lines
     )
+
+
+class _ExitedUnderneath:
+    """A child that exits between _cancel_poll's returncode check and its
+    terminate(): asyncio has dropped the transport's process by then, so
+    terminate()/kill() raise ProcessLookupError (R2-11)."""
+
+    def __init__(self) -> None:
+        self.returncode: int | None = None
+        self.stdout = asyncio.StreamReader()
+        self._exited = asyncio.Event()
+
+    def _exit(self) -> None:
+        self.returncode = 0
+        self.stdout.feed_eof()
+        self._exited.set()
+
+    def terminate(self) -> None:
+        self._exit()
+        raise ProcessLookupError
+
+    def kill(self) -> None:
+        raise ProcessLookupError
+
+    async def wait(self) -> int:
+        await self._exited.wait()
+        return 0
+
+
+async def test_cancel_racing_a_child_exit_does_not_fail_the_job(tmp_path, monkeypatch):
+    from graphrag_ui.adapters import index_runner
+
+    proc = _ExitedUnderneath()
+
+    async def _spawn(*a, **kw):
+        return proc
+
+    monkeypatch.setattr(index_runner.asyncio, "create_subprocess_exec", _spawn)
+    monkeypatch.setattr(index_runner, "_IO_POLL_S", 0.01)
+    monkeypatch.setattr(index_runner, "_CANCEL_GRACE_S", 0.01)
+    res = await IndexRunner().run(
+        argv=[],
+        root=tmp_path,
+        log_path=log_path_for(tmp_path, uuid.uuid4()),
+        job_type="index",
+        heartbeat=_hb,
+        cancel_requested=lambda: True,
+    )
+    # the child exited 0 on its own: the cancel lost the race
+    assert res.status == "succeeded" and res.exit_code == 0

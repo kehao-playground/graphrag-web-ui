@@ -74,6 +74,12 @@ async def _execute(job_id: uuid.UUID) -> None:
         if job is None or job.status != "running":
             return  # already finished or reconciled elsewhere
         argv, job_type, project_id = job.argv, job.type, job.project_id
+        if job.cancel_requested_at is not None:
+            # Cancelled between claim and here: finish before the snapshot,
+            # the epoch bump and the spawn — none of them may run for a job
+            # that never started (R2-09).
+            await jobs_repo.finish(s, job_id, "cancelled")
+            return
     root = ws_path(project_id)
     hb_stop = asyncio.Event()
     state: dict[str, bool] = {"cancelled": False}

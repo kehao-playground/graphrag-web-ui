@@ -18,7 +18,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.adapters import jobs_repo, models
-from graphrag_ui.adapters.db import make_engine, make_session_factory, reset_engine
+from graphrag_ui.adapters.db import (
+    get_session_factory,
+    make_engine,
+    make_session_factory,
+    reset_engine,
+)
 from graphrag_ui.adapters.models import Job, Project, Question, QuestionSet, User
 from graphrag_ui.adapters.workspace import FakeInitializer
 from graphrag_ui.api.projects_routes import get_initializer
@@ -569,3 +574,42 @@ async def test_run_enqueue_blocked_by_a_patch_holding_the_lock(
         .all()
     )
     assert texts == ["reworded"]
+
+
+async def _run_times(db_session, run_id):
+    return (
+        await db_session.execute(
+            select(models.TestRun.started_at, models.TestRun.finished_at).where(
+                models.TestRun.id == run_id
+            )
+        )
+    ).one()
+
+
+async def test_a_failing_preamble_still_closes_the_run(db_session, run_ready, monkeypatch):
+    """R2-12: started_at is committed before the preamble; when the preamble
+    raises, the job fails and the run must not read as in progress forever."""
+    from graphrag_ui.services import runner_loop
+
+    async def _unindexed(*a, **kw):
+        raise query_service.WorkspaceNotIndexedError("output/ is gone")
+
+    monkeypatch.setattr(test_runs_service, "_prepare_query", _unindexed)
+    async with get_session_factory()() as s:
+        assert (await jobs_repo.claim_next(s, "w-test")).id == run_ready.job_id
+    await runner_loop._execute(run_ready.job_id)
+
+    job = await db_session.get(Job, run_ready.job_id)
+    await db_session.refresh(job)
+    assert job.status == "failed"
+    started_at, finished_at = await _run_times(db_session, run_ready.run_id)
+    assert started_at is not None and finished_at is not None
+
+
+async def test_cancelling_a_queued_run_closes_it(db_session, run_ready):
+    """R2-09 x R2-12: the queued cancel never reaches the worker, so the run
+    is closed with the job — the workbench polls while finished_at is null."""
+    async with get_session_factory()() as s:
+        assert await jobs_repo.request_cancel(s, run_ready.job_id)
+    started_at, finished_at = await _run_times(db_session, run_ready.run_id)
+    assert started_at is None and finished_at is not None

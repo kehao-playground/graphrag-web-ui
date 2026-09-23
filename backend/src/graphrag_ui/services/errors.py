@@ -22,3 +22,9 @@ class ProjectIndexingError(RuntimeError):
         super().__init__(f"project is being indexed by job {job_id}")
         self.code = "project_indexing"
         self.params = {"job_type": job_type}
+
+
+class JobConflictError(RuntimeError):
+    """Another queued/running job for this project (DB mutex), or a project
+    operation that cannot run while one is active. Routes map to 409
+    job_conflict."""

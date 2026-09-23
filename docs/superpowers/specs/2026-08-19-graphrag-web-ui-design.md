@@ -103,6 +103,9 @@ CREATE UNIQUE INDEX jobs_one_active_per_project
 **Job 狀態機:** `queued → running → succeeded | failed | failed(interrupted) | cancelled`
 
 - `cancel_requested_at` 已設但仍 running → UI 顯示 `cancelling`
+- `queued` 時取消 → 直接轉 `cancelled`,不經 runner:不 spawn、不拍起始快照、不動 artifact epoch(R2-09)
+- 終態寫入以「仍為 queued/running」為條件:reconcile 已標為 `failed(interrupted)` 的 job,worker 遲到的結果丟棄且不 promote baseline(R1-77);baseline promote 失敗不回滾終態,失敗原因記入 `error`(R1-90);test_run job 進終態時一併補上 run 的 `finished_at`(R2-12)
+- 刪除專案:持專案鎖,任一 job(含 test_run)為 queued/running 時回 409 `job_conflict`;先 commit 資料列,再移除工作區目錄,目錄移除失敗只記 log(R1-01)
 - exit_code 137 → error 標註「疑似記憶體不足(OOM)」
 
 **權限矩陣:**
@@ -140,7 +143,7 @@ CREATE UNIQUE INDEX jobs_one_active_per_project
   - 這樣避免「前端拿遮罩值整份 PUT 回來,把真 key 覆寫成 `sk-****`」
 - `/api/projects/{id}/jobs`:POST 啟動(index/update + method)、歷史列表
 - `POST /api/projects/{id}/dry-run`:同步執行 `graphrag index --dry-run`,不進隊列,直接回傳驗證結果
-- `GET /api/jobs/{id}/logs`:SSE 即時日誌(支援 `Last-Event-ID` 以位元組 offset 續傳);`POST /api/jobs/{id}/cancel`:寫入 `cancel_requested_at`,立即回 202
+- `GET /api/jobs/{id}/logs`:SSE 即時日誌(支援 `Last-Event-ID` 以位元組 offset 續傳);`POST /api/jobs/{id}/cancel`:running 寫入 `cancel_requested_at`、queued 直接轉 `cancelled`,立即回 202
 - `/api/projects/{id}/query`:method(local/global/drift/basic)+ query + 參數
   - `POST .../query` 一次性回覆(短查詢)
   - `GET .../query/stream` SSE 串流(預設路徑;global search 常見 30–90s,見 §6.4)
