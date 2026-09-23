@@ -94,10 +94,16 @@ class IndexRunner:
                 await asyncio.sleep(_IO_POLL_S)
                 if cancel_requested():
                     cancelled = True
-                    proc.terminate()
+                    # The child may exit between the loop check and here;
+                    # asyncio then raises ProcessLookupError on the signal
+                    # (R2-11), which must not turn the job into `failed`.
+                    if proc.returncode is None:
+                        with contextlib.suppress(ProcessLookupError):
+                            proc.terminate()
                     await asyncio.sleep(_CANCEL_GRACE_S)
                     if proc.returncode is None:
-                        proc.kill()
+                        with contextlib.suppress(ProcessLookupError):
+                            proc.kill()
                     return
 
         pump = asyncio.create_task(_pump())

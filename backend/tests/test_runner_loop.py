@@ -285,3 +285,56 @@ async def test_execute_still_dispatches_index_to_indexrunner(db_session, monkeyp
     job = await _running_job(db_session, type_="index")
     await runner_loop._execute(job.id)
     assert called["index"] == 1
+
+
+async def _backdate_heartbeat(job_id: uuid.UUID) -> None:
+    async with get_session_factory()() as s:
+        await s.execute(
+            update(Job)
+            .where(Job.id == job_id)
+            .values(heartbeat_at=datetime.now(UTC) - timedelta(seconds=120))
+        )
+        await s.commit()
+
+
+async def test_a_worker_returning_after_reconcile_does_not_resurrect_its_job(app, monkeypatch):
+    """R1-77: reconcile marks the job failed(interrupted) while the worker is
+    still alive; its later success is discarded and nothing is promoted."""
+    job_id = await _seed_job()
+    await _claim(job_id)
+    promoted: list[uuid.UUID] = []
+
+    async def _record_promote(sess, jid, status):
+        promoted.append(jid)
+
+    monkeypatch.setattr(runner_loop.index_snapshots, "promote_after_finish", _record_promote)
+
+    class ReconciledUnderneath:
+        async def run(self, **kw):
+            await _backdate_heartbeat(job_id)
+            assert await runner_loop.reconcile_stale() == 1
+            return _ok()
+
+    monkeypatch.setattr(runner_loop, "IndexRunner", ReconciledUnderneath)
+    await runner_loop._execute(job_id)
+    job = await _get(job_id)
+    assert job.status == "failed(interrupted)"
+    assert promoted == []
+
+
+async def test_a_cancel_flagged_before_spawn_never_runs_or_bumps_the_epoch(app, monkeypatch):
+    """R2-09: the flag landed between claim and _execute; the job ends
+    cancelled before the snapshot, the epoch bump and the spawn."""
+    fake = FakeRunner(_ok())
+    monkeypatch.setattr(runner_loop, "IndexRunner", lambda: fake)
+    job_id = await _seed_job()
+    await _claim(job_id)
+    async with get_session_factory()() as s:
+        await jobs_repo.request_cancel(s, job_id)
+        project_id = (await jobs_repo.get_job(s, job_id)).project_id
+        epoch_before = (await s.get(Project, project_id)).artifact_epoch
+    await runner_loop._execute(job_id)
+    assert fake.calls == []
+    assert (await _get(job_id)).status == "cancelled"
+    async with get_session_factory()() as s:
+        assert (await s.get(Project, project_id)).artifact_epoch == epoch_before

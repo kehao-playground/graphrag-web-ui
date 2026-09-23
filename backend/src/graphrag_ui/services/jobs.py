@@ -6,7 +6,6 @@ import shutil
 import uuid
 from pathlib import Path
 
-from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,13 +13,10 @@ from graphrag_ui.adapters import jobs_repo
 from graphrag_ui.adapters.models import Job, Project, User
 from graphrag_ui.config import get_settings
 from graphrag_ui.domain.jobs import build_argv
-from graphrag_ui.services.project_lock import lock_project
+from graphrag_ui.services.errors import JobConflictError
+from graphrag_ui.services.project_lock import active_job, lock_project
 from graphrag_ui.services.projects import ws_path
 from graphrag_ui.services.settings import check_workspace_settings
-
-
-class JobConflictError(RuntimeError):
-    """Another queued/running job for this project (DB mutex)."""
 
 
 class DiskWatermarkError(RuntimeError):
@@ -74,16 +70,6 @@ async def list_for_project(
     session: AsyncSession, project_id: uuid.UUID, *, job_type: str | None = None
 ) -> list[Job]:
     return await jobs_repo.list_jobs(session, project_id, job_type=job_type)
-
-
-async def active_job(session: AsyncSession, project_id) -> Job | None:
-    return (
-        await session.execute(
-            select(Job)
-            .where(Job.project_id == project_id, Job.status.in_(("queued", "running")))
-            .limit(1)
-        )
-    ).scalar_one_or_none()
 
 
 def _tree_bytes(path: Path) -> int:

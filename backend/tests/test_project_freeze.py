@@ -346,3 +346,34 @@ async def test_bulk_delete_is_refused_while_indexing(client, db_session, indexed
         f"/api/projects/{pid}/files:bulk-delete", headers=alice, json={"names": ["a.md"]}
     )
     assert r.status_code == 409 and r.json()["code"] == "project_indexing"
+
+
+@pytest.mark.parametrize("job_type", ["index", "update", "test_run"])
+async def test_project_delete_is_refused_while_any_job_is_active(client, db_session, job_type):
+    """R1-01: removing the workspace under a running graphrag (or a batch
+    reading output/) strands the job; deletion waits for it to finish."""
+    alice = await _alice(client)
+    pid = await _make_project(client, alice)
+    project = await db_session.get(Project, uuid.UUID(pid))
+    await _queue_index_job(db_session, project.id, project.owner_id, type_=job_type)
+
+    r = await client.delete(f"/api/projects/{pid}", headers=alice)
+    assert r.status_code == 409 and r.json()["code"] == "job_conflict"
+    assert ws_path(project.id).exists()
+    assert (await client.get(f"/api/projects/{pid}", headers=alice)).status_code == 200
+
+
+async def test_project_delete_commits_before_removing_the_workspace(client, monkeypatch):
+    """R1-01: the row goes first; a failing directory removal is logged, not
+    a 500 after a half-done delete."""
+    from graphrag_ui.services import projects as projects_service
+
+    alice = await _alice(client)
+    pid = await _make_project(client, alice)
+
+    def _rmtree_fails(path, *a, **kw):
+        raise OSError("directory not empty")
+
+    monkeypatch.setattr(projects_service.shutil, "rmtree", _rmtree_fails)
+    assert (await client.delete(f"/api/projects/{pid}", headers=alice)).status_code == 204
+    assert (await client.get(f"/api/projects/{pid}", headers=alice)).status_code == 404

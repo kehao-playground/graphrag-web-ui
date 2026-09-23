@@ -110,3 +110,61 @@ async def test_list_jobs_newest_first(db_session):
     jobs = await list_jobs(db_session, p.id)
     assert len(jobs) == 3
     assert jobs[0].queued_at >= jobs[-1].queued_at  # newest first
+
+
+async def test_finish_never_overwrites_a_terminal_status(db_session):
+    """R1-77: a slow worker returning after reconcile_stale must not flip
+    failed(interrupted) back to succeeded, nor run its promotion."""
+    p, u = await _mk_project(db_session)
+    j = await _insert(db_session, p, u)
+    await claim_next(db_session, "w1")
+    await finish(db_session, j.id, "failed(interrupted)", error="worker heartbeat timeout")
+    promoted: list[bool] = []
+
+    async def _promote(_sess):
+        promoted.append(True)
+
+    assert (
+        await finish(db_session, j.id, "succeeded", exit_code=0, on_before_commit=_promote) is False
+    )
+    got = await get_job(db_session, j.id)
+    assert got.status == "failed(interrupted)" and got.exit_code is None
+    assert promoted == []
+
+
+async def test_finish_keeps_the_outcome_when_promotion_fails(db_session):
+    """R1-90: a promotion bug must not roll back the terminal write and
+    leave the row for reconcile_stale to mark failed(interrupted)."""
+    p, u = await _mk_project(db_session)
+    j = await _insert(db_session, p, u)
+    await claim_next(db_session, "w1")
+
+    async def _broken_promote(_sess):
+        raise RuntimeError("promotion exploded")
+
+    assert await finish(
+        db_session, j.id, "succeeded", exit_code=0, on_before_commit=_broken_promote
+    )
+    got = await get_job(db_session, j.id)
+    assert got.status == "succeeded" and got.exit_code == 0 and got.finished_at is not None
+    assert "baseline promotion failed" in got.error and "promotion exploded" in got.error
+
+
+async def test_cancelling_a_queued_job_finishes_it_without_a_claim(db_session):
+    """R2-09: a queued job never reaches the runner once cancelled."""
+    p, u = await _mk_project(db_session)
+    j = await _insert(db_session, p, u)
+    assert await request_cancel(db_session, j.id) is True
+    got = await get_job(db_session, j.id)
+    assert got.status == "cancelled"
+    assert got.cancel_requested_at is not None and got.finished_at is not None
+    assert await claim_next(db_session, "w1") is None
+
+
+async def test_cancelling_a_running_job_only_flags_it(db_session):
+    p, u = await _mk_project(db_session)
+    j = await _insert(db_session, p, u)
+    await claim_next(db_session, "w1")
+    assert await request_cancel(db_session, j.id) is True
+    got = await get_job(db_session, j.id)
+    assert got.status == "running" and got.cancel_requested_at is not None

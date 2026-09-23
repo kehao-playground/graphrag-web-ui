@@ -145,13 +145,9 @@ async def test_cancel_flow(client, app):
     assert r.status_code == 202 and r.json()["detail"] == "cancellation requested"
     got = (await client.get(f"/api/jobs/{j['id']}", headers=alice)).json()
     assert got["cancel_requested_at"] is not None
+    # R2-09: a queued job is finished on the spot, never claimed
+    assert got["status"] == "cancelled" and got["display_status"] == "cancelled"
     # cancelling a terminal job
-    from graphrag_ui.adapters.db import get_session_factory
-    from graphrag_ui.adapters.jobs_repo import claim_next, finish
-
-    async with get_session_factory()() as s:
-        await claim_next(s, "w-test")
-        await finish(s, uuid.UUID(j["id"]), "cancelled", exit_code=-15)
     r2 = await client.post(f"/api/jobs/{j['id']}/cancel", headers=alice)
     assert r2.status_code == 409
 

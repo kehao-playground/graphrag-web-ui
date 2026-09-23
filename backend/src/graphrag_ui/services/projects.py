@@ -1,3 +1,5 @@
+import asyncio
+import logging
 import re
 import secrets
 import shutil
@@ -14,7 +16,11 @@ from graphrag_ui.domain.permissions import Atom, can, sees_all_projects
 from graphrag_ui.domain.role_catalog import ROLE_ID_OWNER
 from graphrag_ui.domain.workspaces import workspace_path
 from graphrag_ui.services.audit import audit
+from graphrag_ui.services.errors import JobConflictError
+from graphrag_ui.services.project_lock import active_job, lock_project
 from graphrag_ui.services.roles import RoleNotFound, RoleScopeMismatchError
+
+logger = logging.getLogger(__name__)
 
 
 def _slugify(name: str) -> str:
@@ -151,20 +157,38 @@ async def update_project(
 async def delete_project(
     session: AsyncSession, project: Project, actor_id: uuid.UUID | None
 ) -> None:
-    ws = ws_path(project.id)
-    if ws.exists():
-        shutil.rmtree(ws)
+    """Row first, directory second (R1-01). Under the project lock with no
+    active job of any type - removing the workspace under a running graphrag
+    or a batch reading output/ would strand it - so JobConflictError while
+    one is queued or running. The directory goes only after the commit: a
+    failed removal is logged and leaves an orphan dir, never a live row
+    without a workspace."""
+    project_id, name = project.id, project.name  # snapshot: the row is deleted below
+    await lock_project(session, project_id)
+    if await active_job(session, project_id) is not None:
+        await session.rollback()
+        raise JobConflictError(str(project_id))
     await audit(
         session,
         actor_id,
         "project.deleted",
         "project",
-        str(project.id),
-        payload={"name": project.name},
+        str(project_id),
+        payload={"name": name},
     )
     # Member rows are cleared by FK ondelete=CASCADE; the service never deletes them
     await session.delete(project)
     await session.commit()
+    ws = ws_path(project_id)
+    try:
+        # Off the event loop: a multi-GB tree would stall heartbeats.
+        await asyncio.to_thread(shutil.rmtree, ws)
+    except FileNotFoundError:
+        pass
+    except OSError:
+        logger.warning(
+            "project %s deleted; workspace %s not removed", project_id, ws, exc_info=True
+        )
 
 
 class MemberOwnerProtectedError(ValueError):
