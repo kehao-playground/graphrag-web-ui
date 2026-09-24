@@ -32,6 +32,8 @@ export async function api(path: string, init: RequestInit = {}, retried = false)
       throw err;
     }
   }
+  // refreshOnce rejects when the refresh endpoint is unavailable (5xx,
+  // network); that propagates like a failed fetch and keeps the session.
   const token = useAuth.getState().accessToken ?? (await refreshOnce());
   const r = await fetch(path, {
     ...init,

@@ -120,3 +120,118 @@ test("proxy logout(): navigates to /oauth2/sign_out with no rd and no server cal
   expect(fetchMock).not.toHaveBeenCalled();
   expect(localStorage.getItem("grui_refresh")).toBeNull();
 });
+
+// ---- refresh failure handling and cross-tab coordination (fix wave F6) ----
+
+function refreshMock(handler: (token: string, call: number) => Response | Promise<Response>) {
+  const tokens: string[] = [];
+  const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes("/api/auth/refresh")) {
+      const token = JSON.parse(String(init?.body)).refresh_token as string;
+      tokens.push(token);
+      return handler(token, tokens.length);
+    }
+    return new Response(meBody, { status: 200 });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return tokens;
+}
+
+const ok = (refresh: string) =>
+  new Response(JSON.stringify({ access_token: "a-" + refresh, refresh_token: refresh }), { status: 200 });
+
+test("refresh(): a 502 keeps the token and the user and rejects (R2-10)", async () => {
+  localStorage.setItem("grui_refresh", "t0");
+  useAuth.setState({ user: { email: "a@b.c" } as never, accessToken: "old" });
+  refreshMock(() => new Response("bad gateway", { status: 502 }));
+
+  await expect(useAuth.getState().refresh()).rejects.toThrow();
+
+  expect(localStorage.getItem("grui_refresh")).toBe("t0");
+  expect(useAuth.getState().user?.email).toBe("a@b.c");
+});
+
+test("refresh(): a 401 ends the session", async () => {
+  localStorage.setItem("grui_refresh", "t0");
+  useAuth.setState({ user: { email: "a@b.c" } as never, accessToken: "old" });
+  refreshMock(() => new Response("{}", { status: 401 }));
+
+  expect(await useAuth.getState().refresh()).toBeNull();
+
+  expect(localStorage.getItem("grui_refresh")).toBeNull();
+  expect(useAuth.getState().user).toBeNull();
+});
+
+test("refresh(): a 401 after another tab rotated retries with the stored token (R2-05)", async () => {
+  localStorage.setItem("grui_refresh", "t0");
+  const tokens = refreshMock((token) => {
+    if (token === "t0") {
+      localStorage.setItem("grui_refresh", "t1"); // the other tab won
+      return new Response("{}", { status: 401 });
+    }
+    return ok("t2");
+  });
+
+  expect(await useAuth.getState().refresh()).toBe("a-t2");
+
+  expect(tokens).toEqual(["t0", "t1"]);
+  expect(localStorage.getItem("grui_refresh")).toBe("t2");
+});
+
+test("refresh(): reads the token inside a cross-tab lock (R2-05)", async () => {
+  localStorage.setItem("grui_refresh", "t0");
+  const names: string[] = [];
+  vi.stubGlobal("navigator", {
+    ...navigator,
+    locks: {
+      request: async (name: string, fn: () => Promise<unknown>) => {
+        names.push(name);
+        // While this tab waited, the lock holder rotated and stored t1
+        localStorage.setItem("grui_refresh", "t1");
+        return fn();
+      },
+    },
+  });
+  const tokens = refreshMock(() => ok("t2"));
+  try {
+    expect(await useAuth.getState().refresh()).toBe("a-t2");
+  } finally {
+    vi.unstubAllGlobals();
+  }
+
+  expect(names).toEqual(["grui-refresh"]);
+  expect(tokens).toEqual(["t1"]);
+});
+
+test("restore(): retries a transient refresh failure instead of logging out (R2-10)", async () => {
+  vi.useFakeTimers();
+  try {
+    localStorage.setItem("grui_refresh", "t0");
+    refreshMock((_, call) => (call === 1 ? new Response("", { status: 503 }) : ok("t1")));
+
+    const done = useAuth.getState().restore();
+    await vi.runAllTimersAsync();
+    await done;
+  } finally {
+    vi.useRealTimers();
+  }
+
+  expect(useAuth.getState().user?.email).toBe("a@b.c");
+  expect(localStorage.getItem("grui_refresh")).toBe("t1");
+  expect(useAuth.getState().bootstrapping).toBe(false);
+});
+
+test("proxy logout(): later sign-in redirects cannot supersede sign-out (R1-83)", async () => {
+  const assign = stubLocation();
+  vi.stubGlobal("fetch", vi.fn());
+  vi.resetModules();
+  const { useAuth, redirectToProxyLogin } = await import("../auth");
+  useAuth.setState({ authMode: "proxy", user: { email: "a@b.c" } as never, accessToken: null });
+
+  await useAuth.getState().logout();
+  redirectToProxyLogin("/"); // what Login's proxy effect does after navigate("/login")
+
+  expect(assign).toHaveBeenCalledTimes(1);
+  expect(assign).toHaveBeenCalledWith("/oauth2/sign_out");
+});

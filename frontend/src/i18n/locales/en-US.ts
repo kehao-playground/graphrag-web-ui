@@ -123,6 +123,7 @@ const enUS = {
     wrongCurrent: "Incorrect current password",
     newPasswordInvalid: "New password is invalid (at least 8 characters)",
     emailRequired: "Please enter your email",
+    networkError: "Could not reach the server — check your connection and try again",
   },
   projects: {
     loadFailed: "Failed to load projects ({{status}})",

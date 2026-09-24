@@ -43,3 +43,49 @@ test("local mode: renders the password form", () => {
   render(<MemoryRouter><Login /></MemoryRouter>)
   expect(screen.getByRole("button", { name: /登入/ })).toBeInTheDocument()
 })
+
+async function reachChangePassword(changePassword: () => Promise<Response>) {
+  useAuth.setState({ authMode: "local", user: null, accessToken: null })
+  const calls: string[] = []
+  vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input)
+    calls.push(url)
+    if (url.includes("/api/auth/login")) {
+      return new Response(JSON.stringify({
+        access_token: "a0", refresh_token: "t0",
+        user: { email: "a@b.c", must_change_password: true },
+      }), { status: 200 })
+    }
+    if (url.includes("/api/auth/refresh")) {
+      return new Response(JSON.stringify({ access_token: "a1", refresh_token: "t1" }), { status: 200 })
+    }
+    if (url.includes("/api/auth/change-password")) {
+      calls.push(new Headers(init?.headers).get("Authorization") ?? "")
+      return changePassword()
+    }
+    throw new Error("unexpected " + url)
+  }))
+  render(<MemoryRouter><Login /></MemoryRouter>)
+  await userEvent.type(screen.getByLabelText("電子郵件"), "a@b.c")
+  await userEvent.type(screen.getByLabelText("密碼"), "admin-pass-123")
+  await userEvent.click(screen.getByRole("button", { name: /登入/ }))
+  await userEvent.type(await screen.findByLabelText("目前密碼"), "admin-pass-123")
+  await userEvent.type(screen.getByLabelText("新密碼"), "new-pass-456")
+  await userEvent.click(screen.getByRole("button", { name: /送\s*出/ }))
+  return calls
+}
+
+test("change-password: a network failure clears the loading state and says so (R1-116, R2-31)", async () => {
+  await reachChangePassword(async () => { throw new TypeError("network down") })
+  await waitFor(() => expect(screen.getByText(/網路/)).toBeInTheDocument())
+  expect(screen.getByRole("button", { name: /送\s*出/ })).not.toHaveClass("ant-btn-loading")
+})
+
+test("change-password goes through api(): a 401 refreshes and retries (R1-55)", async () => {
+  let n = 0
+  const calls = await reachChangePassword(async () =>
+    ++n === 1 ? new Response("{}", { status: 401 }) : new Response(null, { status: 204 }))
+  await waitFor(() => expect(n).toBe(2))
+  expect(calls).toContain("/api/auth/refresh")
+  expect(calls).toContain("Bearer a1")
+})
