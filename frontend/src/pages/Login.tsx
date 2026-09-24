@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Alert, Button, Form, Input, Modal } from "antd";
+import { Alert, Button, Form, Input, Modal, message } from "antd";
 import { useNavigate } from "react-router-dom";
+import { api } from "../api/client";
 import { redirectToProxyLogin, useAuth } from "../stores/auth";
 
 export default function Login() {
@@ -25,7 +26,13 @@ export default function Login() {
 
   const onFinish = async (values: { email: string; password: string }) => {
     setError(false);
-    const ok = await login(values.email, values.password);
+    let ok: boolean;
+    try {
+      ok = await login(values.email, values.password);
+    } catch {
+      message.error(t("login.networkError"));
+      return;
+    }
     if (!ok) { setError(true); return; }
     const user = useAuth.getState().user;
     if (user?.must_change_password) setMustChange(true);
@@ -34,13 +41,16 @@ export default function Login() {
 
   const onChangePassword = async (values: { current_password: string; new_password: string }) => {
     setChanging(true);
-    const token = useAuth.getState().accessToken;
-    const r = await fetch("/api/auth/change-password", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify(values),
-    });
-    setChanging(false);
+    let r: Response;
+    try {
+      r = await api("/api/auth/change-password", { method: "POST", body: JSON.stringify(values) });
+    } catch {
+      // Without this the button spun forever on a dropped connection
+      message.error(t("login.networkError"));
+      return;
+    } finally {
+      setChanging(false);
+    }
     if (!r.ok) {
       // 400 = wrong current password; 422 = new password failed backend
       // validation (min_length=8) — the two are surfaced separately

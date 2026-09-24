@@ -130,6 +130,7 @@ export default {
     wrongCurrent: "原密碼錯誤",
     newPasswordInvalid: "新密碼不符合規定(至少 8 個字元)",
     emailRequired: "請輸入電子郵件",
+    networkError: "無法連線到伺服器，請檢查網路後再試一次",
   },
   projects: {
     loadFailed: "載入專案失敗({{status}})",

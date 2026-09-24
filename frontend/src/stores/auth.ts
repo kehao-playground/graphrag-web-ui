@@ -8,7 +8,7 @@ interface AuthState {
   bootstrapping: boolean;          // true while restoring the session after a page reload
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => Promise<void>;
-  refresh: () => Promise<string | null>;
+  refresh: () => Promise<string | null>; // null = no session; rejects = try later (RefreshUnavailableError)
   restore: () => Promise<void>;
 }
 const REFRESH_KEY = "grui_refresh";
@@ -35,6 +35,10 @@ export const useAuth = create<AuthState>((set) => ({
       // back in the app would silently re-authenticate against the live IdP
       // session (spec decision 6).
       localStorage.removeItem(REFRESH_KEY);
+      // The page is leaving for sign-out: no later sign-in redirect (Login's
+      // proxy effect after the caller navigates to /login, a racing 401)
+      // may supersede it and re-authenticate (R1-83).
+      proxyRedirected = true;
       window.location.assign("/oauth2/sign_out");
       return;
     }
@@ -49,18 +53,7 @@ export const useAuth = create<AuthState>((set) => ({
       set({ user: null, accessToken: null });
     }
   },
-  refresh: async () => {
-    const t = localStorage.getItem(REFRESH_KEY);
-    if (!t) return null;
-    const r = await fetch("/api/auth/refresh", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh_token: t }) });
-    if (!r.ok) { localStorage.removeItem(REFRESH_KEY); set({ user: null, accessToken: null }); return null; }
-    const body = await r.json();
-    localStorage.setItem(REFRESH_KEY, body.refresh_token);
-    set({ accessToken: body.access_token });
-    return body.access_token;
-  },
+  refresh: () => withRefreshLock(() => refreshWith(set)),
   restore: async () => {
     // /auth/refresh returns only tokens, not the user; without this step
     // ProtectedRoute would bounce a valid session back to /login because
@@ -88,7 +81,7 @@ export const useAuth = create<AuthState>((set) => ({
         set({ user: r.ok ? await r.json() : null, bootstrapping: false });
         return;
       }
-      const token = await refreshOnce();
+      const token = await restoreRefresh();
       if (!token) { set({ bootstrapping: false }); return; }
       const r = await fetch("/api/auth/me", { headers: { Authorization: `Bearer ${token}` } });
       set({ user: r.ok ? await r.json() : null, bootstrapping: false });
@@ -122,4 +115,65 @@ export function refreshOnce(): Promise<string | null> {
     inflight = useAuth.getState().refresh().finally(() => { inflight = null });
   }
   return inflight;
+}
+
+// A refresh failure that says nothing about the token: a 5xx/429 during a
+// deploy, say. The token and the user stay; only a 401 ends the session
+// (R2-10). Network errors reject the same way, as a TypeError from fetch.
+export class RefreshUnavailableError extends Error {
+  readonly status: number;
+  constructor(status: number) {
+    super(`refresh unavailable (${status})`);
+    this.status = status;
+  }
+}
+
+// Tabs share one refresh token in localStorage, and single-flight only
+// covers this tab. The lock serializes refreshes across tabs, and the token
+// is read inside it, so a tab that waited uses the one the holder stored
+// instead of re-presenting the consumed one (R2-05). Without the Locks API
+// the backend's reuse grace window still absorbs the double-present.
+function withRefreshLock<T>(fn: () => Promise<T>): Promise<T> {
+  const locks = typeof navigator === "undefined" ? undefined : navigator.locks;
+  return locks ? locks.request("grui-refresh", fn) : fn();
+}
+
+type SetAuth = (partial: Partial<AuthState>) => void;
+
+async function refreshWith(set: SetAuth, retried = false): Promise<string | null> {
+  const t = localStorage.getItem(REFRESH_KEY);
+  if (!t) return null;
+  const r = await fetch("/api/auth/refresh", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refresh_token: t }) });
+  if (r.status === 401) {
+    const stored = localStorage.getItem(REFRESH_KEY);
+    // Another tab rotated while this request was in flight: its token is
+    // the live one, not a sign that the session is over.
+    if (stored && stored !== t && !retried) return refreshWith(set, true);
+    if (stored === t) localStorage.removeItem(REFRESH_KEY);
+    set({ user: null, accessToken: null });
+    return null;
+  }
+  if (!r.ok) throw new RefreshUnavailableError(r.status);
+  const body = await r.json();
+  localStorage.setItem(REFRESH_KEY, body.refresh_token);
+  set({ accessToken: body.access_token });
+  return body.access_token;
+}
+
+// Page-load refresh: a backend restarting under a deploy answers 502/503 or
+// refuses connections for a few seconds; retry through that instead of
+// showing the login page to a user whose session is fine.
+const RESTORE_RETRY_DELAYS_MS = [1000, 2000, 4000];
+
+async function restoreRefresh(): Promise<string | null> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await refreshOnce();
+    } catch (err) {
+      if (attempt >= RESTORE_RETRY_DELAYS_MS.length) throw err;
+      await new Promise((resolve) => setTimeout(resolve, RESTORE_RETRY_DELAYS_MS[attempt]));
+    }
+  }
 }
