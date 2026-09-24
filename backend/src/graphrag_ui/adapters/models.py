@@ -67,6 +67,10 @@ class RefreshToken(Base):
         ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    # One family per login; every rotation inherits both fields, and
+    # family_created_at bounds the whole chain (services/auth.py).
+    family_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    family_created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

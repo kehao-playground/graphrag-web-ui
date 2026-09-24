@@ -1,4 +1,6 @@
+import base64
 import hashlib
+import hmac
 import logging
 import secrets
 import uuid
@@ -7,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 import jwt
 from argon2 import PasswordHasher
 from argon2.exceptions import Argon2Error
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -143,41 +145,141 @@ def create_access_token(user: User) -> str:
     )
 
 
-async def issue_refresh_token(session: AsyncSession, user_id: uuid.UUID) -> str:
-    s = get_settings()
-    token = secrets.token_urlsafe(48)
+# Absolute lifetime of a refresh-token family (one login's rotation chain):
+# rotation slides the 7-day window but never past this (decision D4).
+REFRESH_FAMILY_MAX_AGE = timedelta(days=30)
+# How long a just-consumed token may be presented again and receive the
+# successor it already produced. Covers two tabs (or a retried request)
+# refreshing with the same token — the benign double-present that used to
+# trip reuse detection and log the user out everywhere (R2-05).
+REFRESH_REUSE_GRACE = timedelta(seconds=30)
+
+
+def _token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _successor_of(token: str) -> str:
+    """The token a rotation of `token` issues, derived rather than random.
+
+    Only hashes are stored, so a second presenter inside the grace window
+    could not otherwise be handed the successor the first one received.
+    Keyed with JWT_SECRET: without the secret the successor is as
+    unguessable as a random token.
+    """
+    mac = hmac.new(
+        get_settings().jwt_secret.encode(), b"refresh-successor:" + token.encode(), hashlib.sha256
+    )
+    return base64.urlsafe_b64encode(mac.digest()).rstrip(b"=").decode()
+
+
+def _add_refresh_token(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    token: str,
+    family_id: uuid.UUID,
+    family_created_at: datetime,
+    now: datetime,
+) -> None:
+    sliding = now + timedelta(days=get_settings().refresh_token_days)
     session.add(
         RefreshToken(
             user_id=user_id,
-            token_hash=hashlib.sha256(token.encode()).hexdigest(),
-            expires_at=datetime.now(UTC) + timedelta(days=s.refresh_token_days),
+            token_hash=_token_hash(token),
+            family_id=family_id,
+            family_created_at=family_created_at,
+            expires_at=min(sliding, family_created_at + REFRESH_FAMILY_MAX_AGE),
         )
     )
+
+
+async def issue_refresh_token(session: AsyncSession, user_id: uuid.UUID) -> str:
+    """A fresh token starting a new family (login)."""
+    token = secrets.token_urlsafe(48)
+    now = datetime.now(UTC)
+    _add_refresh_token(session, user_id, token, uuid.uuid4(), now, now)
     await session.commit()
     return token
 
 
 async def _find(session: AsyncSession, token: str) -> RefreshToken | None:
-    h = hashlib.sha256(token.encode()).hexdigest()
     return (
-        await session.execute(select(RefreshToken).where(RefreshToken.token_hash == h))
+        await session.execute(
+            select(RefreshToken).where(RefreshToken.token_hash == _token_hash(token))
+        )
     ).scalar_one_or_none()
 
 
 async def rotate_refresh(session: AsyncSession, token: str) -> tuple[uuid.UUID, str] | None:
-    """Returns (user_id, new_refresh); None on failure. The caller issues the access token from user_id."""
-    row = await _find(session, token)
-    if row is None:
+    """Returns (user_id, new_refresh); None on failure. The caller issues the access token from user_id.
+
+    Consuming the token is one conditional UPDATE, so of two concurrent
+    presentations exactly one rotates; the other blocks on the row lock,
+    matches nothing, and falls to the grace/reuse branch below (R1-68).
+    The revoke and the successor commit together, so a loser that sees the
+    revoke also sees the successor.
+    """
+    now = datetime.now(UTC)
+    consumed = (
+        await session.execute(
+            update(RefreshToken)
+            .where(
+                RefreshToken.token_hash == _token_hash(token),
+                RefreshToken.revoked_at.is_(None),
+                RefreshToken.expires_at > now,
+                RefreshToken.family_created_at > now - REFRESH_FAMILY_MAX_AGE,
+            )
+            # Mark instead of delete, so reuse detection works
+            .values(revoked_at=now)
+            .returning(RefreshToken.user_id, RefreshToken.family_id, RefreshToken.family_created_at)
+            .execution_options(synchronize_session=False)
+        )
+    ).one_or_none()
+    successor = _successor_of(token)
+    if consumed is not None:
+        _add_refresh_token(
+            session,
+            consumed.user_id,
+            successor,
+            consumed.family_id,
+            consumed.family_created_at,
+            now,
+        )
+        await session.commit()
+        return consumed.user_id, successor
+
+    # Columns, not the entity: a statement-level read sees the winner's
+    # committed revoke even if this session's identity map holds the row.
+    row = (
+        await session.execute(
+            select(RefreshToken.user_id, RefreshToken.revoked_at).where(
+                RefreshToken.token_hash == _token_hash(token)
+            )
+        )
+    ).one_or_none()
+    if row is None or row.revoked_at is None:
+        # Unknown, or expired / past the family lifetime while unconsumed
+        await session.rollback()
         return None
-    if row.revoked_at is not None:
-        # A consumed token reappearing = suspected leak → revoke the user's entire token family
-        await revoke_all_for_user(session, row.user_id)
-        return None
-    if row.expires_at < datetime.now(UTC):
-        return None
-    row.revoked_at = datetime.now(UTC)  # mark instead of delete, so reuse detection works
-    await session.commit()
-    return row.user_id, await issue_refresh_token(session, row.user_id)
+    if now - row.revoked_at <= REFRESH_REUSE_GRACE:
+        # A double-present, not a replay, as long as the successor is
+        # itself unused: hand out the same successor again.
+        live = (
+            await session.execute(
+                select(RefreshToken.id).where(
+                    RefreshToken.token_hash == _token_hash(successor),
+                    RefreshToken.revoked_at.is_(None),
+                    RefreshToken.expires_at > now,
+                )
+            )
+        ).scalar_one_or_none()
+        if live is not None:
+            await session.rollback()
+            return row.user_id, successor
+    # A consumed token reappearing = suspected leak → revoke the user's
+    # entire token family
+    await revoke_all_for_user(session, row.user_id)
+    return None
 
 
 async def revoke_refresh(session: AsyncSession, token: str) -> None:
