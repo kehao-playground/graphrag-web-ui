@@ -6,6 +6,7 @@ HTTP — error classes are translated to status codes by the api layer.
 """
 
 import asyncio
+import functools
 import hashlib
 import os
 import uuid
@@ -27,7 +28,7 @@ from graphrag_ui.adapters.models import (
 from graphrag_ui.config import get_settings
 from graphrag_ui.domain.files import AttributableTitles, IngestCheck, index_state
 from graphrag_ui.services.audit import audit
-from graphrag_ui.services.project_lock import assert_input_unfrozen, lock_project
+from graphrag_ui.services.project_lock import input_mutation, lock_project
 from graphrag_ui.services.projects import ws_path
 
 # Upload whitelist keyed by project.input_file_type (spec §6.5):
@@ -108,11 +109,23 @@ def _safe_name(project_input_file_type: str, filename: str) -> str:
     return filename
 
 
+# save_file streams into input/ under this prefix; the dot keeps listings
+# from surfacing it and the quota from counting bytes not yet stored.
+_UPLOAD_TMP_PREFIX = ".tmp-"
+
+
 def _dir_size(path: Path) -> int:
-    """Recursive byte size; 0 when the directory does not exist yet."""
+    """Recursive byte size; 0 when the directory does not exist yet.
+    In-flight upload tmp files are skipped: they are not stored yet, and
+    counting a concurrent upload's partial bytes would refuse uploads that
+    fit."""
     if not path.exists():
         return 0
-    return sum(p.stat().st_size for p in path.rglob("*") if p.is_file())
+    return sum(
+        p.stat().st_size
+        for p in path.rglob("*")
+        if p.is_file() and not p.name.startswith(_UPLOAD_TMP_PREFIX)
+    )
 
 
 def sha256_file(path: Path) -> str:
@@ -297,30 +310,34 @@ async def _commit_upload(
     tmp: Path,
     target: Path,
 ) -> None:
-    """The committing transaction: lock, re-check the freeze, write the audit
-    row and project_files, rename, commit.
+    """The committing transaction (input_mutation): lock, freeze re-check,
+    quota check, audit row and project_files, flush, rename, commit.
 
     The lock is taken HERE and not around the upload stream: holding it for
     the whole of a multi-gigabyte upload would block job enqueue for that
     long. Taking it only for the rename keeps the window short and still
     serializes, because enqueue takes the same lock (spec 5.2b).
+
+    The quota is measured inside the lock (R2-28): measured before it, two
+    uploads that each fit alone would both pass. The walk is bounded by the
+    project's own input/+output/; an existing file of the same name still
+    counts (the overwrite is judged conservatively).
     """
-    await lock_project(session, project.id)
-    await assert_input_unfrozen(session, project.id)
-    await audit(
-        session,
-        actor_id,
-        "file.uploaded",
-        "project",
-        str(project.id),
-        {"name": name, "size": size},
-    )
-    await _upsert_project_file(
-        session, project.id, name=name, sha256=sha, size=size, actor_id=actor_id
-    )
-    await session.flush()
-    _replace_into_input(tmp, target)
-    await session.commit()
+    async with input_mutation(session, project.id) as m:
+        if await usage_bytes(project) + size > quota_bytes():
+            raise QuotaExceededError(get_settings().project_quota_mb)
+        await audit(
+            session,
+            actor_id,
+            "file.uploaded",
+            "project",
+            str(project.id),
+            {"name": name, "size": size},
+        )
+        await _upsert_project_file(
+            session, project.id, name=name, sha256=sha, size=size, actor_id=actor_id
+        )
+        await m.apply(lambda: _replace_into_input(tmp, target))
 
 
 async def save_file(
@@ -337,21 +354,17 @@ async def save_file(
 
     Also owns the audit row + transaction (spec A1): the committing half
     lives in _commit_upload, which takes the project-row lock, re-checks
-    the input freeze, flushes the file.uploaded + project_files rows and
-    only then renames, so any failure (stream, cap, quota, freeze, rename)
-    rolls the rows back and leaves no partial file behind.
+    the input freeze and the quota, flushes the file.uploaded +
+    project_files rows and only then renames, so any failure (stream, cap,
+    quota, freeze, rename) rolls the rows back and leaves no partial file
+    behind.
     """
     name = _safe_name(project.input_file_type, filename)
-    # Usage snapshot BEFORE the tmp file appears in input/: the quota check
-    # runs after streaming (it needs the final size) and must not count the
-    # in-flight tmp file itself. Snapshot-first matches the old
-    # check-then-write semantics, overwrite case included (existing file counted).
-    base_usage = await usage_bytes(project)
     input_dir = ws_path(project.id) / "input"
     input_dir.mkdir(parents=True, exist_ok=True)
     # tmp+replace keeps writes atomic: readers never see a partial file. The
     # tmp name is dot-prefixed so a concurrent listing never surfaces it.
-    tmp = input_dir / f".tmp-{uuid.uuid4().hex}"
+    tmp = input_dir / f"{_UPLOAD_TMP_PREFIX}{uuid.uuid4().hex}"
     size = 0
     h = hashlib.sha256()
     try:
@@ -362,18 +375,12 @@ async def save_file(
                     raise FileTooLargeError(get_settings().upload_max_file_mb)
                 h.update(chunk)
                 out.write(chunk)
-        # Quota check needs the final size, so it runs after the stream is
-        # fully consumed, against the pre-write usage snapshot — before the
-        # audit row, so an over-quota upload leaves no trace.
-        if base_usage + size > quota_bytes():
-            raise QuotaExceededError(get_settings().project_quota_mb)
+        # The quota needs the final size, so _commit_upload checks it once
+        # the stream is consumed, inside the lock and before any row.
         await _commit_upload(
             session, project, name, size, h.hexdigest(), actor_id, tmp, input_dir / name
         )
         return name, size
-    except Exception:
-        await session.rollback()
-        raise
     finally:
         tmp.unlink(missing_ok=True)  # no-op after a successful replace
 
@@ -541,9 +548,7 @@ async def delete_file(
     if not target.is_file():
         raise FileNotFoundError(name)
     size = target.stat().st_size
-    try:
-        await lock_project(session, project.id)
-        await assert_input_unfrozen(session, project.id)
+    async with input_mutation(session, project.id) as m:
         await audit(
             session,
             actor_id,
@@ -558,13 +563,8 @@ async def delete_file(
                 ProjectFile.project_id == project.id, ProjectFile.name == name
             )
         )
-        await session.flush()
-        target.unlink()
-        await session.commit()
-        return size
-    except Exception:
-        await session.rollback()
-        raise
+        await m.apply(target.unlink)
+    return size
 
 
 async def add_tags(
@@ -588,8 +588,7 @@ async def add_tags(
     sha = await asyncio.to_thread(sha256_file, target)
     size = target.stat().st_size
     unique_tags = sorted(dict.fromkeys(tags))
-    try:
-        await lock_project(session, project.id)
+    async with input_mutation(session, project.id, freeze=False):
         row = (
             await session.execute(
                 select(ProjectFile).where(
@@ -645,10 +644,6 @@ async def add_tags(
             str(project.id),
             {"name": name, "tags": unique_tags},
         )
-        await session.commit()
-    except Exception:
-        await session.rollback()
-        raise
 
 
 async def remove_tags(
@@ -661,8 +656,7 @@ async def remove_tags(
     if not target.is_file():
         raise FileNotFoundError(name)
     unique_tags = sorted(dict.fromkeys(tags))
-    try:
-        await lock_project(session, project.id)
+    async with input_mutation(session, project.id, freeze=False):
         # Deleting through subselects keeps it one statement shaped the same
         # regardless of how many tags are detached.
         await session.execute(
@@ -687,10 +681,6 @@ async def remove_tags(
             str(project.id),
             {"name": name, "tags": unique_tags},
         )
-        await session.commit()
-    except Exception:
-        await session.rollback()
-        raise
 
 
 async def list_tags(session: AsyncSession, project: Project) -> list[dict]:
@@ -713,12 +703,20 @@ async def bulk_delete(
     session: AsyncSession, project: Project, names: list[str], actor_id: uuid.UUID | None
 ) -> dict:
     """Delete every input/<name> in ONE locked transaction, auditing
-    file.deleted per file; returns {"deleted": int, "bytes": int}.
+    file.deleted per file; returns {"deleted": int, "bytes": int,
+    "failed": [name, ...]}.
 
     Bulk delete IS input (spec 8): same lock and same 409 as a single
     delete. Every name resolves to a real file BEFORE any unlink or audit
-    row, so one unknown name aborts the batch with nothing touched
-    (all-or-nothing); duplicate names collapse to one delete.
+    row, so one unknown name aborts the batch with nothing touched;
+    duplicate names collapse to one delete.
+
+    Each file is its own savepoint (R1-92): its rows flush, then it is
+    unlinked; an unlink that fails (permissions, a concurrent rename) rolls
+    back that file's rows only and lands its name in `failed`, so the
+    commit records exactly the files that are gone. A file that vanished
+    meanwhile counts as deleted. Residual (spec A1, accepted, as in
+    delete_file): a commit failure after the unlinks loses their rows.
     """
     unique_names = list(dict.fromkeys(_safe_name(project.input_file_type, n) for n in names))
     targets: dict[str, Path] = {}
@@ -727,32 +725,33 @@ async def bulk_delete(
         if not target.is_file():
             raise FileNotFoundError(name)
         targets[name] = target
-    total = 0
-    try:
-        await lock_project(session, project.id)
-        await assert_input_unfrozen(session, project.id)
+    deleted, total, failed = 0, 0, []
+    async with input_mutation(session, project.id) as m:
         for name, target in targets.items():
-            size = target.stat().st_size
-            await audit(
-                session,
-                actor_id,
-                "file.deleted",
-                "project",
-                str(project.id),
-                {"name": name, "size": size},
-            )
-            # file_tag_links cascade at the FK level (Task 1's model)
-            await session.execute(
-                delete(ProjectFile).where(
-                    ProjectFile.project_id == project.id, ProjectFile.name == name
-                )
-            )
+            try:
+                size = target.stat().st_size
+            except FileNotFoundError:
+                size = 0
+            try:
+                async with session.begin_nested():
+                    await audit(
+                        session,
+                        actor_id,
+                        "file.deleted",
+                        "project",
+                        str(project.id),
+                        {"name": name, "size": size},
+                    )
+                    # file_tag_links cascade at the FK level (Task 1's model)
+                    await session.execute(
+                        delete(ProjectFile).where(
+                            ProjectFile.project_id == project.id, ProjectFile.name == name
+                        )
+                    )
+                    await m.apply(functools.partial(target.unlink, missing_ok=True))
+            except OSError:
+                failed.append(name)
+                continue
+            deleted += 1
             total += size
-        await session.flush()
-        for target in targets.values():
-            target.unlink()
-        await session.commit()
-        return {"deleted": len(targets), "bytes": total}
-    except Exception:
-        await session.rollback()
-        raise
+    return {"deleted": deleted, "bytes": total, "failed": failed}

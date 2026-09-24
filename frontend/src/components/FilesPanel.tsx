@@ -5,7 +5,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { Alert, Button, Modal, Space, Spin, Upload, message } from "antd";
 import type { UploadProps } from "antd";
 import { api, detailOf } from "../api/client";
-import type { FilesOut, Preflight, Project, TagCatalog } from "../api/types";
+import type { BulkDeleteResult, FilesOut, Preflight, Project, TagCatalog } from "../api/types";
 import FilePreviewDrawer from "./files/FilePreviewDrawer";
 import FilesToolbar from "./files/FilesToolbar";
 import FilesTable from "./files/FilesTable";
@@ -106,9 +106,17 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
         body: JSON.stringify({ names }),
       });
       if (!r.ok) throw new Error(await detailOf(r, "files.bulkDeleteFailed"));
+      return (await r.json()) as BulkDeleteResult;
     },
-    onSuccess: (_d, names) => {
-      message.success(t("files.bulkDeleteDone", { n: names.length }));
+    onSuccess: (result) => {
+      // The server's count, not the selection's: a file whose unlink failed
+      // stays, and says so by name.
+      message.success(t("files.bulkDeleteDone", { n: result.deleted }));
+      if (result.failed.length > 0) {
+        message.warning(
+          t("files.bulkDeletePartial", { n: result.failed.length, names: result.failed.join(", ") }),
+        );
+      }
       setSelected([]);
       qc.invalidateQueries({ queryKey: ["projects", projectId, "files"] });
     },

@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from graphrag_ui.adapters.models import Project
 from graphrag_ui.domain.env_keys import is_reserved_env_key
 from graphrag_ui.services.audit import audit
-from graphrag_ui.services.project_lock import assert_input_unfrozen, lock_project
+from graphrag_ui.services.project_lock import input_mutation
 from graphrag_ui.services.projects import ws_path
 
 # dotenv keys we manage: UPPER_SNAKE (graphrag's GRAPHRAG_API_KEY etc.)
@@ -124,24 +124,19 @@ async def set_env_key(
 ) -> None:
     """Upsert `key=value` AND audit it, one transaction (spec A1).
 
-    Payload-known-first shape: the audit row is added and flushed BEFORE
-    the external .env write, so a failed write rolls the flushed row back —
-    no env.key_set row without the real change. EnvValidationError (bad key /
-    multi-line value) is raised before any row or write; ProjectIndexingError
-    (spec 5.2b) is raised inside the project lock before either.
+    input_mutation shape: the audit row is added and flushed BEFORE the
+    external .env write, so a failed write rolls the flushed row back — no
+    env.key_set row without the real change. The .env is read INSIDE the
+    lock (R1-06): a snapshot taken before it would drop a key another
+    writer set meanwhile. EnvValidationError (bad key / multi-line value) is
+    raised before any row or write; ProjectIndexingError (spec 5.2b) is
+    raised inside the project lock before either.
     """
     _validate(key, value)
-    lines = _upsert_lines(project, key, value)
-    try:
-        await lock_project(session, project.id)
-        await assert_input_unfrozen(session, project.id)
+    async with input_mutation(session, project.id) as m:
+        lines = _upsert_lines(project, key, value)
         await audit(session, actor_id, "env.key_set", "project", str(project.id), {"key": key})
-        await session.flush()
-        _atomic_write(project, lines)
-        await session.commit()
-    except Exception:
-        await session.rollback()
-        raise
+        await m.apply(lambda: _atomic_write(project, lines))
 
 
 async def delete_env_key(
@@ -154,15 +149,8 @@ async def delete_env_key(
     project refuses the mutation before debating key existence) and before
     any row or write.
     """
-    try:
-        await lock_project(session, project.id)
-        await assert_input_unfrozen(session, project.id)
+    async with input_mutation(session, project.id) as m:
         lines = _remove_lines(project, key)
         _assert_not_referenced(project, key)
         await audit(session, actor_id, "env.key_deleted", "project", str(project.id), {"key": key})
-        await session.flush()
-        _atomic_write(project, lines)
-        await session.commit()
-    except Exception:
-        await session.rollback()
-        raise
+        await m.apply(lambda: _atomic_write(project, lines))

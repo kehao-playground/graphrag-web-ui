@@ -147,6 +147,10 @@ async def add_question(
     text: str,
     actor_id: uuid.UUID,
 ) -> Question:
+    # The cap and MAX(position)+1 are check-then-act: inside the project
+    # lock, like edit/archive, two concurrent adds can neither both pass a
+    # full set nor share a position (R2-21).
+    await lock_project(session, project.id)
     qs = await _set_or_raise(session, project.id, set_id)
     live = (
         await session.execute(
@@ -276,7 +280,9 @@ async def live_questions(
             await session.execute(
                 select(Question)
                 .where(Question.set_id == set_id, Question.archived_at.is_(None))
-                .order_by(Question.position)
+                # position alone is not unique (a fork reuses its row's, and
+                # adds raced before R2-21): created_at, id keep the order stable
+                .order_by(Question.position, Question.created_at, Question.id)
             )
         ).scalars()
     )

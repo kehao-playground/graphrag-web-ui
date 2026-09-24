@@ -721,6 +721,11 @@ covers all three alongside the upload freeze.
   for the rename keeps the window short while still serializing.
 - `delete_file` and `bulk_delete` take the same lock around their
   re-check, audit row, `project_files` removal and `unlink`.
+  *Amended (fix wave F5, R1-92):* `bulk_delete` runs each file in its own
+  savepoint — rows, flush, `unlink` — so an unlink that fails mid-batch
+  rolls back that file's rows only; the response gains `failed: [name]`
+  and the rest commit. Name validation still happens before anything is
+  touched, so an unknown name still aborts the whole batch with a 404.
 - Untracked files found by `list_files` are **discovered** into
   `project_files` under the same lock (§5.1).
 - `list_files` enumerates `input/` ∪ the baseline's filenames (§6.1),

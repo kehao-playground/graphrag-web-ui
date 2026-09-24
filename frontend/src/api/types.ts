@@ -14,6 +14,7 @@ export type FileEntry = components["schemas"]["FileEntryOut"];
 export type FilesOut = components["schemas"]["FileListOut"];
 export type TagEntry = components["schemas"]["TagOut"];
 export type TagCatalog = components["schemas"]["TagCatalogOut"];
+export type BulkDeleteResult = components["schemas"]["BulkDeleteOut"];
 export type SettingsOut = components["schemas"]["SettingsOut"];
 export type SettingsVersionOut = components["schemas"]["VersionOut"];
 export type SettingsVersionDetail = components["schemas"]["VersionDetailOut"];

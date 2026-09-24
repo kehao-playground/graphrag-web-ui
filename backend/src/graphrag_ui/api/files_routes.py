@@ -92,6 +92,8 @@ class TagCatalogOut(BaseModel):
 class BulkDeleteOut(BaseModel):
     deleted: int
     bytes: int
+    # Names whose unlink failed: their rows and audit stay, the rest commit.
+    failed: list[str]
 
 
 class PreviewOut(BaseModel):

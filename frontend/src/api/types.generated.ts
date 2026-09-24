@@ -1012,6 +1012,8 @@ export interface components {
             bytes: number;
             /** Deleted */
             deleted: number;
+            /** Failed */
+            failed: string[];
         };
         /** CellOut */
         CellOut: {
