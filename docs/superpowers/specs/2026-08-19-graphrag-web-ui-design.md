@@ -252,6 +252,8 @@ GraphRAG 的 `input.type` 是單一型別 + `input.file_pattern`(regex),一個 r
 ### 8.4 Auth 細節
 
 - access token 有效期 15 分鐘;refresh token 7 天,**輪替式**(每次 refresh 換發並作廢舊的)
+- refresh token 以「家族」(一次登入的輪替鏈)計:7 天為滑動期限,每次輪替順延,但**整個家族自登入起最多 30 天**,期滿須重新登入(修正波 F6,決策 D4)
+- 已作廢的 refresh token 在作廢後 30 秒內再次出示、且其接替者尚未被使用時,視為良性重送(多分頁同時 refresh),回傳同一個接替者;超出此寬限或接替者已被使用,才視為重放並撤銷該使用者所有 refresh token(修正波 F6,R2-05)
 - refresh token 存 DB(hash),支援登出與 admin 停用帳號時即刻撤銷
 - 密碼重設:MVP 由 admin 重設(不做郵件流程,與非目標一致)
 

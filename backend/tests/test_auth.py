@@ -1,6 +1,9 @@
+from datetime import timedelta
+
 from graphrag_ui import main
 from graphrag_ui.api import auth_routes
 from graphrag_ui.domain.sliding_window import SlidingWindow
+from graphrag_ui.services import auth as auth_service
 
 
 async def test_bootstrap_admin_login_and_forced_change(client):
@@ -116,11 +119,16 @@ async def test_refresh_rotation_invalidates_old(client):
     old = body["refresh_token"]
     r1 = await client.post("/api/auth/refresh", json={"refresh_token": old})
     assert r1.status_code == 200
+    # Once its successor has been used, the old one is dead (a repeat
+    # before that is the grace window — test_refresh_rotation.py)
+    new = r1.json()["refresh_token"]
+    assert (await client.post("/api/auth/refresh", json={"refresh_token": new})).status_code == 200
     r2 = await client.post("/api/auth/refresh", json={"refresh_token": old})
-    assert r2.status_code == 401  # the old one is already revoked
+    assert r2.status_code == 401
 
 
-async def test_refresh_reuse_revokes_family(client):
+async def test_refresh_reuse_revokes_family(client, monkeypatch):
+    monkeypatch.setattr(auth_service, "REFRESH_REUSE_GRACE", timedelta(0))
     body = (
         await client.post(
             "/api/auth/login", json={"email": "admin@test.local", "password": "admin-pass-123"}
