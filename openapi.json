@@ -271,11 +271,19 @@
           "deleted": {
             "title": "Deleted",
             "type": "integer"
+          },
+          "failed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Failed",
+            "type": "array"
           }
         },
         "required": [
           "deleted",
-          "bytes"
+          "bytes",
+          "failed"
         ],
         "title": "BulkDeleteOut",
         "type": "object"

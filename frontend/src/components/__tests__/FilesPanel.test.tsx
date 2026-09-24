@@ -28,6 +28,9 @@ vi.mock("../../api/client", async (importOriginal) => ({
         text: "PREVIEW-BODY", offset: 0, total_size: 12, match: false,
       }), { status: 200 });
     }
+    if (path === "/api/projects/p1/files:bulk-delete") {
+      return new Response(JSON.stringify(bulkDeleteBody), { status: 200 });
+    }
     return new Response(JSON.stringify({}), { status: 200 });
   }),
 }));
@@ -56,9 +59,13 @@ let filesBody: Record<string, unknown> = FILES_BODY;
 // document work (spec 5.2b), or null.
 let preflightBody: Record<string, unknown> = { active_job: null };
 
+// BulkDeleteOut: what the server actually removed, and what it could not.
+let bulkDeleteBody: Record<string, unknown> = { deleted: 0, bytes: 0, failed: [] };
+
 beforeEach(() => {
   filesBody = FILES_BODY;
   preflightBody = { active_job: null };
+  bulkDeleteBody = { deleted: 0, bytes: 0, failed: [] };
 });
 
 // Composition wrapper: the panel under a fresh QueryClient, inside a router
@@ -152,6 +159,20 @@ test("bulk delete confirms with count and total size", async () => {
   // internal span), so "at least one visible copy" is the honest pin.
   expect((await screen.findAllByText(/2 個檔案/)).length).toBeGreaterThan(0);
   expect(screen.getAllByText(/1.5 KiB/).length).toBeGreaterThan(0);
+});
+
+test("a partial bulk delete reports the server's count and names the failures", async () => {
+  bulkDeleteBody = { deleted: 1, bytes: 1024, failed: ["draft.md"] };
+  renderPanel();
+  await userEvent.click(await screen.findByRole("checkbox", { name: /notes.txt/ }));
+  await userEvent.click(screen.getByRole("checkbox", { name: /draft.md/ }));
+  await userEvent.click(screen.getByRole("button", { name: "刪除所選" }));
+  // The confirm's danger button (antd spaces two-character CJK labels, and
+  // the rows carry delete buttons of their own, so the name cannot pin it).
+  await screen.findAllByText(/2 個檔案/);
+  await userEvent.click(document.querySelector<HTMLElement>(".ant-modal-confirm-btns .ant-btn-dangerous")!);
+  expect(await screen.findByText("已刪除 1 個檔案")).toBeInTheDocument();
+  expect(await screen.findByText(/1 個檔案無法刪除：draft.md/)).toBeInTheDocument();
 });
 
 test("a removed row offers no selection and no actions", async () => {

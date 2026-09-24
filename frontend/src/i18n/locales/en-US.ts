@@ -315,6 +315,7 @@ const enUS = {
     bulkDeleteTitle: "Delete {{n}} files ({{size}} total)?",
     bulkDeleteDone: "Deleted {{n}} files",
     bulkDeleteFailed: "Bulk delete failed ({{status}})",
+    bulkDeletePartial: "Could not delete {{n}} files: {{names}}",
     frozenNotice: "Indexing in progress — document changes are paused",
     previewLoadFailed: "Failed to load preview ({{status}})",
     previewMatch: "Match",

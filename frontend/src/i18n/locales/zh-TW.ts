@@ -322,6 +322,7 @@ export default {
     bulkDeleteTitle: "確認刪除 {{n}} 個檔案(共計 {{size}})?",
     bulkDeleteDone: "已刪除 {{n}} 個檔案",
     bulkDeleteFailed: "批次刪除失敗({{status}})",
+    bulkDeletePartial: "{{n}} 個檔案無法刪除：{{names}}",
     frozenNotice: "索引作業執行中，暫停文件異動",
     previewLoadFailed: "載入預覽失敗({{status}})",
     previewMatch: "命中",
