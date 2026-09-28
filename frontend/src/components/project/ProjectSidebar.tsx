@@ -14,7 +14,7 @@ const ENTRIES = [
   { pane: "jobs", labelKey: "projectDetail.jobsTab", requires: "project:view" },
   { pane: "tests", labelKey: "projectDetail.testsTab", requires: "project:view" },
   { pane: "explore", labelKey: "projectDetail.exploreTab", requires: "project:view" },
-  { pane: "settings", labelKey: "projectDetail.settingsTab", requires: "project:edit_settings" },
+  { pane: "settings", labelKey: "projectDetail.settingsTab", requires: "project:view" },
   { pane: "members", labelKey: "projectDetail.membersTab", requires: "project:manage" },
 ] as const;
 

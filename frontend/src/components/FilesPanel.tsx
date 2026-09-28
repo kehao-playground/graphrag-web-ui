@@ -6,6 +6,7 @@ import { Alert, Button, Modal, Space, Spin, Upload, message } from "antd";
 import type { UploadProps } from "antd";
 import { apiJson, sendOk } from "../api/client";
 import { jobsPreflight, projectFiles, projectTags } from "../api/queries";
+import { isFrozen } from "./project/frozen";
 import type { BulkDeleteResult, Project, UploadedFile } from "../api/types";
 import FilePreviewDrawer from "./files/FilePreviewDrawer";
 import FilesToolbar from "./files/FilesToolbar";
@@ -67,8 +68,7 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
   // discover the 409. The preflight every pane shares; quiet on failure
   // (a missing preflight costs the lock, not the panel).
   const preflight = useQuery(jobsPreflight(projectId));
-  const activeType = preflight.data?.active_job?.type;
-  const frozen = activeType === "index" || activeType === "update";
+  const frozen = isFrozen(preflight.data);
 
   const bulkDelete = useMutation({
     mutationFn: (names: string[]) => apiJson<BulkDeleteResult>(
