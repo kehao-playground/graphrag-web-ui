@@ -4,7 +4,7 @@ import type { TableProps } from "antd";
 import type { FileEntry } from "../../api/types";
 import { STATE_COLOR, humanBytes, isIndexState, useStateCopy } from "./indexState";
 
-export default function FilesTable({ files, canEdit, frozen = false, selected, onSelect, onDelete, onPreview }: {
+export default function FilesTable({ files, canEdit, frozen = false, selected, onSelect, onDelete, onPreview, onEditTags }: {
   files: FileEntry[];
   canEdit: boolean;
   // While an index/update job is active the panel locks every mutating
@@ -20,6 +20,9 @@ export default function FilesTable({ files, canEdit, frozen = false, selected, o
   // the entry point. A removed name 404s on preview, so those rows stay
   // plain text.
   onPreview?: (name: string) => void;
+  // Per-row tag edit (spec §9.1). Tags are metadata, not input, so the
+  // freeze does not apply; a removed row has no file to tag.
+  onEditTags?: (name: string, current: string[]) => void;
 }) {
   const { t, i18n } = useTranslation();
   const copy = useStateCopy();
@@ -67,7 +70,16 @@ export default function FilesTable({ files, canEdit, frozen = false, selected, o
     {
       title: t("files.tags"),
       dataIndex: "tags",
-      render: (_, f) => f.tags.map((tag) => <Tag key={tag}>{tag}</Tag>),
+      render: (_, f) => (
+        <>
+          {f.tags.map((tag) => <Tag key={tag}>{tag}</Tag>)}
+          {canEdit && onEditTags && f.index_state !== "removed" && (
+            <Button type="link" size="small" style={{ padding: 0 }} onClick={() => onEditTags(f.name, f.tags)}>
+              {t("files.editTags")}
+            </Button>
+          )}
+        </>
+      ),
     },
     { title: t("files.size"), dataIndex: "size", width: 110, render: (_, f) => (f.size === null ? "—" : humanBytes(f.size)) },
     // A removed row has no file behind it: the size column carries the em

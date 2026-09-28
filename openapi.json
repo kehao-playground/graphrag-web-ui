@@ -528,6 +528,10 @@
             "title": "Ingest Check",
             "type": "string"
           },
+          "max_file_bytes": {
+            "title": "Max File Bytes",
+            "type": "integer"
+          },
           "quota_bytes": {
             "title": "Quota Bytes",
             "type": "integer"
@@ -541,6 +545,7 @@
           "files",
           "usage_bytes",
           "quota_bytes",
+          "max_file_bytes",
           "ingest_check",
           "has_baseline"
         ],

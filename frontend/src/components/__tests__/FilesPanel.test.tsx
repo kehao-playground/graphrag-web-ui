@@ -12,10 +12,10 @@ import { stubFetch } from "../../testing/stubFetch";
 // Same mock discipline as Projects.test.tsx: branch by URL so a lookup-key
 // mistake (wrong endpoint) cannot silently pass on another call's payload.
 // The real api client stays under test; only fetch is stubbed.
-const api = vi.fn(async (path: string) => {
+const api = vi.fn(async (path: string, init?: RequestInit) => {
   // Route by URL like Projects.test.tsx: the FilesOut fixture is only
   // served on the /files endpoint, so a wrong-path query starves the panel.
-  if (path === "/api/projects/p1/files") {
+  if (path === "/api/projects/p1/files" && init?.method !== "POST") {
     return new Response(JSON.stringify(filesBody), { status: 200 });
   }
   if (path === "/api/projects/p1/tags") {
@@ -35,6 +35,24 @@ const api = vi.fn(async (path: string) => {
   if (path === "/api/projects/p1/files:bulk-delete") {
     return new Response(JSON.stringify(bulkDeleteBody), { status: 200 });
   }
+  // Tag writes answer 204; a name in tagFailures answers 404 instead.
+  const tagPath = /^\/api\/projects\/p1\/files\/([^/]+)\/tags$/.exec(path);
+  if (tagPath) {
+    if (tagFailures.includes(decodeURIComponent(tagPath[1]))) {
+      return new Response(JSON.stringify({ detail: "file not found", code: "file_not_found" }), { status: 404 });
+    }
+    return new Response(null, { status: 204 });
+  }
+  // Uploads: the multipart file's name picks the canned outcome.
+  if (path === "/api/projects/p1/files" && init?.method === "POST") {
+    const file = (init.body as FormData).get("file") as File;
+    const failure = uploadFailures[file.name];
+    if (failure) return new Response(JSON.stringify(failure.body), { status: failure.status });
+    return new Response(JSON.stringify({ name: file.name, size: file.size }), { status: 201 });
+  }
+  if (path === "/api/projects/p1/files/notes.txt" && init?.method === "DELETE") {
+    return new Response(null, { status: 204 });
+  }
   return new Response(JSON.stringify({}), { status: 200 });
 });
 stubFetch(api);
@@ -51,7 +69,7 @@ const FILES_BODY = {
     { name: "gone.md", size: null, modified_at: null, sha256: null,
       index_state: "removed", tags: [] },
   ],
-  usage_bytes: 1536, quota_bytes: 10240,
+  usage_bytes: 1536, quota_bytes: 10240, max_file_bytes: 50 * 1024 * 1024,
   ingest_check: "available", has_baseline: true,
 };
 
@@ -66,11 +84,36 @@ let preflightBody: Record<string, unknown> | null = { active_job: null };
 // BulkDeleteOut: what the server actually removed, and what it could not.
 let bulkDeleteBody: Record<string, unknown> = { deleted: 0, bytes: 0, failed: [] };
 
+// File names whose tag writes 404, and upload names with a canned error.
+let tagFailures: string[] = [];
+let uploadFailures: Record<string, { status: number; body: Record<string, unknown> }> = {};
+
 beforeEach(() => {
   filesBody = FILES_BODY;
   preflightBody = { active_job: null };
   bulkDeleteBody = { deleted: 0, bytes: 0, failed: [] };
+  tagFailures = [];
+  uploadFailures = {};
+  api.mockClear();
 });
+
+// The tag writes the panel sent, as (method, file, tags) triples.
+const tagCalls = () => api.mock.calls
+  .filter(([path]) => /\/files\/[^/]+\/tags$/.test(path))
+  .map(([path, init]) => ({
+    method: init?.method,
+    name: decodeURIComponent(/\/files\/([^/]+)\/tags$/.exec(path)![1]),
+    tags: JSON.parse(init!.body as string).tags as string[],
+  }));
+const listReads = () => api.mock.calls
+  .filter(([path, init]) => path === "/api/projects/p1/files" && init?.method !== "POST").length;
+const uploadPosts = () => api.mock.calls
+  .filter(([path, init]) => path === "/api/projects/p1/files" && init?.method === "POST").length;
+// antd nests role=dialog elements; the modal is addressed by its title.
+const findModal = async (title: string) =>
+  (await screen.findByText(title)).closest<HTMLElement>(".ant-modal")!;
+const uploadInput = () => document.querySelector<HTMLInputElement>("input[type=file]")!;
+const txt = (name: string, bytes = 4) => new File(["x".repeat(bytes)], name, { type: "text/plain" });
 
 // Composition wrapper: the panel under a fresh QueryClient, inside a router
 // whose initial URL can seed the ?state= filter (the slice ③ landing path).
@@ -138,6 +181,13 @@ test("an unavailable ingest check shows one banner naming the reason", async () 
   expect(await screen.findByText(/靜默略過偵測已關閉/)).toBeInTheDocument();
   // One banner for the table, never one per row.
   expect(screen.getAllByText(/靜默略過偵測已關閉/)).toHaveLength(1);
+});
+
+test("no ingest-check banner before the project has a baseline", async () => {
+  // A brand-new project: nothing to act on, so no jargon banner (R4-31).
+  renderPanel({ body: { ...FILES_BODY, ingest_check: "unavailable_no_baseline", has_baseline: false } });
+  await screen.findByText("notes.txt");
+  expect(screen.queryByText(/靜默略過偵測已關閉/)).not.toBeInTheDocument();
 });
 
 test("no banner when the check is available", async () => {
@@ -215,4 +265,107 @@ test("clicking a row name opens the preview drawer with the head window", async 
   renderPanel();
   await userEvent.click(await screen.findByText("notes.txt"));
   expect(await screen.findByText("PREVIEW-BODY")).toBeInTheDocument();
+});
+
+test("tag selected adds the chosen tags to every selected file", async () => {
+  renderPanel();
+  await userEvent.click(await screen.findByRole("checkbox", { name: /notes.txt/ }));
+  await userEvent.click(screen.getByRole("checkbox", { name: /draft.md/ }));
+  await userEvent.click(screen.getByRole("button", { name: "標記所選…" }));
+  const dialog = await findModal("標記 2 個檔案");
+  await userEvent.type(within(dialog).getByRole("combobox"), "hr{enter}");
+  const reads = listReads();
+  await userEvent.click(within(dialog).getByRole("button", { name: "加入 2 個檔案" }));
+  expect(await screen.findByText("已更新 2 個檔案的標籤")).toBeInTheDocument();
+  expect(tagCalls()).toEqual(expect.arrayContaining([
+    { method: "POST", name: "notes.txt", tags: ["hr"] },
+    { method: "POST", name: "draft.md", tags: ["hr"] },
+  ]));
+  expect(tagCalls()).toHaveLength(2);
+  // The listing refreshes so the new tags show.
+  await waitFor(() => expect(listReads()).toBeGreaterThan(reads));
+});
+
+test("tag selected can remove tags, and names the files that failed", async () => {
+  tagFailures = ["draft.md"];
+  renderPanel();
+  await userEvent.click(await screen.findByRole("checkbox", { name: /notes.txt/ }));
+  await userEvent.click(screen.getByRole("checkbox", { name: /draft.md/ }));
+  await userEvent.click(screen.getByRole("button", { name: "標記所選…" }));
+  const dialog = await findModal("標記 2 個檔案");
+  await userEvent.type(within(dialog).getByRole("combobox"), "policy{enter}");
+  await userEvent.click(within(dialog).getByRole("button", { name: "從 2 個檔案移除" }));
+  expect(await screen.findByText(/1 個檔案的標籤未能更新：draft.md/)).toBeInTheDocument();
+  expect(tagCalls().every((c) => c.method === "DELETE")).toBe(true);
+});
+
+test("editing a row's tags sends only the difference", async () => {
+  renderPanel();
+  const row = (await screen.findByText("notes.txt")).closest("tr")!;
+  await userEvent.click(within(row).getByRole("button", { name: "編輯標籤" }));
+  const dialog = await findModal("notes.txt 的標籤");
+  // notes.txt carries "policy": drop it, add "hr".
+  await userEvent.click(within(within(dialog).getByTitle("policy")).getByLabelText("close"));
+  await userEvent.type(within(dialog).getByRole("combobox"), "hr{enter}");
+  await userEvent.click(within(dialog).getByRole("button", { name: /儲\s*存/ }));
+  expect(await screen.findByText("已更新 notes.txt 的標籤")).toBeInTheDocument();
+  expect(tagCalls()).toEqual(expect.arrayContaining([
+    { method: "POST", name: "notes.txt", tags: ["hr"] },
+    { method: "DELETE", name: "notes.txt", tags: ["policy"] },
+  ]));
+  expect(tagCalls()).toHaveLength(2);
+});
+
+test("tagging stays available while indexing (tags are not input)", async () => {
+  renderPanel({ activeJob: { id: "j1", type: "index" } });
+  const row = (await screen.findByText("notes.txt")).closest("tr")!;
+  await screen.findByText(/索引作業執行中/);
+  expect(within(row).getByRole("button", { name: "編輯標籤" })).toBeEnabled();
+});
+
+test("a bulk upload ends in one summary toast and one listing refresh", async () => {
+  uploadFailures = { "bad.txt": { status: 400, body: { detail: "x", code: "file_empty" } } };
+  renderPanel();
+  await screen.findByText("notes.txt");
+  const reads = listReads();
+  await userEvent.upload(uploadInput(), [txt("a.txt"), txt("b.txt"), txt("bad.txt")]);
+  expect(await screen.findByText(/已上傳 2 個檔案，1 個失敗：bad.txt/)).toBeInTheDocument();
+  // Only the summary: no per-file success toast.
+  expect(screen.queryByText("已上傳 a.txt")).not.toBeInTheDocument();
+  await waitFor(() => expect(listReads()).toBe(reads + 1));
+});
+
+test("a single upload keeps the named toast", async () => {
+  renderPanel();
+  await screen.findByText("notes.txt");
+  await userEvent.upload(uploadInput(), txt("a.txt"));
+  expect(await screen.findByText("已上傳 a.txt")).toBeInTheDocument();
+});
+
+test("the uploader names the per-file limit and refuses a larger file before sending", async () => {
+  renderPanel({ body: { ...FILES_BODY, max_file_bytes: 1024 } });
+  expect(await screen.findByText(/每個檔案上限 1.0 KiB/)).toBeInTheDocument();
+  await userEvent.upload(uploadInput(), txt("big.txt", 2048));
+  expect(await screen.findByText(/big.txt 超過每個檔案 1.0 KiB 的上限/)).toBeInTheDocument();
+  expect(uploadPosts()).toBe(0);
+});
+
+test("an oversized file in a drop is named once in the summary", async () => {
+  renderPanel({ body: { ...FILES_BODY, max_file_bytes: 1024 } });
+  await screen.findByText("notes.txt");
+  await userEvent.upload(uploadInput(), [txt("a.txt"), txt("big.txt", 2048)]);
+  expect(await screen.findByText("已上傳 1 個檔案，1 個失敗：big.txt（超過每個檔案 1.0 KiB 的上限）")).toBeInTheDocument();
+  expect(uploadPosts()).toBe(1);
+});
+
+test("deleting a selected row drops it from the selection", async () => {
+  renderPanel();
+  await userEvent.click(await screen.findByRole("checkbox", { name: /notes.txt/ }));
+  expect(screen.getByRole("button", { name: "刪除所選" })).toBeEnabled();
+  const row = screen.getByText("notes.txt").closest("tr")!;
+  await userEvent.click(within(row).getByRole("button", { name: /刪\s*除/ }));
+  await userEvent.click(document.querySelector<HTMLElement>(".ant-popconfirm .ant-btn-dangerous")!);
+  await screen.findByText("檔案已刪除");
+  await waitFor(() => expect(screen.getByRole("button", { name: "刪除所選" })).toBeDisabled());
+  expect(screen.getByRole("button", { name: "標記所選…" })).toBeDisabled();
 });

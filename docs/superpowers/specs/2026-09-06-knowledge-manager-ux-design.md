@@ -1246,14 +1246,22 @@ a 409 they never returned before. No route shape changes.
   never seen before, and both must explain themselves — `removed`
   specifically must say that only a **full rebuild** clears it.
 - When `ingest_check` is not `available`, the table shows one banner
-  explaining that silent-skip detection is off and which reason applies.
+  explaining that silent-skip detection is off and which reason applies —
+  but only once the project has a baseline (`has_baseline`): before the
+  first index there is nothing the user can act on, and the banner would
+  be jargon ahead of the first upload (amended by fix wave F12, R4-31).
 - **Frozen state**: while an `index`/`update` job is active, the uploader
   and delete actions
   are disabled with the reason shown, rather than letting the user
   discover the 409.
 - **Bulk actions**: delete and tag/untag over selected rows. Bulk delete
   confirms with count and total size — deleting 30 documents is not the
-  same act as deleting one.
+  same act as deleting one. *Tag selected…* opens one dialog whose tag
+  picker adds the chosen tags to, or removes them from, every selected
+  file; each row's tags cell also has an *Edit tags* link that saves only
+  the difference. Tagging is metadata, so it stays open while a job
+  freezes the project. A deleted row leaves the selection with it
+  (amended by fix wave F12, R1-03/R1-112).
 - **Preview drawer**: props
   `{ name, locator?: { resultId: string; entryId: number } | { passage: string } }`,
   sent as a `POST` body (§7.4). `entryId` is a `number`, matching the
@@ -1263,6 +1271,11 @@ a 409 they never returned before. No route shape changes.
   whether the answer came from a stored run or an ad-hoc query.
 - **Upload**: `Upload.Dragger` unchanged, but a persistent "N documents
   not yet indexed" bar appears above the table linking to the jobs page.
+  A drop of several files reports one progress toast and one summary
+  ("Uploaded 13 files, 1 failed: …") and refreshes the listing once. The
+  hint names the per-file cap (`FileListOut.max_file_bytes`, from
+  `UPLOAD_MAX_FILE_MB`), and a larger file is refused before it is sent
+  (amended by fix wave F12, R4-07/R4-08).
 
 ### 9.2 Slice ② — Retrieval test workbench
 
