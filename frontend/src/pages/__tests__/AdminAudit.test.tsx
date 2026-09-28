@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { createQueryClient } from "../../api/queryClient";
 import { MemoryRouter } from "react-router-dom";
 import AdminAudit from "../AdminAudit";
 import { useAuth } from "../../stores/auth";
@@ -67,7 +68,7 @@ beforeEach(() => {
 
 function mountAudit() {
   render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={createQueryClient()}>
       <MemoryRouter><AdminAudit /></MemoryRouter>
     </QueryClientProvider>,
   );

@@ -2,7 +2,8 @@ import { render, screen, waitFor, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi, beforeEach, afterEach } from "vitest";
 import { Modal } from "antd";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { createQueryClient } from "../../api/queryClient";
 import { MemoryRouter } from "react-router-dom";
 import JobsPanel from "../JobsPanel";
 import { stubFetch } from "../../testing/stubFetch";
@@ -49,9 +50,10 @@ const PREFLIGHT = {
 // method for POST) so a wrong endpoint or body cannot silently pass.
 let jobsList: unknown[] = [job()];
 let postResponse: () => Response = () => new Response(JSON.stringify(job({ id: "j9" })), { status: 201 });
+let preflightResponse: () => Response = () => new Response(JSON.stringify(PREFLIGHT), { status: 200 });
 const apiMock = vi.fn(async (path: string, init?: RequestInit) => {
   if (path === "/api/projects/p1/jobs/preflight") {
-    return new Response(JSON.stringify(PREFLIGHT), { status: 200 });
+    return preflightResponse();
   }
   if (path === "/api/projects/p1/jobs" && init?.method === "POST") {
     return postResponse();
@@ -82,12 +84,13 @@ afterEach(() => {
 beforeEach(() => {
   jobsList = [job()];
   postResponse = () => new Response(JSON.stringify(job({ id: "j9" })), { status: 201 });
+  preflightResponse = () => new Response(JSON.stringify(PREFLIGHT), { status: 200 });
 });
 
 
 function mount(canEdit: boolean) {
   render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={createQueryClient()}>
       <MemoryRouter>
         <JobsPanel projectId="p1" canEdit={canEdit} />
       </MemoryRouter>
@@ -117,6 +120,16 @@ test("409 from POST surfaces the backend detail via message.error", async () => 
   await user.click(await screen.findByRole("button", { name: "開始索引" }));
   await user.click(await screen.findByRole("button", { name: /^開\s?始$/ }));
   expect(await screen.findByText("此專案已有進行中的索引任務")).toBeInTheDocument();
+});
+
+// The shared preflight query is quiet by default (the documents and
+// workbench panes treat it as decoration); this pane opts back into the
+// toast because its launch guardrail depends on it.
+test("a failed preflight toasts here, once", async () => {
+  preflightResponse = () =>
+    new Response(JSON.stringify({ detail: "preflight exploded" }), { status: 500 });
+  mount(true);
+  expect(await screen.findByText("preflight exploded")).toBeInTheDocument();
 });
 
 test("queued row shows 取消 and POSTs cancel after Popconfirm", async () => {

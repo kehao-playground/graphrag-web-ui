@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { Alert, Card, Empty, Input, Space, Table, Tag, Typography, message } from "antd";
+import { Alert, Card, Empty, Input, Space, Table, Tag, Typography } from "antd";
 import type { TableProps } from "antd";
-import { apiJson } from "../api/client";
-import type { AuditEntry, AuditPage } from "../api/types";
+import { adminAudit } from "../api/queries";
+import type { AuditEntry } from "../api/types";
 
 const PAGE_SIZE = 50;
 
@@ -39,22 +39,9 @@ export default function AdminAudit() {
     setPage(1);
   };
 
-  const query = useQuery({
-    queryKey: ["admin", "audit", page, action, targetType],
-    queryFn: async () => {
-      const params = new URLSearchParams({
-        limit: String(PAGE_SIZE),
-        offset: String((page - 1) * PAGE_SIZE),
-      });
-      if (action) params.set("action", action);
-      if (targetType) params.set("target_type", targetType);
-      return apiJson<AuditPage>(`/api/admin/audit?${params}`, "adminAudit.loadFailed");
-    },
-  });
-
-  useEffect(() => {
-    if (query.error) message.error(query.error.message);
-  }, [query.error]);
+  const query = useQuery(adminAudit({
+    limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE, action, targetType,
+  }));
 
   const columns: TableProps<AuditEntry>["columns"] = [
     {

@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, vi } from "vitest";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { createQueryClient } from "../../api/queryClient";
 import { MemoryRouter } from "react-router-dom";
 import Projects from "../Projects";
 import { stubFetch } from "../../testing/stubFetch";
@@ -81,7 +82,7 @@ function renderProjects(opts: {
     };
   }
   return render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={createQueryClient()}>
       <MemoryRouter><Projects /></MemoryRouter>
     </QueryClientProvider>,
   );

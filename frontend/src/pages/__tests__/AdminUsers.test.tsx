@@ -1,6 +1,7 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { vi } from "vitest";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { createQueryClient } from "../../api/queryClient";
 import { MemoryRouter } from "react-router-dom";
 import AdminUsers from "../AdminUsers";
 import { useAuth } from "../../stores/auth";
@@ -39,7 +40,7 @@ const api = vi.fn(async (url: string) => {
 stubFetch(api);
 
 test("renders user list", async () => {
-  const qc = new QueryClient()
+  const qc = createQueryClient()
   render(<QueryClientProvider client={qc}><MemoryRouter><AdminUsers /></MemoryRouter></QueryClientProvider>)
   expect(await screen.findByText("alice@test.local")).toBeInTheDocument()
   expect(await screen.findByText("bob@test.local")).toBeInTheDocument()
@@ -61,7 +62,7 @@ test("role column renders localized built-in labels and — for zero roles", asy
 
 function mountAdminUsers() {
   render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={createQueryClient()}>
       <MemoryRouter><AdminUsers /></MemoryRouter>
     </QueryClientProvider>,
   )

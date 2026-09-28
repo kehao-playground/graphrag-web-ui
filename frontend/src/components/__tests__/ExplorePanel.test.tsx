@@ -2,7 +2,8 @@ import { render, screen, waitFor, cleanup, within } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 import { vi, beforeEach, afterEach } from "vitest";
 import type { ReactNode } from "react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { createQueryClient } from "../../api/queryClient";
 import ExplorePanel from "../ExplorePanel";
 import { useAuth } from "../../stores/auth";
 import type { GraphData } from "../../api/types";
@@ -104,7 +105,7 @@ beforeEach(() => {
 
 function mount() {
   render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={createQueryClient()}>
       <ExplorePanel projectId="p1" canUse />
     </QueryClientProvider>,
   );

@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import {
-  Alert, Drawer, Input, Segmented, Skeleton, Space, Typography, message,
+  Alert, Drawer, Input, Segmented, Skeleton, Space, Typography,
 } from "antd";
-import type { Citation, QueryTimings, ResultList } from "../../api/types";
-import { apiJson, sendOk } from "../../api/client";
+import type { Citation, QueryTimings } from "../../api/types";
+import { sendOk } from "../../api/client";
+import { runResults } from "../../api/queries";
 import AnswerView from "./AnswerView";
 
 // One cell's full result (spec §9.2 "Cell → drawer"): the question AS ASKED
@@ -41,13 +42,7 @@ export default function ResultDrawer({ projectId, runId, resultId, onClose, onRa
   const open = runId !== null && currentId !== null;
 
   const bodyRef = useRef<HTMLDivElement>(null);
-  const results = useQuery({
-    queryKey: ["test-runs", runId, "results"],
-    queryFn: () =>
-      apiJson<ResultList>(`/api/test-runs/${runId}/results`, "workbench.loadResultsFailed"),
-    enabled: open,
-    retry: false,
-  });
+  const results = useQuery({ ...runResults(runId ?? ""), enabled: open });
 
   // Focus the drawer body when it opens: rc-drawer's focus lock can lose
   // the race with the panel motion, and keys 1/2/3 only reach the handler
@@ -59,9 +54,6 @@ export default function ResultDrawer({ projectId, runId, resultId, onClose, onRa
     const dialog = bodyRef.current.closest('[role="dialog"]');
     if (!dialog?.contains(document.activeElement)) bodyRef.current.focus();
   }, [open, results.data]);
-  useEffect(() => {
-    if (results.error) message.error(results.error.message);
-  }, [results.error]);
 
   const list = results.data?.results ?? [];
   const index = list.findIndex((r) => r.id === currentId);
@@ -84,9 +76,8 @@ export default function ResultDrawer({ projectId, runId, resultId, onClose, onRa
     ),
     onSuccess: () => {
       onRated();
-      void qc.invalidateQueries({ queryKey: ["test-runs", runId, "results"] });
+      void qc.invalidateQueries({ queryKey: runResults(runId ?? "").queryKey });
     },
-    onError: (e) => message.error(e.message),
   });
 
   // Advance only after the rating landed; on the last result the drawer

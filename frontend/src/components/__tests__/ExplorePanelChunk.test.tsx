@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { createQueryClient } from "../../api/queryClient";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import ExplorePanel from "../ExplorePanel";
 import { stubFetch } from "../../testing/stubFetch";
@@ -19,7 +20,7 @@ afterEach(() => { vi.restoreAllMocks(); });
 
 test("a failed graph chunk shows the error in place; table mode still works", async () => {
   render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={createQueryClient()}>
       <ExplorePanel projectId="p1" canUse />
     </QueryClientProvider>,
   );

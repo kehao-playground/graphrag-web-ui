@@ -1,15 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Descriptions, Drawer, Spin, Typography } from "antd";
-import { apiJson } from "../../api/client";
-import type { PreviewOut } from "../../api/types";
+import { filePreview } from "../../api/queries";
+import type { Locator } from "../../api/queries";
 
-// A locator pins WHERE in the document the window should center on. Slice ①
-// rows pass none — the drawer opens from a row and shows the head window.
-// Slice ③ passes {resultId, entryId} for a stored run or {passage} for an
-// ad-hoc query, picking the variant by where the answer came from (spec
-// §7.4); entryId is a number to match Citation.ids.
-export type Locator = { resultId: string; entryId: number } | { passage: string };
+// Slice ① rows pass no locator — the drawer opens from a row and shows the
+// head window. Slice ③ passes one picked by where the answer came from
+// (see Locator in api/queries).
+export type { Locator };
 
 export default function FilePreviewDrawer({ projectId, name, locator, onClose }: {
   projectId: string;
@@ -21,24 +19,8 @@ export default function FilePreviewDrawer({ projectId, name, locator, onClose }:
 }) {
   const { t } = useTranslation();
   const preview = useQuery({
-    // locator participates in the key so a slice-3 caller re-fetches when
-    // the pin changes even if the document stays the same.
-    queryKey: ["projects", projectId, "files", name, "preview", locator ?? null],
-    queryFn: () => {
-      const url = `/api/projects/${projectId}/files/${encodeURIComponent(name!)}/preview`;
-      // GET keeps slice ①'s head window untouched; a locator always POSTs
-      // its binding body (spec §7.4) — {result_id, entry_id} makes the
-      // server re-read the stored passage, {passage} searches the document
-      // for text the ad-hoc answer already cited.
-      return apiJson<PreviewOut>(url, "files.previewLoadFailed", locator && {
-        method: "POST",
-        body: JSON.stringify("passage" in locator
-          ? { passage: locator.passage }
-          : { result_id: locator.resultId, entry_id: locator.entryId }),
-      });
-    },
+    ...filePreview(projectId, name ?? "", locator ?? null),
     enabled: name !== null,
-    retry: false,
   });
 
   return (

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { dump as yamlDump, load as yamlLoad } from "js-yaml";
@@ -7,9 +7,8 @@ import {
 } from "antd";
 import type { TableProps } from "antd";
 import { ApiRequestError, apiJson, sendOk } from "../api/client";
-import type {
-  DryRunOut, EnvKeyOut, EnvOut, SettingsOut, SettingsVersionDetail, SettingsVersionOut,
-} from "../api/types";
+import { projectEnv, projectSettings, settingsVersions } from "../api/queries";
+import type { DryRunOut, EnvKeyOut, SettingsVersionDetail } from "../api/types";
 
 const { TextArea } = Input;
 const { Text } = Typography;
@@ -38,10 +37,7 @@ export default function SettingsPanel({ projectId, canEdit }: {
   const [envKey, setEnvKey] = useState("");
   const [envValue, setEnvValue] = useState("");
 
-  const settings = useQuery({
-    queryKey: ["projects", projectId, "settings"],
-    queryFn: () => apiJson<SettingsOut>(`/api/projects/${projectId}/settings`, "settings.loadFailed"),
-  });
+  const settings = useQuery(projectSettings(projectId));
 
   // Local edit keyed by the server hash it was based on: while the hash
   // matches, the local text wins; a new server hash (successful save,
@@ -51,21 +47,9 @@ export default function SettingsPanel({ projectId, canEdit }: {
     ? edit.content
     : (settings.data?.content ?? "");
   const setContent = (c: string) => setEdit({ hash: settings.data?.content_hash ?? "", content: c });
-  const versions = useQuery({
-    queryKey: ["projects", projectId, "versions"],
-    queryFn: () => apiJson<SettingsVersionOut[]>(
-      `/api/projects/${projectId}/settings/versions`, "settings.loadVersionsFailed",
-    ),
-  });
-
-  const env = useQuery({
-    queryKey: ["projects", projectId, "env"],
-    queryFn: () => apiJson<EnvOut>(`/api/projects/${projectId}/env`, "settings.loadEnvFailed"),
-  });
-
-  useEffect(() => {
-    if (settings.error) message.error(settings.error.message);
-  }, [settings.error]);
+  const versions = useQuery(settingsVersions(projectId));
+  const env = useQuery(projectEnv(projectId));
+  const invalidateEnv = () => qc.invalidateQueries({ queryKey: projectEnv(projectId).queryKey });
 
   async function fetchVersion(id: number): Promise<SettingsVersionDetail | null> {
     try {
@@ -79,8 +63,10 @@ export default function SettingsPanel({ projectId, canEdit }: {
   }
 
   // Shared PUT: 409 stores the server-side state for the conflict modal
-  // (both direct saves and restores flow through here).
+  // (both direct saves and restores flow through here). Its onError owns
+  // the toast, so the shared one stays out.
   const save = useMutation({
+    meta: { silent: true },
     mutationFn: ({ content: c, expectedHash }: { content: string; expectedHash: string }) =>
       sendOk(`/api/projects/${projectId}/settings`, "settings.saveFailed", {
         method: "PUT",
@@ -100,12 +86,14 @@ export default function SettingsPanel({ projectId, canEdit }: {
     onSuccess: async () => {
       setConflict(null);
       message.success(t("settings.saved"));
-      await qc.invalidateQueries({ queryKey: ["projects", projectId, "settings"] });
-      await qc.invalidateQueries({ queryKey: ["projects", projectId, "versions"] });
+      await qc.invalidateQueries({ queryKey: projectSettings(projectId).queryKey });
+      await qc.invalidateQueries({ queryKey: settingsVersions(projectId).queryKey });
     },
   });
 
+  // A failed dry run is a result, shown inline — not a toast.
   const dryRunMutation = useMutation({
+    meta: { silent: true },
     mutationFn: () => apiJson<DryRunOut>(
       `/api/projects/${projectId}/dry-run`, "settings.dryRunFailed", { method: "POST" },
     ),
@@ -118,12 +106,11 @@ export default function SettingsPanel({ projectId, canEdit }: {
       method: "PATCH",
       body: JSON.stringify({ key: envKey, value: envValue }),
     }),
-    onError: (e) => message.error(e.message),
     onSuccess: async () => {
       setEnvKey("");
       setEnvValue("");
       message.success(t("settings.envSet"));
-      await qc.invalidateQueries({ queryKey: ["projects", projectId, "env"] });
+      await invalidateEnv();
     },
   });
 
@@ -132,10 +119,9 @@ export default function SettingsPanel({ projectId, canEdit }: {
       `/api/projects/${projectId}/env/${encodeURIComponent(key)}`, "settings.envDeleteFailed",
       { method: "DELETE" },
     ),
-    onError: (e) => message.error(e.message),
     onSuccess: async () => {
       message.success(t("settings.envDeleted"));
-      await qc.invalidateQueries({ queryKey: ["projects", projectId, "env"] });
+      await invalidateEnv();
     },
   });
   // Form mode parses the current YAML. Empty content parses to undefined and
@@ -284,7 +270,7 @@ export default function SettingsPanel({ projectId, canEdit }: {
             if (!conflict) return;
             setContent(conflict.currentContent);
             setConflict(null);
-            qc.invalidateQueries({ queryKey: ["projects", projectId, "settings"] });
+            qc.invalidateQueries({ queryKey: projectSettings(projectId).queryKey });
           }}>{t("settings.reload")}</Button>,
           <Button key="overwrite" danger type="primary" onClick={() => {
             if (!conflict) return;

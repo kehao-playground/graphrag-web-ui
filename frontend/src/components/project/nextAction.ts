@@ -1,5 +1,3 @@
-import type { TFunction } from "i18next";
-
 // The ordered check behind the overview's action card (spec §9.3), as a
 // pure module next to its component — the repo's methods.ts / ratings.ts
 // pattern — because exporting functions from ActionCard.tsx would break
@@ -66,14 +64,4 @@ export function nextAction(health: ActionHealth): NextAction {
     return { key: "regressions", severity: "warning", target: "tests?regressions=1" };
   }
   return { key: "healthy", severity: "success", target: null };
-}
-
-// Job-type vocabulary shared by the action card's active-job copy and the
-// overview's last-index mini-card (Workbench keeps its own copy for its
-// conflict notice); unknown types render raw, like methodLabel.
-export function jobTypeLabel(v: string, t: TFunction): string {
-  return v === "index" ? t("workbench.typeIndex")
-    : v === "update" ? t("workbench.typeUpdate")
-    : v === "test_run" ? t("workbench.typeTestRun")
-    : v;
 }

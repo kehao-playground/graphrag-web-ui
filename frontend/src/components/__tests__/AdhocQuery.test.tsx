@@ -1,7 +1,8 @@
 import { render, screen, cleanup, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, vi } from "vitest";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { createQueryClient } from "../../api/queryClient";
 import AdhocQuery from "../tests/AdhocQuery";
 import { useAuth } from "../../stores/auth";
 import { stubFetch } from "../../testing/stubFetch";
@@ -67,7 +68,7 @@ afterEach(() => {
 
 function mount(canUse = true) {
   return render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={createQueryClient()}>
       <AdhocQuery projectId="p1" canUse={canUse} />
     </QueryClientProvider>,
   );
@@ -167,7 +168,7 @@ test("transport error (pre-stream 4xx / network) shows the generic message and c
 
 test("unmount closes the EventSource", async () => {
   const { unmount } = render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={createQueryClient()}>
       <AdhocQuery projectId="p1" canUse />
     </QueryClientProvider>,
   );

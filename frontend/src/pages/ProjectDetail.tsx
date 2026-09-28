@@ -6,8 +6,10 @@ import {
   Alert, Button, Descriptions, Popconfirm, Select, Space, Spin, Table, Tag, Typography, message,
 } from "antd";
 import type { TableProps } from "antd";
-import { apiJson, sendOk } from "../api/client";
-import type { Member, Project, Role, UserBrief } from "../api/types";
+import { sendOk } from "../api/client";
+import { projectById, projectMembers, roleCatalog, usersBrief } from "../api/queries";
+import type { Member, Project, UserBrief } from "../api/types";
+import { roleLabel } from "../components/labels";
 import FilesPanel from "../components/FilesPanel";
 import SettingsPanel from "../components/SettingsPanel";
 import JobsPanel from "../components/JobsPanel";
@@ -15,11 +17,6 @@ import Workbench from "../components/tests/Workbench";
 import ExplorePanel from "../components/ExplorePanel";
 import ProjectSidebar from "../components/project/ProjectSidebar";
 import ProjectOverview from "./ProjectOverview";
-
-// Built-in role names are the backend seed's closed set, so the template
-// key stays inside typed-t's key union; custom roles render their raw name.
-type BuiltinRoleName =
-  "user_admin" | "ops" | "viewer" | "maintainer" | "editor" | "owner";
 
 // The routed panes (spec §4). App nests one <ProjectPane pane=…> per route
 // under /projects/:id; every pane reads this layout through the outlet
@@ -74,26 +71,10 @@ export default function ProjectDetail() {
   const [addRole, setAddRole] = useState<string>();
 
 
-  const project = useQuery({
-    queryKey: ["projects", id],
-    queryFn: () => apiJson<Project>(`/api/projects/${id}`, "projects.loadFailed"),
-    enabled: !!id,
-    retry: false,
-  });
-
-  const members = useQuery({
-    queryKey: ["projects", id, "members"],
-    queryFn: () => apiJson<Member[]>(`/api/projects/${id}/members`, "projectDetail.loadMembersFailed"),
-    enabled: !!id,
-    retry: false,
-  });
-
-  useEffect(() => {
-    if (project.error) message.error(project.error.message);
-  }, [project.error]);
-  useEffect(() => {
-    if (members.error) message.error(members.error.message);
-  }, [members.error]);
+  const project = useQuery({ ...projectById(id ?? ""), enabled: !!id });
+  const members = useQuery({ ...projectMembers(id ?? ""), enabled: !!id });
+  const invalidateMembers = () =>
+    qc.invalidateQueries({ queryKey: projectMembers(id ?? "").queryKey });
 
   // Backend-computed permission atoms (spec §8): my_permissions already
   // folds in owner, ops act_any and custom project:manage roles, so the UI
@@ -108,21 +89,12 @@ export default function ProjectDetail() {
 
   // Member role catalog (GET /api/roles?scope=project) — a hook like the
   // queries above, so it too lives above the early returns.
-  const rolesQ = useQuery({
-    queryKey: ["roles", "project"],
-    queryFn: () => apiJson<Role[]>("/api/roles?scope=project", "projectDetail.loadRolesFailed"),
-    retry: false,
-  });
+  const rolesQ = useQuery(roleCatalog("project"));
 
-  useEffect(() => {
-    if (rolesQ.error) message.error(rolesQ.error.message);
-  }, [rolesQ.error]);
-
-  const roleLabel = (r: Role) => (r.is_system ? t(`roles.${r.name as BuiltinRoleName}`) : r.name);
   // owner is not grantable (single-owner policy; the owner row renders locked)
   const MEMBER_ROLE_OPTIONS = (rolesQ.data ?? [])
     .filter((r) => r.name !== "owner")
-    .map((r) => ({ label: roleLabel(r), value: r.id }));
+    .map((r) => ({ label: roleLabel(r, t), value: r.id }));
 
   // Default the add-member role to the catalog's first grantable option
   // once it loads; later catalog refreshes keep the current choice.
@@ -133,16 +105,7 @@ export default function ProjectDetail() {
   // Adding a member needs user_id; GET /api/users is the narrow list every
   // logged-in user can call, so any project:manage holder can pick users
   // (the frontend filters out disabled ones)
-  const users = useQuery({
-    queryKey: ["users"],
-    queryFn: () => apiJson<UserBrief[]>("/api/users", "projects.loadUsersFailed"),
-    enabled: canManage,
-    retry: false,
-  });
-
-  useEffect(() => {
-    if (users.error) message.error(users.error.message);
-  }, [users.error]);
+  const users = useQuery({ ...usersBrief(), enabled: canManage });
 
   const putMember = useMutation({
     mutationFn: ({ userId, roleId }: { userId: string; roleId: string }) => sendOk(
@@ -151,9 +114,8 @@ export default function ProjectDetail() {
     ),
     onSuccess: () => {
       setAddUserId(undefined);
-      qc.invalidateQueries({ queryKey: ["projects", id, "members"] });
+      void invalidateMembers();
     },
-    onError: (e) => message.error(e.message),
   });
 
   const removeMember = useMutation({
@@ -162,9 +124,8 @@ export default function ProjectDetail() {
     ),
     onSuccess: () => {
       message.success(t("projectDetail.memberRemoved"));
-      qc.invalidateQueries({ queryKey: ["projects", id, "members"] });
+      void invalidateMembers();
     },
-    onError: (e) => message.error(e.message),
   });
 
   if (!id) return <Alert type="warning" showIcon message={t("projectDetail.missingId")} />;

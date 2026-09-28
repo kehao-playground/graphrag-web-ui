@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -6,8 +6,9 @@ import {
   Alert, Button, Card, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message,
 } from "antd";
 import type { TableProps } from "antd";
-import { api, apiJson, sendOk } from "../api/client";
-import type { BatchHealth, Project, UserBrief } from "../api/types";
+import { sendOk } from "../api/client";
+import { projectsHealth, projectsList, usersBrief } from "../api/queries";
+import type { Project } from "../api/types";
 
 
 const FILE_TYPES: Project["input_file_type"][] = ["text", "csv", "json"];
@@ -26,42 +27,17 @@ export default function Projects() {
   const [createOpen, setCreateOpen] = useState(false);
   const [form] = Form.useForm<CreateForm>();
 
-  const { data: projects, isPending, error } = useQuery({
-    queryKey: ["projects"],
-    queryFn: () => apiJson<Project[]>("/api/projects", "projects.loadFailed"),
-  });
+  const { data: projects, isPending, error } = useQuery(projectsList());
 
-  // One round trip for the whole visible list (spec §7.5): the ids ride in
-  // the key so a changed list refetches, and a failed fetch resolves to
-  // null — a missing flag costs the column, not the page; the per-project
-  // overview owns surfacing errors.
+  // One batch request for the whole visible list (spec §7.5); the per-
+  // project overview owns surfacing errors (see projectsHealth).
   const ids = useMemo(() => (projects ?? []).map((p) => p.id).join(","), [projects]);
-  const health = useQuery({
-    queryKey: ["projects", "health-batch", ids],
-    queryFn: async (): Promise<BatchHealth | null> => {
-      const r = await api(`/api/projects/health?ids=${ids}`);
-      return r.ok ? ((await r.json()) as BatchHealth) : null;
-    },
-    enabled: ids.length > 0,
-    retry: false,
-  });
-
-  useEffect(() => {
-    if (error) message.error(error.message);
-  }, [error]);
+  const health = useQuery(projectsHealth(ids));
 
   // Project carries only owner_id; GET /api/users is the narrow list every
-  // logged-in user can call, so resolve owners through the same ['users']
-  // query (as in ProjectDetail) instead of hitting each project's members (N+1).
-  const users = useQuery({
-    queryKey: ["users"],
-    queryFn: () => apiJson<UserBrief[]>("/api/users", "projects.loadUsersFailed"),
-    retry: false,
-  });
-
-  useEffect(() => {
-    if (users.error) message.error(users.error.message);
-  }, [users.error]);
+  // logged-in user can call, so resolve owners through the same query
+  // ProjectDetail uses instead of hitting each project's members (N+1).
+  const users = useQuery(usersBrief());
 
   const ownerById = useMemo(
     () => new Map((users.data ?? []).map((u) => [u.id, u] as const)),
@@ -75,19 +51,17 @@ export default function Projects() {
       message.success(t("projects.created"));
       setCreateOpen(false);
       form.resetFields();
-      qc.invalidateQueries({ queryKey: ["projects"] });
+      void qc.invalidateQueries({ queryKey: projectsList().queryKey });
     },
-    onError: (e) => message.error(e.message),
   });
 
   const remove = useMutation({
     mutationFn: (id: string) => sendOk(`/api/projects/${id}`, "projects.deleteFailed", { method: "DELETE" }),
     onSuccess: () => {
       message.success(t("projects.deleted"));
-      // Prefix invalidation: clears the list plus every project's members cache
-      qc.invalidateQueries({ queryKey: ["projects"] });
+      // Prefix invalidation: clears the list plus every per-project query
+      void qc.invalidateQueries({ queryKey: projectsList().queryKey });
     },
-    onError: (e) => message.error(e.message),
   });
 
   const columns: TableProps<Project>["columns"] = [

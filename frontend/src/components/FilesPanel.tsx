@@ -1,13 +1,12 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router-dom";
 import { Alert, Button, Modal, Space, Spin, Upload, message } from "antd";
 import type { UploadProps } from "antd";
 import { apiJson, sendOk } from "../api/client";
-import type {
-  BulkDeleteResult, FilesOut, Preflight, Project, TagCatalog, UploadedFile,
-} from "../api/types";
+import { jobsPreflight, projectFiles, projectTags } from "../api/queries";
+import type { BulkDeleteResult, Project, UploadedFile } from "../api/types";
 import FilePreviewDrawer from "./files/FilePreviewDrawer";
 import FilesToolbar from "./files/FilesToolbar";
 import FilesTable from "./files/FilesTable";
@@ -44,23 +43,12 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
   const [previewName, setPreviewName] = useState<string | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const files = useQuery({
-    queryKey: ["projects", projectId, "files"],
-    queryFn: () => apiJson<FilesOut>(`/api/projects/${projectId}/files`, "files.loadFailed"),
-    retry: false,
-  });
+  const files = useQuery(projectFiles(projectId));
+  const invalidateFiles = () => qc.invalidateQueries({ queryKey: projectFiles(projectId).queryKey });
 
-  useEffect(() => {
-    if (files.error) message.error(files.error.message);
-  }, [files.error]);
-
-  // Tag catalog for the toolbar's filter (GET /tags, Task 6). Quiet on
-  // failure: a missing catalog costs the filter's options, not the panel.
-  const tags = useQuery({
-    queryKey: ["projects", projectId, "tags"],
-    queryFn: () => apiJson<TagCatalog>(`/api/projects/${projectId}/tags`, "files.loadTagsFailed"),
-    retry: false,
-  });
+  // Tag catalog for the toolbar's filter (GET /tags, Task 6); quiet on
+  // failure (see projectTags).
+  const tags = useQuery(projectTags(projectId));
 
   const deleteFile = useMutation({
     mutationFn: (name: string) => sendOk(
@@ -69,23 +57,16 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
     ),
     onSuccess: () => {
       message.success(t("files.deleted"));
-      qc.invalidateQueries({ queryKey: ["projects", projectId, "files"] });
+      void invalidateFiles();
     },
-    onError: (e) => message.error(e.message),
   });
 
   // Frozen = an index/update job holds the project (spec 5.2b): the backend
   // refuses uploads/deletes/bulk deletes with 409 while it runs. The panel
   // disables the affordances and says why, rather than letting the user
-  // discover the 409. Shares JobsPanel's cache key so both tabs see one
-  // preflight; quiet on failure (a missing preflight costs the lock, not
-  // the panel).
-  const preflight = useQuery({
-    queryKey: ["projects", projectId, "jobs", "preflight"],
-    queryFn: () =>
-      apiJson<Preflight>(`/api/projects/${projectId}/jobs/preflight`, "jobs.loadPreflightFailed"),
-    retry: false,
-  });
+  // discover the 409. The preflight every pane shares; quiet on failure
+  // (a missing preflight costs the lock, not the panel).
+  const preflight = useQuery(jobsPreflight(projectId));
   const activeType = preflight.data?.active_job?.type;
   const frozen = activeType === "index" || activeType === "update";
 
@@ -104,9 +85,8 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
         );
       }
       setSelected([]);
-      qc.invalidateQueries({ queryKey: ["projects", projectId, "files"] });
+      void invalidateFiles();
     },
-    onError: (e) => message.error(e.message),
   });
 
   // Deleting N documents is not the same act as deleting one: the confirm
@@ -133,7 +113,7 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
       );
       onSuccess?.(out, file);
       message.success(t("files.uploaded", { name: (file as File).name }));
-      qc.invalidateQueries({ queryKey: ["projects", projectId, "files"] });
+      void invalidateFiles();
     } catch (e) {
       // HTTP errors arrive localized; api() rethrows network-level
       // failures, which surface the same way
