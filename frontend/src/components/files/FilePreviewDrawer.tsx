@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Descriptions, Drawer, Spin, Typography } from "antd";
-import { api, detailOf } from "../../api/client";
+import { apiJson } from "../../api/client";
+import type { PreviewOut } from "../../api/types";
 
 // A locator pins WHERE in the document the window should center on. Slice ①
 // rows pass none — the drawer opens from a row and shows the head window.
@@ -9,13 +10,6 @@ import { api, detailOf } from "../../api/client";
 // ad-hoc query, picking the variant by where the answer came from (spec
 // §7.4); entryId is a number to match Citation.ids.
 export type Locator = { resultId: string; entryId: number } | { passage: string };
-
-type PreviewOut = {
-  text: string;
-  offset: number;
-  total_size: number;
-  match: boolean;
-};
 
 export default function FilePreviewDrawer({ projectId, name, locator, onClose }: {
   projectId: string;
@@ -30,23 +24,18 @@ export default function FilePreviewDrawer({ projectId, name, locator, onClose }:
     // locator participates in the key so a slice-3 caller re-fetches when
     // the pin changes even if the document stays the same.
     queryKey: ["projects", projectId, "files", name, "preview", locator ?? null],
-    queryFn: async (): Promise<PreviewOut> => {
-      const base = `/api/projects/${projectId}/files/${encodeURIComponent(name!)}`;
+    queryFn: () => {
+      const url = `/api/projects/${projectId}/files/${encodeURIComponent(name!)}/preview`;
       // GET keeps slice ①'s head window untouched; a locator always POSTs
       // its binding body (spec §7.4) — {result_id, entry_id} makes the
       // server re-read the stored passage, {passage} searches the document
       // for text the ad-hoc answer already cited.
-      const r = !locator
-        ? await api(base + "/preview")
-        : await api(base + "/preview", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify("passage" in locator
-              ? { passage: locator.passage }
-              : { result_id: locator.resultId, entry_id: locator.entryId }),
-          });
-      if (!r.ok) throw new Error(await detailOf(r, "files.previewLoadFailed"));
-      return (await r.json()) as PreviewOut;
+      return apiJson<PreviewOut>(url, "files.previewLoadFailed", locator && {
+        method: "POST",
+        body: JSON.stringify("passage" in locator
+          ? { passage: locator.passage }
+          : { result_id: locator.resultId, entry_id: locator.entryId }),
+      });
     },
     enabled: name !== null,
     retry: false,

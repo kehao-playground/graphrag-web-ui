@@ -4,8 +4,8 @@ import { useTranslation } from "react-i18next";
 import {
   Alert, Drawer, Input, Segmented, Skeleton, Space, Typography, message,
 } from "antd";
-import type { Citation, QueryTimings, TestResult } from "../../api/types";
-import { api, detailOf } from "../../api/client";
+import type { Citation, QueryTimings, ResultList } from "../../api/types";
+import { apiJson, sendOk } from "../../api/client";
 import AnswerView from "./AnswerView";
 
 // One cell's full result (spec §9.2 "Cell → drawer"): the question AS ASKED
@@ -43,11 +43,8 @@ export default function ResultDrawer({ projectId, runId, resultId, onClose, onRa
   const bodyRef = useRef<HTMLDivElement>(null);
   const results = useQuery({
     queryKey: ["test-runs", runId, "results"],
-    queryFn: async () => {
-      const r = await api(`/api/test-runs/${runId}/results`);
-      if (!r.ok) throw new Error(await detailOf(r, "workbench.loadResultsFailed"));
-      return (await r.json()) as { results: TestResult[] };
-    },
+    queryFn: () =>
+      apiJson<ResultList>(`/api/test-runs/${runId}/results`, "workbench.loadResultsFailed"),
     enabled: open,
     retry: false,
   });
@@ -81,13 +78,10 @@ export default function ResultDrawer({ projectId, runId, resultId, onClose, onRa
   const note = noteDraft.for === currentId ? noteDraft.value : (current?.rating?.note ?? "");
 
   const rate = useMutation({
-    mutationFn: async (score: "good" | "fair" | "poor") => {
-      const r = await api(`/api/test-results/${currentId}/rating`, {
-        method: "PUT",
-        body: JSON.stringify({ score, note }),
-      });
-      if (!r.ok) throw new Error(await detailOf(r, "workbench.rateFailed"));
-    },
+    mutationFn: (score: "good" | "fair" | "poor") => sendOk(
+      `/api/test-results/${currentId}/rating`, "workbench.rateFailed",
+      { method: "PUT", body: JSON.stringify({ score, note }) },
+    ),
     onSuccess: () => {
       onRated();
       void qc.invalidateQueries({ queryKey: ["test-runs", runId, "results"] });

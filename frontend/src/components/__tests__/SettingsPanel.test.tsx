@@ -4,7 +4,7 @@ import { vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import SettingsPanel from "../SettingsPanel";
-import type * as ApiClient from "../../api/client";
+import { stubFetch } from "../../testing/stubFetch";
 
 const FIXTURE = {
   content: "input:\n  type: text\n  file_pattern: '.*\\.md$$'\n",
@@ -31,11 +31,8 @@ const apiMock = vi.fn(async (path: string, init?: RequestInit) => {
   }
   return new Response(JSON.stringify({}), { status: 200 });
 });
-// Real bodyOf stays under test; only the transport is mocked.
-vi.mock("../../api/client", async (importOriginal) => ({
-  ...(await importOriginal()) as typeof ApiClient,
-  api: (...args: unknown[]) => apiMock(...args as [string, RequestInit?]),
-}));
+// The real api client stays under test; only fetch is stubbed.
+stubFetch(apiMock);
 
 function mount() {
   const qc = new QueryClient();
@@ -61,10 +58,10 @@ test("save invokes api with PUT and body {content, expected_hash}", async () => 
   const user = userEvent.setup();
   await user.click(screen.getByRole("button", { name: /儲存/ }));
   await waitFor(() =>
-    expect(apiMock).toHaveBeenCalledWith("/api/projects/p1/settings", {
+    expect(apiMock).toHaveBeenCalledWith("/api/projects/p1/settings", expect.objectContaining({
       method: "PUT",
       body: JSON.stringify({ content: FIXTURE.content, expected_hash: "hash-from-get" }),
-    }));
+    })));
 });
 
 test("a 409 response opens the conflict modal showing server content", async () => {
@@ -113,4 +110,15 @@ test("form draft is reset when the server content hash changes", async () => {
   await user.click(screen.getByRole("button", { name: /儲存/ }));
   // refetch lands h2/42: the stale draft (99) must NOT survive the hash change
   await waitFor(() => expect(screen.getByLabelText("chunk-size")).toHaveValue("42"));
+});
+
+test("a network failure on save is shown, not swallowed (R1-21)", async () => {
+  fixture.content = FIXTURE.content;
+  fixture.content_hash = FIXTURE.content_hash;
+  putResponse = () => { throw new TypeError("Failed to fetch"); };
+  mount();
+  const ta = await screen.findByRole("textbox", { name: /yaml/i });
+  await waitFor(() => expect(ta).toHaveValue(FIXTURE.content));
+  await userEvent.setup().click(screen.getByRole("button", { name: /儲存/ }));
+  expect(await screen.findByText("Failed to fetch")).toBeInTheDocument();
 });

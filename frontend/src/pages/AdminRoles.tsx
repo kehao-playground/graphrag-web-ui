@@ -6,7 +6,7 @@ import {
   Select, Space, Table, Tag, Typography, message,
 } from "antd";
 import type { TableProps } from "antd";
-import { api, detailOf } from "../api/client";
+import { apiJson, sendOk } from "../api/client";
 import type { Role } from "../api/types";
 
 // Display labels only (spec §8): every permission DECISION stays
@@ -45,11 +45,7 @@ export default function AdminRoles() {
 
   const roles = useQuery({
     queryKey: ["admin", "roles"],
-    queryFn: async () => {
-      const r = await api("/api/admin/roles");
-      if (!r.ok) throw new Error(await detailOf(r, "adminRoles.loadFailed"));
-      return (await r.json()) as Role[];
-    },
+    queryFn: () => apiJson<Role[]>("/api/admin/roles", "adminRoles.loadFailed"),
   });
   useEffect(() => {
     if (roles.error) message.error(roles.error.message);
@@ -59,32 +55,23 @@ export default function AdminRoles() {
     qc.invalidateQueries({ queryKey: ["admin", "roles"] });
 
   const create = useMutation({
-    mutationFn: async (v: RoleForm) => {
-      const r = await api("/api/admin/roles", {
-        method: "POST", body: JSON.stringify(v),
-      });
-      if (!r.ok) throw new Error(await detailOf(r, "adminRoles.saveFailed"));
-    },
+    mutationFn: (v: RoleForm) =>
+      sendOk("/api/admin/roles", "adminRoles.saveFailed", { method: "POST", body: JSON.stringify(v) }),
     onSuccess: () => { setCreateOpen(false); createForm.resetFields(); invalidate(); },
     onError: (e) => message.error(e.message),
   });
 
   const patch = useMutation({
-    mutationFn: async ({ id, v }: { id: string; v: Omit<RoleForm, "scope"> }) => {
-      const r = await api(`/api/admin/roles/${id}`, {
-        method: "PATCH", body: JSON.stringify(v),
-      });
-      if (!r.ok) throw new Error(await detailOf(r, "adminRoles.saveFailed"));
-    },
+    mutationFn: ({ id, v }: { id: string; v: Omit<RoleForm, "scope"> }) =>
+      sendOk(`/api/admin/roles/${id}`, "adminRoles.saveFailed",
+        { method: "PATCH", body: JSON.stringify(v) }),
     onSuccess: () => { setEditOpen(false); invalidate(); },
     onError: (e) => message.error(e.message),
   });
 
   const remove = useMutation({
-    mutationFn: async (id: string) => {
-      const r = await api(`/api/admin/roles/${id}`, { method: "DELETE" });
-      if (!r.ok) throw new Error(await detailOf(r, "adminRoles.deleteFailed"));
-    },
+    mutationFn: (id: string) =>
+      sendOk(`/api/admin/roles/${id}`, "adminRoles.deleteFailed", { method: "DELETE" }),
     onSuccess: invalidate,
     onError: (e) => message.error(e.message),  // 409 role_in_use lands here
   });

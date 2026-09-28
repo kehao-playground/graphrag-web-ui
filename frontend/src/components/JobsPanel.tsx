@@ -5,7 +5,7 @@ import {
   Alert, Button, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message,
 } from "antd";
 import type { TableProps } from "antd";
-import { api, detailOf } from "../api/client";
+import { apiJson, sendOk } from "../api/client";
 import { JobStatusColor } from "../api/types";
 import type { Job, Preflight } from "../api/types";
 import { i18n } from "../i18n";
@@ -51,11 +51,8 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
 
   const preflight = useQuery({
     queryKey: ["projects", projectId, "jobs", "preflight"],
-    queryFn: async () => {
-      const r = await api(`/api/projects/${projectId}/jobs/preflight`);
-      if (!r.ok) throw new Error(await detailOf(r, "jobs.loadPreflightFailed"));
-      return (await r.json()) as Preflight;
-    },
+    queryFn: () =>
+      apiJson<Preflight>(`/api/projects/${projectId}/jobs/preflight`, "jobs.loadPreflightFailed"),
     retry: false,
   });
 
@@ -63,11 +60,7 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
   // the query is quiet (refetchInterval false).
   const jobs = useQuery({
     queryKey: ["projects", projectId, "jobs"],
-    queryFn: async () => {
-      const r = await api(`/api/projects/${projectId}/jobs`);
-      if (!r.ok) throw new Error(await detailOf(r, "jobs.loadFailed"));
-      return (await r.json()) as Job[];
-    },
+    queryFn: () => apiJson<Job[]>(`/api/projects/${projectId}/jobs`, "jobs.loadFailed"),
     retry: false,
     refetchInterval: (query) =>
       query.state.data?.some(
@@ -90,13 +83,10 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
   };
 
   const startJob = useMutation({
-    mutationFn: async () => {
-      const r = await api(`/api/projects/${projectId}/jobs`, {
-        method: "POST",
-        body: JSON.stringify({ type, method }),
-      });
-      if (!r.ok) throw new Error(await detailOf(r, "jobs.startFailed"));
-    },
+    mutationFn: () => sendOk(`/api/projects/${projectId}/jobs`, "jobs.startFailed", {
+      method: "POST",
+      body: JSON.stringify({ type, method }),
+    }),
     onSuccess: () => {
       message.success(t("jobs.queued"));
       invalidateJobs();
@@ -105,10 +95,7 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
   });
 
   const cancelJob = useMutation({
-    mutationFn: async (id: string) => {
-      const r = await api(`/api/jobs/${id}/cancel`, { method: "POST" });
-      if (!r.ok) throw new Error(await detailOf(r, "jobs.cancelFailed"));
-    },
+    mutationFn: (id: string) => sendOk(`/api/jobs/${id}/cancel`, "jobs.cancelFailed", { method: "POST" }),
     onSuccess: () => {
       message.success(t("jobs.cancelRequested"));
       invalidateJobs();

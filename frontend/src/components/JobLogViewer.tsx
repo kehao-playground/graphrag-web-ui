@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Drawer } from "antd";
-import { useAuth } from "../stores/auth";
+import { sseUrl } from "../api/client";
 
-// Live job log viewer: native EventSource over the SSE route (Task 4).
-// EventSource cannot send an Authorization header, so the access token is
-// passed as a ?token= query param (backend accepts it on this route only).
-// Reconnect after a drop is native: the browser replays Last-Event-ID.
+// Live job log viewer: native EventSource over the SSE route (Task 4);
+// sseUrl() carries the auth rule. Reconnect after a drop is native: the
+// browser replays Last-Event-ID.
 export default function JobLogViewer({ jobId, open, onClose }: {
   jobId: string | null;
   open: boolean;
@@ -19,11 +18,7 @@ export default function JobLogViewer({ jobId, open, onClose }: {
   useEffect(() => {
     if (!open || !jobId) return;
     setChunks([]);
-    // Read the token at stream-open time only: subscribing to the store would
-    // re-create the EventSource on every 15-min rotation and replay the log.
-    const token = useAuth.getState().accessToken;
-    const url = `/api/jobs/${jobId}/logs${token ? `?token=${encodeURIComponent(token)}` : ""}`;
-    const es = new EventSource(url);
+    const es = new EventSource(sseUrl(`/api/jobs/${jobId}/logs`));
     // data is a JSON-encoded string chunk; json.dumps keeps it single-line.
     es.addEventListener("log", (e) => {
       setChunks((prev) => [...prev, JSON.parse((e as MessageEvent).data) as string]);

@@ -6,7 +6,7 @@ import {
   Alert, Button, Card, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message,
 } from "antd";
 import type { TableProps } from "antd";
-import { api, detailOf } from "../api/client";
+import { api, apiJson, sendOk } from "../api/client";
 import type { BatchHealth, Project, UserBrief } from "../api/types";
 
 
@@ -28,11 +28,7 @@ export default function Projects() {
 
   const { data: projects, isPending, error } = useQuery({
     queryKey: ["projects"],
-    queryFn: async () => {
-      const r = await api("/api/projects");
-      if (!r.ok) throw new Error(await detailOf(r, "projects.loadFailed"));
-      return (await r.json()) as Project[];
-    },
+    queryFn: () => apiJson<Project[]>("/api/projects", "projects.loadFailed"),
   });
 
   // One round trip for the whole visible list (spec §7.5): the ids ride in
@@ -59,11 +55,7 @@ export default function Projects() {
   // query (as in ProjectDetail) instead of hitting each project's members (N+1).
   const users = useQuery({
     queryKey: ["users"],
-    queryFn: async () => {
-      const r = await api("/api/users");
-      if (!r.ok) throw new Error(await detailOf(r, "projects.loadUsersFailed"));
-      return (await r.json()) as UserBrief[];
-    },
+    queryFn: () => apiJson<UserBrief[]>("/api/users", "projects.loadUsersFailed"),
     retry: false,
   });
 
@@ -77,10 +69,8 @@ export default function Projects() {
   );
 
   const create = useMutation({
-    mutationFn: async (v: CreateForm) => {
-      const r = await api("/api/projects", { method: "POST", body: JSON.stringify(v) });
-      if (!r.ok) throw new Error(await detailOf(r, "projects.createFailed"));
-    },
+    mutationFn: (v: CreateForm) =>
+      sendOk("/api/projects", "projects.createFailed", { method: "POST", body: JSON.stringify(v) }),
     onSuccess: () => {
       message.success(t("projects.created"));
       setCreateOpen(false);
@@ -91,10 +81,7 @@ export default function Projects() {
   });
 
   const remove = useMutation({
-    mutationFn: async (id: string) => {
-      const r = await api(`/api/projects/${id}`, { method: "DELETE" });
-      if (!r.ok) throw new Error(await detailOf(r, "projects.deleteFailed"));
-    },
+    mutationFn: (id: string) => sendOk(`/api/projects/${id}`, "projects.deleteFailed", { method: "DELETE" }),
     onSuccess: () => {
       message.success(t("projects.deleted"));
       // Prefix invalidation: clears the list plus every project's members cache

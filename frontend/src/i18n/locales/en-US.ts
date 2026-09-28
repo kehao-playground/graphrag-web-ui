@@ -294,6 +294,11 @@ const enUS = {
     logout: "Log out",
     title: "GraphRAG Web UI",
   },
+  errorBoundary: {
+    title: "This section failed to load",
+    retry: "Retry",
+    reload: "Reload page",
+  },
   files: {
     loadFailed: "Failed to load files ({{status}})",
     loadTagsFailed: "Failed to load tags ({{status}})",

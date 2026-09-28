@@ -4,8 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Navigate, Route, Routes } from "react-router-dom";
 import ProjectDetail, { ProjectPane } from "../ProjectDetail";
 import { useAuth } from "../../stores/auth";
-import { api } from "../../api/client";
-import type * as ApiClient from "../../api/client";
+import { stubFetch } from "../../testing/stubFetch";
 
 // The backend seed's four project built-ins, in the catalog's (scope, name) order.
 const VIEWER_ID = "00000000-0000-4000-8000-000000000003";
@@ -78,34 +77,32 @@ let healthBody: Record<string, unknown> = HEALTH;
 
 const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
 
-// Real detailOf stays under test; only the transport is mocked. Every URL
+// The real api client stays under test; only fetch is stubbed. Every URL
 // the layout, the sidebar and the routed panes can hit is enumerated, so
 // a wrong endpoint fails loudly instead of falling through to a
 // same-shaped body.
-vi.mock("../../api/client", async (importOriginal) => ({
-  ...(await importOriginal()) as typeof ApiClient,
-  api: vi.fn(async (url: string, init?: RequestInit) => {
-    if (url === "/api/roles?scope=project") return json(projectRoles);
-    if (url === "/api/projects/p1/members" && init?.method !== "PUT") return json(members);
-    if (url === "/api/projects/p1/members/u3" && init?.method === "PUT") return json({});
-    if (url === "/api/users") return json(users);
-    if (url === "/api/projects/p1/health") return json(healthBody);
-    if (url === "/api/projects/p1/files") return json(FILES);
-    if (url === "/api/projects/p1/tags") return json({ tags: [] });
-    if (url === "/api/projects/p1/jobs") return json([]);
-    if (url === "/api/projects/p1/jobs/preflight") return json({
-      active_job: null, cache_bytes: 0, cache_quota_mb: 1024,
-      disk_free_mb: 51200, disk_watermark_mb: 1024, last_run: null,
-    });
-    if (url === "/api/projects/p1/question-sets") return json({ sets: [] });
-    if (url === "/api/projects/p1/test-runs") return json({ runs: [], rows: [] });
-    if (url === "/api/projects/p1/settings") return json({ content: "input:\n  type: text\n", content_hash: "h1" });
-    if (url === "/api/projects/p1/settings/versions") return json([]);
-    if (url === "/api/projects/p1/env") return json({ keys: [] });
-    if (url === "/api/projects/p1") return json(project);
-    throw new Error(`unexpected ${init?.method ?? "GET"} ${url}`);
-  }),
-}))
+const api = vi.fn(async (url: string, init?: RequestInit) => {
+  if (url === "/api/roles?scope=project") return json(projectRoles);
+  if (url === "/api/projects/p1/members" && init?.method !== "PUT") return json(members);
+  if (url === "/api/projects/p1/members/u3" && init?.method === "PUT") return json({});
+  if (url === "/api/users") return json(users);
+  if (url === "/api/projects/p1/health") return json(healthBody);
+  if (url === "/api/projects/p1/files") return json(FILES);
+  if (url === "/api/projects/p1/tags") return json({ tags: [] });
+  if (url === "/api/projects/p1/jobs") return json([]);
+  if (url === "/api/projects/p1/jobs/preflight") return json({
+    active_job: null, cache_bytes: 0, cache_quota_mb: 1024,
+    disk_free_mb: 51200, disk_watermark_mb: 1024, last_run: null,
+  });
+  if (url === "/api/projects/p1/question-sets") return json({ sets: [] });
+  if (url === "/api/projects/p1/test-runs") return json({ runs: [], rows: [] });
+  if (url === "/api/projects/p1/settings") return json({ content: "input:\n  type: text\n", content_hash: "h1" });
+  if (url === "/api/projects/p1/settings/versions") return json([]);
+  if (url === "/api/projects/p1/env") return json({ keys: [] });
+  if (url === "/api/projects/p1") return json(project);
+  throw new Error(`unexpected ${init?.method ?? "GET"} ${url}`);
+});
+stubFetch(api);
 
 // Mounts the routed tree exactly as App wires it (Task 5): the ProjectDetail
 // layout with its nested panes, entered at a deep-linkable route.
@@ -236,9 +233,9 @@ test("owner row stays labeled and locked; add flow submits the picked role_id", 
   fireEvent.click(await screen.findByText("Carol(carol@test.local)"))
   fireEvent.click(within(addBar).getByRole("button", { name: /新\s*增/ }))
 
-  await waitFor(() => expect(vi.mocked(api)).toHaveBeenCalledWith(
+  await waitFor(() => expect(api).toHaveBeenCalledWith(
     "/api/projects/p1/members/u3",
-    { method: "PUT", body: JSON.stringify({ role_id: MAINTAINER_ID }) },
+    expect.objectContaining({ method: "PUT", body: JSON.stringify({ role_id: MAINTAINER_ID }) }),
   ))
 })
 

@@ -3,8 +3,8 @@ import { vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import AdminUsers from "../AdminUsers";
-import type * as ApiClient from "../../api/client";
 import { useAuth } from "../../stores/auth";
+import { stubFetch } from "../../testing/stubFetch";
 
 // No RTL auto-cleanup here: prior renders leak rows into later tests.
 afterEach(cleanup)
@@ -20,25 +20,23 @@ const globalRoles = [
 ];
 const userAdminRole = globalRoles[1];
 
-// Real detailOf stays under test; only the transport is mocked.
-vi.mock("../../api/client", async (importOriginal) => ({
-  ...(await importOriginal()) as typeof ApiClient,
-  // A Response body is single-use; build a fresh one per api() call so
-  // later tests in this file still get a readable body.
-  api: vi.fn(async (url: string) => {
-    if (url === "/api/roles?scope=global") {
-      return new Response(JSON.stringify(globalRoles), { status: 200 });
-    }
-    return new Response(JSON.stringify([
-      { id: "u1", email: "alice@test.local", display_name: "Alice",
-        roles: [userAdminRole], permissions: ["users:manage"],
-        is_active: true, must_change_password: false },
-      { id: "u2", email: "bob@test.local", display_name: "Bob",
-        roles: [], permissions: [],
-        is_active: false, must_change_password: true },
-    ]), { status: 200 });
-  }),
-}))
+// The real api client stays under test; only fetch is stubbed.
+// A Response body is single-use; build a fresh one per api() call so
+// later tests in this file still get a readable body.
+const api = vi.fn(async (url: string) => {
+  if (url === "/api/roles?scope=global") {
+    return new Response(JSON.stringify(globalRoles), { status: 200 });
+  }
+  return new Response(JSON.stringify([
+    { id: "u1", email: "alice@test.local", display_name: "Alice",
+      roles: [userAdminRole], permissions: ["users:manage"],
+      is_active: true, must_change_password: false },
+    { id: "u2", email: "bob@test.local", display_name: "Bob",
+      roles: [], permissions: [],
+      is_active: false, must_change_password: true },
+  ]), { status: 200 });
+});
+stubFetch(api);
 
 test("renders user list", async () => {
   const qc = new QueryClient()

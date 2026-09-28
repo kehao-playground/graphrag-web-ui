@@ -15,7 +15,7 @@ test("code maps through the errors catalog with params, per locale", async () =>
 });
 
 test("unknown code falls back to verbatim detail", () => {
-  expect(messageOfBody({ detail: "brand new error", code: "future_code" }, "k"))
+  expect(messageOfBody({ detail: "brand new error", code: "future_code" }, "files.loadFailed"))
     .toBe("brand new error");
 });
 

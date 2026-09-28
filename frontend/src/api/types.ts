@@ -12,6 +12,7 @@ export type Member = components["schemas"]["MemberOut"];
 export type Role = components["schemas"]["RoleOut"];
 export type FileEntry = components["schemas"]["FileEntryOut"];
 export type FilesOut = components["schemas"]["FileListOut"];
+export type UploadedFile = components["schemas"]["FileOut"];
 export type TagEntry = components["schemas"]["TagOut"];
 export type TagCatalog = components["schemas"]["TagCatalogOut"];
 export type BulkDeleteResult = components["schemas"]["BulkDeleteOut"];
@@ -30,6 +31,16 @@ export type TestRun = components["schemas"]["RunOut"];
 export type MatrixCell = components["schemas"]["CellOut"];
 export type MatrixRow = components["schemas"]["RowOut"];
 export type TestResult = components["schemas"]["ResultOut"];
+export type PreviewOut = components["schemas"]["PreviewOut"];
+export type EnvOut = components["schemas"]["EnvOut"];
+export type DryRunOut = components["schemas"]["DryRunOut"];
+export type SettingsWriteOut = components["schemas"]["SettingsWriteOut"];
+export type QuestionSetList = components["schemas"]["SetListOut"];
+export type QuestionList = components["schemas"]["QuestionListOut"];
+export type Matrix = components["schemas"]["MatrixOut"];
+export type ResultList = components["schemas"]["ResultListOut"];
+export type AuditEntry = components["schemas"]["AuditEntryOut"];
+export type AuditPage = components["schemas"]["AuditPageOut"];
 
 // display_status → antd Tag color; unknown statuses fall back to "default".
 // no backend response_model yet — hand-maintained (spec A5.2)

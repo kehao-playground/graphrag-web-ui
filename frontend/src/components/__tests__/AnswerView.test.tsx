@@ -5,11 +5,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import AnswerView from "../tests/AnswerView";
 import type { Citation } from "../../api/types";
-import type * as ApiClient from "../../api/client";
+import { stubFetch } from "../../testing/stubFetch";
 
 // Same mock discipline as FilesPanel.test.tsx: branch by URL so a wrong-path
 // query starves the assertion instead of passing on another call's payload.
-// Real detailOf stays under test; only the transport is mocked.
+// The real api client stays under test; only fetch is stubbed.
 let filesBody: Record<string, unknown> = {};
 let previewCalls = 0;
 let lastPreviewBody: unknown = null;
@@ -26,10 +26,7 @@ const apiMock = vi.fn(async (path: string, init?: RequestInit) => {
   }
   return new Response(JSON.stringify({}), { status: 200 });
 });
-vi.mock("../../api/client", async (importOriginal) => ({
-  ...(await importOriginal()) as typeof ApiClient,
-  api: (...args: unknown[]) => apiMock(...args as [string, RequestInit?]),
-}));
+stubFetch(apiMock);
 
 // The citation fixtures (spec §7.4): only Sources entries carry a
 // source_name, and it is resolved WITH the answer — the component must

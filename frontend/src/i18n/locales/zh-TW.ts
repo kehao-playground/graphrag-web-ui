@@ -301,6 +301,11 @@ export default {
     logout: "登出",
     title: "GraphRAG Web UI",
   },
+  errorBoundary: {
+    title: "此區塊載入失敗",
+    retry: "重試",
+    reload: "重新整理頁面",
+  },
   files: {
     loadFailed: "載入檔案失敗({{status}})",
     loadTagsFailed: "載入標籤失敗({{status}})",

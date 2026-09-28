@@ -6,9 +6,9 @@ import {
   Alert, Button, Collapse, Descriptions, Input, Modal, Radio, Space, Table, Typography, message,
 } from "antd";
 import type { TableProps } from "antd";
-import { api, bodyOf, messageOfBody } from "../api/client";
+import { ApiRequestError, apiJson, sendOk } from "../api/client";
 import type {
-  EnvKeyOut, SettingsOut, SettingsVersionDetail, SettingsVersionOut,
+  DryRunOut, EnvKeyOut, EnvOut, SettingsOut, SettingsVersionDetail, SettingsVersionOut,
 } from "../api/types";
 
 const { TextArea } = Input;
@@ -40,11 +40,7 @@ export default function SettingsPanel({ projectId, canEdit }: {
 
   const settings = useQuery({
     queryKey: ["projects", projectId, "settings"],
-    queryFn: async () => {
-      const r = await api(`/api/projects/${projectId}/settings`);
-      if (!r.ok) throw new Error(messageOfBody(await bodyOf(r), "settings.loadFailed"));
-      return (await r.json()) as SettingsOut;
-    },
+    queryFn: () => apiJson<SettingsOut>(`/api/projects/${projectId}/settings`, "settings.loadFailed"),
   });
 
   // Local edit keyed by the server hash it was based on: while the hash
@@ -57,20 +53,14 @@ export default function SettingsPanel({ projectId, canEdit }: {
   const setContent = (c: string) => setEdit({ hash: settings.data?.content_hash ?? "", content: c });
   const versions = useQuery({
     queryKey: ["projects", projectId, "versions"],
-    queryFn: async () => {
-      const r = await api(`/api/projects/${projectId}/settings/versions`);
-      if (!r.ok) throw new Error(t("settings.loadVersionsFailed"));
-      return (await r.json()) as SettingsVersionOut[];
-    },
+    queryFn: () => apiJson<SettingsVersionOut[]>(
+      `/api/projects/${projectId}/settings/versions`, "settings.loadVersionsFailed",
+    ),
   });
 
   const env = useQuery({
     queryKey: ["projects", projectId, "env"],
-    queryFn: async () => {
-      const r = await api(`/api/projects/${projectId}/env`);
-      if (!r.ok) throw new Error(t("settings.loadEnvFailed"));
-      return (await r.json()) as { keys: EnvKeyOut[] };
-    },
+    queryFn: () => apiJson<EnvOut>(`/api/projects/${projectId}/env`, "settings.loadEnvFailed"),
   });
 
   useEffect(() => {
@@ -78,38 +68,36 @@ export default function SettingsPanel({ projectId, canEdit }: {
   }, [settings.error]);
 
   async function fetchVersion(id: number): Promise<SettingsVersionDetail | null> {
-    const r = await api(`/api/projects/${projectId}/settings/versions/${id}`);
-    if (!r.ok) {
-      message.error(t("settings.loadVersionFailed"));
+    try {
+      return await apiJson<SettingsVersionDetail>(
+        `/api/projects/${projectId}/settings/versions/${id}`, "settings.loadVersionFailed",
+      );
+    } catch (e) {
+      message.error((e as Error).message);
       return null;
     }
-    return (await r.json()) as SettingsVersionDetail;
   }
 
   // Shared PUT: 409 stores the server-side state for the conflict modal
   // (both direct saves and restores flow through here).
   const save = useMutation({
-    mutationFn: async ({ content: c, expectedHash }: { content: string; expectedHash: string }) => {
-      const r = await api(`/api/projects/${projectId}/settings`, {
+    mutationFn: ({ content: c, expectedHash }: { content: string; expectedHash: string }) =>
+      sendOk(`/api/projects/${projectId}/settings`, "settings.saveFailed", {
         method: "PUT",
         body: JSON.stringify({ content: c, expected_hash: expectedHash }),
-      });
-      return { r, c };
-    },
-    onSuccess: async ({ r, c }) => {
-      if (r.status === 409) {
-        const body = await bodyOf(r);
+      }),
+    onError: (e, { content: c }) => {
+      if (e instanceof ApiRequestError && e.status === 409) {
         setConflict({
-          currentContent: String(body.current_content ?? ""),
-          currentHash: String(body.current_hash ?? ""),
+          currentContent: String(e.body.current_content ?? ""),
+          currentHash: String(e.body.current_hash ?? ""),
           myContent: c,
         });
         return;
       }
-      if (!r.ok) {
-        message.error(messageOfBody(await bodyOf(r), "settings.saveFailed"));
-        return;
-      }
+      message.error(e.message);
+    },
+    onSuccess: async () => {
       setConflict(null);
       message.success(t("settings.saved"));
       await qc.invalidateQueries({ queryKey: ["projects", projectId, "settings"] });
@@ -118,33 +106,20 @@ export default function SettingsPanel({ projectId, canEdit }: {
   });
 
   const dryRunMutation = useMutation({
-    mutationFn: async () => {
-      const r = await api(`/api/projects/${projectId}/dry-run`, { method: "POST" });
-      return { r };
-    },
-    onSuccess: async ({ r }) => {
-      const body = await bodyOf(r);
-      if (r.ok) {
-        setDryRun({ ok: Boolean((body as { ok?: boolean }).ok), output: String(body.output ?? "") });
-      } else {
-        setDryRun({ ok: false, output: messageOfBody(body, "settings.dryRunFailed") });
-      }
-    },
+    mutationFn: () => apiJson<DryRunOut>(
+      `/api/projects/${projectId}/dry-run`, "settings.dryRunFailed", { method: "POST" },
+    ),
+    onSuccess: (out) => setDryRun({ ok: out.ok, output: out.output }),
+    onError: (e) => setDryRun({ ok: false, output: e.message }),
   });
 
   const patchEnv = useMutation({
-    mutationFn: async () => {
-      const r = await api(`/api/projects/${projectId}/env`, {
-        method: "PATCH",
-        body: JSON.stringify({ key: envKey, value: envValue }),
-      });
-      return { r };
-    },
-    onSuccess: async ({ r }) => {
-      if (!r.ok) {
-        message.error(messageOfBody(await bodyOf(r), "settings.envSetFailed"));
-        return;
-      }
+    mutationFn: () => sendOk(`/api/projects/${projectId}/env`, "settings.envSetFailed", {
+      method: "PATCH",
+      body: JSON.stringify({ key: envKey, value: envValue }),
+    }),
+    onError: (e) => message.error(e.message),
+    onSuccess: async () => {
       setEnvKey("");
       setEnvValue("");
       message.success(t("settings.envSet"));
@@ -153,15 +128,12 @@ export default function SettingsPanel({ projectId, canEdit }: {
   });
 
   const deleteEnv = useMutation({
-    mutationFn: async (key: string) => {
-      const r = await api(`/api/projects/${projectId}/env/${encodeURIComponent(key)}`, { method: "DELETE" });
-      return { r };
-    },
-    onSuccess: async ({ r }) => {
-      if (!r.ok) {
-        message.error(t("settings.envDeleteFailed"));
-        return;
-      }
+    mutationFn: (key: string) => sendOk(
+      `/api/projects/${projectId}/env/${encodeURIComponent(key)}`, "settings.envDeleteFailed",
+      { method: "DELETE" },
+    ),
+    onError: (e) => message.error(e.message),
+    onSuccess: async () => {
       message.success(t("settings.envDeleted"));
       await qc.invalidateQueries({ queryKey: ["projects", projectId, "env"] });
     },

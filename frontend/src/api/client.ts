@@ -8,23 +8,26 @@ import type { ErrorCode } from "../i18n";
 import type { ParseKeys } from "i18next";
 
 export async function api(path: string, init: RequestInit = {}, retried = false): Promise<Response> {
-  if (useAuth.getState().authMode === "proxy") {
-    // Proxy mode: no app token. redirect:"manual" keeps an edge login
-    // redirect a detectable opaqueredirect signal instead of a CORS
-    // TypeError (spec §6.2); a real network rejection also counts as
-    // session-expired and is re-thrown after scheduling the redirect.
+  const proxy = useAuth.getState().authMode === "proxy";
+  // Proxy mode sends no app token; local mode reads it (or refreshes).
+  // refreshOnce rejects when the refresh endpoint is unavailable (5xx,
+  // network); that propagates like a failed fetch and keeps the session.
+  const token = proxy ? null : (useAuth.getState().accessToken ?? (await refreshOnce()));
+  const headers = {
+    // JSON only for string bodies (FastAPI 422s on the text/plain default);
+    // FormData must keep the browser-set multipart boundary, so never force
+    // a Content-Type there. Caller headers win.
+    ...(typeof init.body === "string" ? { "Content-Type": "application/json" } : {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...init.headers,
+  };
+  if (proxy) {
+    // redirect:"manual" keeps an edge login redirect a detectable
+    // opaqueredirect signal instead of a CORS TypeError (spec §6.2); a real
+    // network rejection also counts as session-expired and is re-thrown
+    // after scheduling the redirect.
     try {
-      const r = await fetch(path, {
-        ...init,
-        redirect: "manual",
-        headers: {
-          // Same JSON-only rule as the local branch below: string bodies
-          // are JSON (FastAPI 422s on the text/plain default), FormData
-          // keeps the browser-set multipart boundary, caller headers win.
-          ...(typeof init.body === "string" ? { "Content-Type": "application/json" } : {}),
-          ...init.headers,
-        },
-      });
+      const r = await fetch(path, { ...init, redirect: "manual", headers });
       if (r.status === 401 || r.type === "opaqueredirect") redirectToProxyLogin();
       return r;
     } catch (err) {
@@ -32,19 +35,7 @@ export async function api(path: string, init: RequestInit = {}, retried = false)
       throw err;
     }
   }
-  // refreshOnce rejects when the refresh endpoint is unavailable (5xx,
-  // network); that propagates like a failed fetch and keeps the session.
-  const token = useAuth.getState().accessToken ?? (await refreshOnce());
-  const r = await fetch(path, {
-    ...init,
-    headers: {
-      // JSON only for string bodies; FormData must keep the browser-set
-      // multipart boundary, so never force a Content-Type there.
-      ...(typeof init.body === "string" ? { "Content-Type": "application/json" } : {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...init.headers,
-    },
-  });
+  const r = await fetch(path, { ...init, headers });
   if (r.status === 401 && !retried) {
     const fresh = await refreshOnce();
     if (fresh) return api(path, init, true);
@@ -60,12 +51,11 @@ export async function bodyOf(r: Response): Promise<Record<string, unknown>> {
   try { return (await r.json()) as Record<string, unknown>; } catch { return {}; }
 }
 
-// Dynamic string keys can't satisfy the typed key union; the cast is
-// confined to the fallback leg (the error-code leg narrows for real).
-// ParseKeys (NOT Parameters<typeof i18n.t>[0], whose union includes
-// TemplateStringsArray and breaks overload matching — verified against
-// i18next 26.4.0 / TS 6.0.3).
-type AnyTKey = ParseKeys;
+// Fallback keys are typed as ParseKeys so every call site is checked
+// against the catalog (NOT Parameters<typeof i18n.t>[0], whose union
+// includes TemplateStringsArray and breaks overload matching — verified
+// against i18next 26.4.0 / TS 6.0.3).
+export type FallbackKey = ParseKeys;
 
 const isErrorCode = (c: string): c is ErrorCode => Object.hasOwn(zhTW.errors, c);
 
@@ -73,7 +63,7 @@ const isErrorCode = (c: string): c is ErrorCode => Object.hasOwn(zhTW.errors, c)
 // message; else verbatim detail; else the fallback key.
 export function messageOfBody(
   body: Record<string, unknown>,
-  fallbackKey: string,
+  fallbackKey: FallbackKey,
   vars: Record<string, string | number> = {},
 ): string {
   const code = body.code;
@@ -89,25 +79,53 @@ export function messageOfBody(
     });
   }
   if (typeof body.detail === "string") return body.detail; // verbatim
-  return i18n.t(fallbackKey as AnyTKey, vars);
+  return i18n.t(fallbackKey, vars);
 }
 
-export async function detailOf(r: Response, fallbackKey: string): Promise<string> {
-  const body = await bodyOf(r);
-  return messageOfBody(body, fallbackKey, { status: r.status });
-}
-
-// Explore endpoints share the error envelope; messageOfBody localizes the
-// code or surfaces the detail verbatim (404/409 shapes included).
-async function requireOk(r: Response, fallback: string): Promise<void> {
-  if (r.ok) return;
-  let parsedBody: Record<string, unknown> = {};
-  try {
-    parsedBody = ((await r.json()) ?? {}) as Record<string, unknown>;
-  } catch {
-    // non-JSON body → messageOfBody falls back to the key
+// A non-2xx answer: message is already localized (messageOfBody); status
+// and the parsed body stay available for callers that branch on them
+// (e.g. a 409 carrying current_hash).
+export class ApiRequestError extends Error {
+  readonly status: number;
+  readonly body: Record<string, unknown>;
+  constructor(message: string, status: number, body: Record<string, unknown>) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.status = status;
+    this.body = body;
   }
-  throw new Error(messageOfBody(parsedBody, fallback, { status: r.status }));
+}
+
+async function requireOk(r: Response, fallbackKey: FallbackKey): Promise<Response> {
+  if (r.ok) return r;
+  const body = await bodyOf(r);
+  throw new ApiRequestError(messageOfBody(body, fallbackKey, { status: r.status }), r.status, body);
+}
+
+// api() + the error envelope: resolve to the JSON body, or throw
+// ApiRequestError. Network failures from api() propagate unchanged.
+export async function apiJson<T>(path: string, fallbackKey: FallbackKey, init?: RequestInit): Promise<T> {
+  const r = await requireOk(await api(path, init), fallbackKey);
+  return (await r.json()) as T;
+}
+
+// Same as apiJson for calls whose success body the caller does not read.
+export async function sendOk(path: string, fallbackKey: FallbackKey, init?: RequestInit): Promise<void> {
+  await requireOk(await api(path, init), fallbackKey);
+}
+
+// EventSource cannot send an Authorization header, so SSE routes take the
+// access token as ?token= (backend accepts it on those routes only). The
+// token is read once, here, at stream-open time: subscribing to the store
+// would re-open the stream on every rotation and replay it. Proxy mode
+// sends no token (cookie auth); an empty token= would read as an invalid
+// bearer upstream (spec §6.4).
+export function sseUrl(path: string, params: Record<string, string> = {}): string {
+  const usp = new URLSearchParams(params);
+  const { authMode, accessToken } = useAuth.getState();
+  if (authMode !== "proxy" && accessToken) usp.set("token", accessToken);
+  const qs = usp.toString();
+  return qs ? `${path}?${qs}` : path;
 }
 
 export interface ArtifactListParams {
@@ -128,22 +146,18 @@ export async function fetchArtifacts(
   if (params.q) usp.set("q", params.q);
   if (params.type) usp.set("type", params.type);
   if (params.community !== undefined) usp.set("community", String(params.community));
-  const r = await api(`/api/projects/${pid}/artifacts/${table}?${usp.toString()}`);
-  await requireOk(r, "client.loadTableFailed");
-  return (await r.json()) as ArtifactPage;
+  return apiJson<ArtifactPage>(
+    `/api/projects/${pid}/artifacts/${table}?${usp.toString()}`, "client.loadTableFailed");
 }
 
 export async function fetchArtifactDetail(
   pid: string, table: ArtifactTableName, hrid: number,
 ): Promise<ArtifactDetail> {
-  const r = await api(`/api/projects/${pid}/artifacts/${table}/${hrid}`);
-  await requireOk(r, "client.loadDetailFailed");
-  return (await r.json()) as ArtifactDetail;
+  return apiJson<ArtifactDetail>(
+    `/api/projects/${pid}/artifacts/${table}/${hrid}`, "client.loadDetailFailed");
 }
 
 export async function fetchGraph(pid: string, level?: number): Promise<GraphData> {
   const qs = level !== undefined ? `?level=${level}` : "";
-  const r = await api(`/api/projects/${pid}/artifacts/graph${qs}`);
-  await requireOk(r, "client.loadGraphFailed");
-  return (await r.json()) as GraphData;
+  return apiJson<GraphData>(`/api/projects/${pid}/artifacts/graph${qs}`, "client.loadGraphFailed");
 }
