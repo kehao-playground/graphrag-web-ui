@@ -75,6 +75,9 @@ class HealthOut(BaseModel):
     last_index: LastIndexOut | None
     active_job: ActiveJobOut | None
     latest_run: LatestRunOut | None
+    # A key settings.yaml references is absent from the .env or still
+    # graphrag init's placeholder: the workspace cannot call its models.
+    api_key_missing: bool
 
 
 class BatchFileCountsOut(BaseModel):

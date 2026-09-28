@@ -28,6 +28,7 @@ from graphrag_ui.adapters.models import (
 from graphrag_ui.domain.permissions import sees_all_projects
 from graphrag_ui.domain.test_runs import count_regressions
 from graphrag_ui.services import jobs as jobs_service
+from graphrag_ui.services.env_file import referenced_key_missing
 from graphrag_ui.services.files import list_files
 from graphrag_ui.services.index_snapshots import baseline_row
 
@@ -73,6 +74,7 @@ async def project_health(session: AsyncSession, project: Project) -> dict:
         ),
         "active_job": ({"id": str(active.id), "type": active.type} if active is not None else None),
         "latest_run": await _latest_run(session, project.id),
+        "api_key_missing": referenced_key_missing(project),
     }
 
 

@@ -80,6 +80,26 @@ def list_env(project: Project) -> list[dict]:
     return entries
 
 
+def referenced_key_missing(project: Project) -> bool:
+    """True when settings.yaml references a key whose .env value is absent
+    or a placeholder (F9-01): graphrag substitutes `${VAR}` from the .env
+    alone, so such a workspace fails at its first model call. Keys the
+    settings do not reference never count."""
+    path = ws_path(project.id) / "settings.yaml"
+    if not path.is_file():
+        return False
+    referenced = set(string.Template(path.read_text()).get_identifiers())
+    if not referenced:
+        return False
+    values: dict[str, str] = {}
+    for raw in _read_lines(project):
+        line = raw.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, _, value = line.partition("=")
+            values[key.strip()] = value
+    return any(key not in values or is_placeholder(values[key]) for key in referenced)
+
+
 def _validate(key: str, value: str) -> None:
     """Key/shape checks shared by set_env_key's callers; raises
     EnvValidationError with messages that never contain the value (routes

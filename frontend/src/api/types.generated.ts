@@ -1117,6 +1117,8 @@ export interface components {
         /** HealthOut */
         HealthOut: {
             active_job: components["schemas"]["ActiveJobOut"] | null;
+            /** Api Key Missing */
+            api_key_missing: boolean;
             /** Artifacts Stale */
             artifacts_stale: boolean;
             files: components["schemas"]["FileCountsOut"];
@@ -1283,6 +1285,8 @@ export interface components {
             disk_free_mb: number;
             /** Disk Watermark Mb */
             disk_watermark_mb: number;
+            /** Graphrag */
+            graphrag: string;
             last_run: components["schemas"]["LastRunOut"] | null;
         };
         /**
@@ -2927,7 +2931,7 @@ export interface operations {
     list_jobs_api_projects__pid__jobs_get: {
         parameters: {
             query?: {
-                type?: ("index" | "update" | "test_run") | null;
+                type?: ("index" | "update" | "test_run")[] | null;
             };
             header?: never;
             path: {

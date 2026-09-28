@@ -3,7 +3,7 @@ their own transaction except insert_job (caller owns enqueue semantics)."""
 
 import logging
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import datetime
 from typing import cast
 
@@ -195,11 +195,15 @@ async def get_job(session: AsyncSession, job_id: uuid.UUID) -> Job | None:
 
 
 async def list_jobs(
-    session: AsyncSession, project_id: uuid.UUID, limit: int = 50, *, job_type: str | None = None
+    session: AsyncSession,
+    project_id: uuid.UUID,
+    limit: int = 50,
+    *,
+    job_types: Sequence[str] | None = None,
 ) -> list[Job]:
     query = select(Job).where(Job.project_id == project_id)
-    if job_type is not None:
-        query = query.where(Job.type == job_type)
+    if job_types:
+        query = query.where(Job.type.in_(job_types))
     res = await session.execute(query.order_by(Job.queued_at.desc()).limit(limit))
     return list(res.scalars().all())
 

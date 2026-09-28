@@ -162,6 +162,16 @@ async def test_preflight_shape(client, app):
     assert body["cache_quota_mb"] > 0 and body["disk_watermark_mb"] > 0
     assert isinstance(body["cache_bytes"], int) and body["cache_bytes"] == 0
     assert body["disk_free_mb"] > 0
+    # F3-01: the launch dialog pre-checks the CLI with /api/ready's value
+    assert body["graphrag"] == app.state.graphrag_version
+
+
+async def test_preflight_reports_a_missing_graphrag_cli(client, app):
+    _, alice, _ = await _setup_users(client, app)
+    pid = await _project(client, alice)
+    app.state.graphrag_version = "not-installed"
+    body = (await client.get(f"/api/projects/{pid}/jobs/preflight", headers=alice)).json()
+    assert body["graphrag"] == "not-installed"
 
 
 async def test_preflight_active_and_last_run(client, app):

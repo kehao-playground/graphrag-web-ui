@@ -562,3 +562,15 @@ async def test_history_survives_a_set_archive(client, run_referencing_question):
     assert [s["id"] for s in sets["sets"]] == []
     # Its runs stay readable.
     assert (await client.get(f"/api/test-runs/{run_id}/results", headers=alice)).status_code == 200
+
+
+async def test_jobs_list_type_filter_repeats(client, project_with_jobs):
+    """Decision D2: the jobs page asks for ?type=index&type=update in one
+    request; a single-valued param would keep only the last value."""
+    alice, pid = project_with_jobs
+    all_jobs = (await client.get(f"/api/projects/{pid}/jobs", headers=alice)).json()
+    r = await client.get(f"/api/projects/{pid}/jobs?type=index&type=update", headers=alice)
+    assert r.status_code == 200
+    got = r.json()
+    assert {j["id"] for j in got} == {j["id"] for j in all_jobs if j["type"] != "test_run"}
+    assert any(j["type"] == "test_run" for j in all_jobs)

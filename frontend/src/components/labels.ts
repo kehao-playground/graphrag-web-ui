@@ -22,6 +22,22 @@ export function jobTypeShortLabel(v: string, t: TFunction): string {
     : v;
 }
 
+// A job's display_status (JobOut): the runner's closed set, with
+// "failed(interrupted)" (a job the API restart found running) spelled as
+// its own catalog key.
+export function jobStatusLabel(v: string, t: TFunction): string {
+  switch (v) {
+    case "queued": return t("jobs.status.queued");
+    case "running": return t("jobs.status.running");
+    case "cancelling": return t("jobs.status.cancelling");
+    case "succeeded": return t("jobs.status.succeeded");
+    case "failed": return t("jobs.status.failed");
+    case "failed(interrupted)": return t("jobs.status.interrupted");
+    case "cancelled": return t("jobs.status.cancelled");
+    default: return v;
+  }
+}
+
 // Built-in role names are the backend seed's closed set, so the template
 // key stays inside typed-t's key union; custom roles render their raw name.
 type BuiltinRoleName = "user_admin" | "ops" | "viewer" | "maintainer" | "editor" | "owner";
