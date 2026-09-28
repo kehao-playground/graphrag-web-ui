@@ -1,4 +1,4 @@
-import { render, screen, cleanup, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi, beforeEach, afterEach } from "vitest";
 import { Modal } from "antd";
@@ -13,13 +13,30 @@ import { stubFetch } from "../../testing/stubFetch";
 // method for POST/PUT/PATCH) so a wrong endpoint or body cannot silently
 // pass on another call's payload.
 let preflightBody: Record<string, unknown> = PREFLIGHT;
+let setsBody: { sets: { id: string; name: string; created_at: string }[] } = SETS;
+let matrixBody: Record<string, unknown> = MATRIX;
 // Every rating PUT the drawer fired, in order.
 let rated: { resultId: string; score: string; note?: string }[] = [];
 let postResponse: () => Response = () =>
   new Response(JSON.stringify({ ...MATRIX.runs[0], id: "run-9" }), { status: 201 });
 const apiMock = vi.fn(async (path: string, init?: RequestInit) => {
-  if (path === "/api/projects/p1/question-sets") return json(SETS);
+  if (path === "/api/projects/p1/question-sets" && init?.method === "POST") {
+    return new Response(JSON.stringify({
+      id: "s-new", name: JSON.parse(String(init.body)).name, created_at: "2026-09-28T00:00:00Z",
+    }), { status: 201 });
+  }
+  if (path === "/api/projects/p1/question-sets") return json(setsBody);
+  if (path.startsWith("/api/projects/p1/question-sets/") && init?.method === "DELETE") {
+    return new Response(null, { status: 204 });
+  }
+  if (path === "/api/projects/p1/question-sets/s1" && init?.method === "PATCH") {
+    return json({ ...SETS.sets[0], name: JSON.parse(String(init.body)).name });
+  }
+  if (path === "/api/projects/p1/question-sets/s1/questions" && init?.method === "POST") {
+    return new Response(JSON.stringify(QUESTIONS.questions[0]), { status: 201 });
+  }
   if (path === "/api/projects/p1/question-sets/s1/questions") return json(QUESTIONS);
+  if (path === "/api/projects/p1/question-sets/s-new/questions") return json({ questions: [] });
   if (path === "/api/test-runs/run-3/results") return json(RESULTS_RUN3);
   if (path === "/api/test-runs/run-4/results") return json(RESULTS_RUN4);
   if (path.startsWith("/api/test-results/") && init?.method === "PUT") {
@@ -28,7 +45,7 @@ const apiMock = vi.fn(async (path: string, init?: RequestInit) => {
     return json({ score: body.score, note: body.note, rated_by: "u1", rated_at: "2026-09-09T00:00:00Z" });
   }
   if (path === "/api/projects/p1/test-runs" && init?.method === "POST") return postResponse();
-  if (path === "/api/projects/p1/test-runs") return json(MATRIX);
+  if (path === "/api/projects/p1/test-runs") return json(matrixBody);
   if (path === "/api/projects/p1/jobs/preflight") return json(preflightBody);
   return json({});
 });
@@ -48,8 +65,18 @@ afterEach(() => {
 });
 beforeEach(() => {
   preflightBody = PREFLIGHT;
+  setsBody = SETS;
+  matrixBody = MATRIX;
   rated = [];
+  apiMock.mockClear();
 });
+
+// The calls a mutation made, as [path, method, parsed body].
+function sent(method: string) {
+  return apiMock.mock.calls
+    .filter(([, init]) => init?.method === method)
+    .map(([path, init]) => [path, init?.body ? JSON.parse(String(init.body)) : null]);
+}
 
 // Composition wrapper: the workbench under a fresh QueryClient. activeJob
 // seeds the preflight mock with the blocking job (any type); route mounts
@@ -57,12 +84,13 @@ beforeEach(() => {
 function renderWorkbench(opts: {
   activeJob?: { id: string; type: string } | null;
   route?: string;
+  canEdit?: boolean;
 } = {}) {
   preflightBody = { ...PREFLIGHT, active_job: opts.activeJob ?? null };
   return render(
     <QueryClientProvider client={createQueryClient()}>
       <MemoryRouter initialEntries={[opts.route ?? "/projects/p1/tests"]}>
-        <Workbench projectId="p1" canUse canRunJobs />
+        <Workbench projectId="p1" canUse canRunJobs canEdit={opts.canEdit ?? true} />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -176,7 +204,7 @@ test("editing a never-run question opens the editor without the fork warning", a
   // q-0's lineage L0 was never asked → in-place edit, no fork to warn about.
   await userEvent.click(screen.getByRole("button", { name: "編輯題目:題目 1" }));
   expect(screen.queryByText(/會建立新版本/)).not.toBeInTheDocument();
-  const editor = await screen.findByRole("textbox");
+  const editor = await screen.findByRole("textbox", { name: "編輯題目" });
   expect(editor).toHaveValue("題目 1");
   await userEvent.clear(editor);
   await userEvent.type(editor, "題目 1 (改)");
@@ -203,4 +231,97 @@ test("two selected cells open the side-by-side diff", async () => {
   expect(await screen.findByText("需附發票。")).toBeInTheDocument();
   expect(screen.getByText("#13 · 區域 · 09-03")).toBeInTheDocument();
   expect(screen.getByText("#14 · 區域 · 09-04")).toBeInTheDocument();
+});
+
+// --- question-set lifecycle and the first-visit landing (R1-02, R3-23, R4-03)
+
+test("a project without question sets lands on the ad-hoc query", async () => {
+  setsBody = { sets: [] };
+  matrixBody = { runs: [], rows: [] };
+  renderWorkbench();
+  // Asking is what a first visit is for; the matrix has nothing to show.
+  expect(await screen.findByPlaceholderText("輸入問題")).toBeInTheDocument();
+});
+
+test("the empty matrix offers to create a set, which becomes the selection", async () => {
+  setsBody = { sets: [] };
+  matrixBody = { runs: [], rows: [] };
+  renderWorkbench();
+  await screen.findByPlaceholderText("輸入問題");
+  await userEvent.click(screen.getByText("評分矩陣"));
+  expect(await screen.findByText(/題組是測試執行要問的題目清單/)).toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "建立題組" }));
+  const dialog = await screen.findByRole("dialog");
+  await userEvent.type(within(dialog).getByLabelText("題組名稱"), "客服 FAQ");
+  setsBody = { sets: [{ id: "s-new", name: "客服 FAQ", created_at: "2026-09-28T00:00:00Z" }] };
+  await userEvent.click(within(dialog).getByRole("button", { name: /^建\s?立$/ }));
+  await waitFor(() =>
+    expect(sent("POST")).toContainEqual(["/api/projects/p1/question-sets", { name: "客服 FAQ" }]));
+  // The new set is selected: its name renders in the picker.
+  expect(await screen.findByText("客服 FAQ")).toBeInTheDocument();
+});
+
+test("before any run the launch button says run, not re-run", async () => {
+  matrixBody = { runs: [], rows: [] };
+  renderWorkbench();
+  await screen.findByText("客服常問 20 題");
+  expect(await screen.findByRole("button", { name: "執行整組" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "重跑整組" })).not.toBeInTheDocument();
+});
+
+test("the selected set can be renamed", async () => {
+  renderWorkbench();
+  await screen.findByText("客服常問 20 題");
+  await userEvent.click(screen.getByRole("button", { name: "重新命名題組" }));
+  const dialog = await screen.findByRole("dialog");
+  const name = within(dialog).getByLabelText("題組名稱");
+  expect(name).toHaveValue("客服常問 20 題");
+  await userEvent.clear(name);
+  await userEvent.type(name, "客服常問");
+  await userEvent.click(within(dialog).getByRole("button", { name: /^儲\s?存$/ }));
+  await waitFor(() =>
+    expect(sent("PATCH")).toContainEqual(["/api/projects/p1/question-sets/s1", { name: "客服常問" }]));
+});
+
+test("archiving a set confirms that its runs stay", async () => {
+  renderWorkbench();
+  await screen.findByText("客服常問 20 題");
+  await userEvent.click(screen.getByRole("button", { name: "封存題組" }));
+  expect(await screen.findByText(/過去的執行仍留在評分矩陣/)).toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: /^封\s?存$/ }));
+  await waitFor(() =>
+    expect(sent("DELETE")).toContainEqual(["/api/projects/p1/question-sets/s1", null]));
+});
+
+test("archiving a question that has runs says its answers are kept", async () => {
+  renderWorkbench();
+  await userEvent.click(await screen.findByText("題目 (20)"));
+  await userEvent.click(await screen.findByRole("button", { name: "封存題目:題目 2" }));
+  expect(await screen.findByText(/過去的執行仍保留此題的答案/)).toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: /^封\s?存$/ }));
+  await waitFor(() =>
+    expect(sent("DELETE")).toContainEqual(["/api/projects/p1/question-sets/s1/questions/q-1", null]));
+});
+
+test("a question can be added from the questions list", async () => {
+  renderWorkbench();
+  await userEvent.click(await screen.findByText("題目 (20)"));
+  await userEvent.type(await screen.findByPlaceholderText("輸入要加入此題組的題目"), "運費怎麼算?");
+  await userEvent.click(screen.getByRole("button", { name: "新增題目" }));
+  await waitFor(() =>
+    expect(sent("POST")).toContainEqual([
+      "/api/projects/p1/question-sets/s1/questions", { text: "運費怎麼算?" },
+    ]));
+});
+
+test("without project:edit_content the set and question actions are absent", async () => {
+  renderWorkbench({ canEdit: false });
+  await screen.findByText("客服常問 20 題");
+  await userEvent.click(await screen.findByText("題目 (20)"));
+  await screen.findByText("1. 題目 1");
+  for (const name of ["新增題組", "重新命名題組", "封存題組", "新增題目"]) {
+    expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+  }
+  expect(screen.queryByRole("button", { name: /^編輯題目:/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /^封存題目:/ })).not.toBeInTheDocument();
 });

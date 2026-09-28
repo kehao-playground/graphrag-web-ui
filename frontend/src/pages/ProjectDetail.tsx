@@ -262,8 +262,9 @@ export function ProjectPane({ pane }: { pane: PaneKey }) {
       {pane === "tests" && (
         // The workbench hosts both the batch matrix and the ad-hoc stream;
         // the pane is visible to every member (viewer+ can read the matrix
-        // and use the stream; launching a run needs project:run_jobs).
-        <Workbench projectId={projectId} canUse canRunJobs={canRunJobs} />
+        // and use the stream; launching a run needs project:run_jobs,
+        // curating sets and questions project:edit_content).
+        <Workbench projectId={projectId} canUse canRunJobs={canRunJobs} canEdit={canEditFiles} />
       )}
       {pane === "explore" && (
         // Same gating as Query: every member can browse the indexed artifacts.

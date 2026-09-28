@@ -3,11 +3,13 @@ import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import {
-  Alert, Button, Collapse, Input, Modal, Segmented, Select, Space, Typography, message,
+  Alert, Button, Collapse, Empty, Input, Modal, Segmented, Select, Space, Typography, message,
 } from "antd";
-import { sendOk } from "../../api/client";
+import { apiJson, sendOk } from "../../api/client";
 import { jobsPreflight, questionSets, setQuestions, testRunMatrix } from "../../api/queries";
-import type { MatrixCell, MatrixRow, Question, QueryMethod, TestRun } from "../../api/types";
+import type {
+  MatrixCell, MatrixRow, Question, QuestionSet, QueryMethod, TestRun,
+} from "../../api/types";
 import { jobTypeLabel } from "../labels";
 import AdhocQuery from "./AdhocQuery";
 import RatingMatrix from "./RatingMatrix";
@@ -19,15 +21,21 @@ import { methodOptions } from "./methods";
 // The retrieval test workbench (spec §9.2): one container switching between
 // the rating matrix (batch test runs) and the ad-hoc query (interactive
 // SSE). The routed sidebar arrives in slice ③; ProjectDetail hosts it as
-// its tests tab until then.
-export default function Workbench({ projectId, canUse, canRunJobs }: {
+// its tests tab until then. canEdit (project:edit_content) gates curating
+// sets and questions; canRunJobs gates launching a run.
+export default function Workbench({ projectId, canUse, canRunJobs, canEdit }: {
   projectId: string;
   canUse: boolean;
   canRunJobs: boolean;
+  canEdit: boolean;
 }) {
   const qc = useQueryClient();
   const { t } = useTranslation();
-  const [mode, setMode] = useState<"matrix" | "adhoc">("matrix");
+  // undefined until the set catalog first answers: a project without sets
+  // lands on the ad-hoc query (R4-03) — the matrix has nothing to build.
+  // Latched once, so creating the first set later never yanks the user
+  // out of the mode they are in.
+  const [mode, setMode] = useState<"matrix" | "adhoc">();
   const [setId, setSetId] = useState<string>();
   const [method, setMethod] = useState<QueryMethod>("local");
   const [launchOpen, setLaunchOpen] = useState(false);
@@ -57,6 +65,9 @@ export default function Workbench({ projectId, canUse, canRunJobs }: {
   const [editText, setEditText] = useState("");
 
   const sets = useQuery(questionSets(projectId));
+  const noSets = sets.data?.sets.length === 0;
+  if (mode === undefined && sets.data) setMode(noSets ? "adhoc" : "matrix");
+  const shownMode = mode ?? "matrix";
 
   // Derived default: the catalog's first set until the user picks one —
   // computed during render (no effect), so a later catalog refresh keeps
@@ -89,6 +100,79 @@ export default function Workbench({ projectId, canUse, canRunJobs }: {
   });
   const invalidateMatrix = () =>
     qc.invalidateQueries({ queryKey: testRunMatrix(projectId).queryKey });
+  // The set catalog key prefixes every set's question list too.
+  const invalidateSets = () =>
+    qc.invalidateQueries({ queryKey: questionSets(projectId).queryKey });
+  const firstRun = matrix.data?.runs.length === 0;
+
+  // Set name dialog, shared by create and rename (R1-02, R3-23).
+  const [nameDialog, setNameDialog] = useState<"create" | "rename" | null>(null);
+  const [setName, setSetName] = useState("");
+  const openNameDialog = (kind: "create" | "rename") => {
+    setSetName(kind === "rename"
+      ? sets.data?.sets.find((s) => s.id === effectiveSetId)?.name ?? ""
+      : "");
+    setNameDialog(kind);
+  };
+  const saveSetName = useMutation({
+    mutationFn: (kind: "create" | "rename") => {
+      const body = JSON.stringify({ name: setName.trim() });
+      return kind === "create"
+        ? apiJson<QuestionSet>(`/api/projects/${projectId}/question-sets`,
+          "workbench.createSetFailed", { method: "POST", body })
+        : apiJson<QuestionSet>(`/api/projects/${projectId}/question-sets/${effectiveSetId}`,
+          "workbench.renameSetFailed", { method: "PATCH", body });
+    },
+    onSuccess: (qs, kind) => {
+      message.success(t(kind === "create" ? "workbench.setCreated" : "workbench.setRenamed"));
+      setNameDialog(null);
+      if (kind === "create") {
+        setSetId(qs.id);
+        clearPicks();
+      }
+      void invalidateSets();
+    },
+  });
+
+  const archiveSet = useMutation({
+    mutationFn: (sid: string) => sendOk(`/api/projects/${projectId}/question-sets/${sid}`,
+      "workbench.archiveSetFailed", { method: "DELETE" }),
+    onSuccess: () => {
+      message.success(t("workbench.setArchived"));
+      // Back to the derived default: the catalog's first remaining set.
+      setSetId(undefined);
+      clearPicks();
+      void invalidateSets();
+    },
+  });
+  const confirmArchiveSet = () => {
+    const sid = effectiveSetId;
+    if (!sid) return;
+    Modal.confirm({
+      title: t("workbench.archiveSet"),
+      content: t("workbench.archiveSetConfirm", {
+        name: sets.data?.sets.find((s) => s.id === sid)?.name ?? "",
+      }),
+      okText: t("workbench.archive"),
+      okButtonProps: { danger: true },
+      cancelText: t("common.cancel"),
+      onOk: () => archiveSet.mutateAsync(sid),
+    });
+  };
+
+  const [newQuestion, setNewQuestion] = useState("");
+  const addQuestion = useMutation({
+    mutationFn: () => sendOk(
+      `/api/projects/${projectId}/question-sets/${effectiveSetId}/questions`,
+      "workbench.saveFailed",
+      { method: "POST", body: JSON.stringify({ text: newQuestion.trim() }) },
+    ),
+    onSuccess: () => {
+      message.success(t("workbench.questionAdded"));
+      setNewQuestion("");
+      void invalidateSets();
+    },
+  });
 
   const startRun = useMutation({
     mutationFn: () => sendOk(`/api/projects/${projectId}/test-runs`, "workbench.startFailed", {
@@ -110,6 +194,36 @@ export default function Workbench({ projectId, canUse, canRunJobs }: {
     (matrix.data?.rows ?? []).some(
       (r) => r.lineage_id === q.lineage_id && r.cells.some((c) => c !== null),
     );
+
+  // Archiving is always a soft delete (spec §5.3); a question with runs
+  // additionally says where its history went.
+  const archiveQuestion = useMutation({
+    mutationFn: (q: Question) => sendOk(
+      `/api/projects/${projectId}/question-sets/${effectiveSetId}/questions/${q.id}`,
+      "workbench.archiveQuestionFailed", { method: "DELETE" },
+    ),
+    onSuccess: () => {
+      message.success(t("workbench.questionArchived"));
+      void invalidateSets();
+    },
+  });
+  const confirmArchiveQuestion = (q: Question) => {
+    Modal.confirm({
+      title: t("workbench.archiveQuestion"),
+      content: (
+        <Space direction="vertical" size="small">
+          <Typography.Text>{t("workbench.archiveQuestionConfirm")}</Typography.Text>
+          {hasRuns(q) && (
+            <Typography.Text type="secondary">{t("workbench.archiveQuestionHasRuns")}</Typography.Text>
+          )}
+        </Space>
+      ),
+      okText: t("workbench.archive"),
+      okButtonProps: { danger: true },
+      cancelText: t("common.cancel"),
+      onOk: () => archiveQuestion.mutateAsync(q),
+    });
+  };
 
   const openEditor = (q: Question) => {
     setEditing(q);
@@ -178,10 +292,35 @@ export default function Workbench({ projectId, canUse, canRunJobs }: {
 
   const questionCount = questions.data ? questions.data.questions.length : null;
 
+  // Rendered from both the no-set empty state and the picker row.
+  const nameModal = () => (
+    <Modal
+      open={nameDialog !== null}
+      title={t(nameDialog === "rename" ? "workbench.renameSet" : "workbench.createSet")}
+      okText={t(nameDialog === "rename" ? "common.save" : "workbench.create")}
+      cancelText={t("common.cancel")}
+      okButtonProps={{ disabled: setName.trim().length === 0 }}
+      confirmLoading={saveSetName.isPending}
+      onOk={() => nameDialog && saveSetName.mutate(nameDialog)}
+      onCancel={() => setNameDialog(null)}
+    >
+      <Input
+        aria-label={t("workbench.setName")}
+        placeholder={t("workbench.setName")}
+        maxLength={200}
+        value={setName}
+        onChange={(e) => setSetName(e.target.value)}
+        onPressEnter={() => {
+          if (nameDialog && setName.trim()) saveSetName.mutate(nameDialog);
+        }}
+      />
+    </Modal>
+  );
+
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
       <Segmented
-        value={mode}
+        value={shownMode}
         onChange={(v) => {
           setMode(v as "matrix" | "adhoc");
           clearPicks();
@@ -192,8 +331,27 @@ export default function Workbench({ projectId, canUse, canRunJobs }: {
         ]}
       />
 
-      {mode === "adhoc" ? (
-        <AdhocQuery projectId={projectId} canUse={canUse} />
+      {shownMode === "adhoc" ? (
+        <AdhocQuery projectId={projectId} canUse={canUse} canEdit={canEdit} />
+      ) : noSets ? (
+        <>
+          <Empty description={
+            // Capped so the hint wraps instead of spanning a wide pane.
+            <Space direction="vertical" size="small" style={{ maxWidth: 480 }}>
+              <Typography.Text strong>{t("workbench.noSetsTitle")}</Typography.Text>
+              <Typography.Text type="secondary">
+                {t(canEdit ? "workbench.noSetsHint" : "workbench.noSetsReadOnly")}
+              </Typography.Text>
+            </Space>
+          }>
+            {canEdit && (
+              <Button type="primary" onClick={() => openNameDialog("create")}>
+                {t("workbench.createSet")}
+              </Button>
+            )}
+          </Empty>
+          {nameModal()}
+        </>
       ) : (
         <>
           {activeJob && (
@@ -216,6 +374,17 @@ export default function Workbench({ projectId, canUse, canRunJobs }: {
               }}
               loading={sets.isPending}
             />
+            {canEdit && (
+              <>
+                <Button onClick={() => openNameDialog("create")}>{t("workbench.newSet")}</Button>
+                <Button disabled={!effectiveSetId} onClick={() => openNameDialog("rename")}>
+                  {t("workbench.renameSet")}
+                </Button>
+                <Button danger disabled={!effectiveSetId} onClick={confirmArchiveSet}>
+                  {t("workbench.archiveSet")}
+                </Button>
+              </>
+            )}
             <Select
               style={{ width: 140 }}
               value={method}
@@ -227,7 +396,7 @@ export default function Workbench({ projectId, canUse, canRunJobs }: {
               disabled={!effectiveSetId || activeJob !== null || !canRunJobs}
               onClick={() => setLaunchOpen(true)}
             >
-              {t("workbench.rerunSet")}
+              {t(firstRun ? "workbench.runSet" : "workbench.rerunSet")}
             </Button>
           </Space>
 
@@ -240,28 +409,64 @@ export default function Workbench({ projectId, canUse, canRunJobs }: {
               }),
               children: (
                 <Space direction="vertical" size="small" style={{ width: "100%" }}>
-                  {(questions.data?.questions ?? []).map((q) => (
+                  {(questions.data?.questions ?? []).map((q, i) => (
                     <Space
                       key={q.id}
                       style={{ width: "100%", justifyContent: "space-between" }}
                     >
                       <Typography.Text style={{ whiteSpace: "pre-wrap" }}>
-                        {q.position}. {q.text}
+                        {/* Ask order, 1-based: positions are 0-based and keep
+                            gaps once a question is archived. */}
+                        {i + 1}. {q.text}
                       </Typography.Text>
-                      <Button
-                        type="link"
-                        size="small"
-                        aria-label={t("workbench.editQuestionAria", { text: q.text })}
-                        onClick={() => startEdit(q)}
-                      >
-                        {t("workbench.editQuestion")}
-                      </Button>
+                      {canEdit && (
+                        <Space size={0}>
+                          <Button
+                            type="link"
+                            size="small"
+                            aria-label={t("workbench.editQuestionAria", { text: q.text })}
+                            onClick={() => startEdit(q)}
+                          >
+                            {t("workbench.editQuestion")}
+                          </Button>
+                          <Button
+                            type="link"
+                            size="small"
+                            danger
+                            aria-label={t("workbench.archiveQuestionAria", { text: q.text })}
+                            onClick={() => confirmArchiveQuestion(q)}
+                          >
+                            {t("workbench.archive")}
+                          </Button>
+                        </Space>
+                      )}
                     </Space>
                   ))}
                   {questions.data?.questions.length === 0 && (
                     <Typography.Text type="secondary">
                       {t("workbench.questionsEmpty")}
                     </Typography.Text>
+                  )}
+                  {canEdit && effectiveSetId && (
+                    <Space.Compact style={{ width: "100%" }}>
+                      <Input
+                        aria-label={t("workbench.addQuestion")}
+                        placeholder={t("workbench.addQuestionPlaceholder")}
+                        maxLength={2000}
+                        value={newQuestion}
+                        onChange={(e) => setNewQuestion(e.target.value)}
+                        onPressEnter={() => {
+                          if (newQuestion.trim() && !addQuestion.isPending) addQuestion.mutate();
+                        }}
+                      />
+                      <Button
+                        disabled={!newQuestion.trim()}
+                        loading={addQuestion.isPending}
+                        onClick={() => addQuestion.mutate()}
+                      >
+                        {t("workbench.addQuestion")}
+                      </Button>
+                    </Space.Compact>
                   )}
                 </Space>
               ),
@@ -291,6 +496,8 @@ export default function Workbench({ projectId, canUse, canRunJobs }: {
               </Typography.Text>
             )}
           </Modal>
+
+          {nameModal()}
 
           <Modal
             open={editOpen}

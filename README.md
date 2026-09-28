@@ -105,7 +105,8 @@ a full index.
 ### Tests — the retrieval-testing loop
 
 The **Tests** tab is the retrieval-testing loop. A knowledge manager saves a
-question set once — an ad-hoc answer joins a set in one action — then
+question set once — sets are created, renamed and archived in the rating
+matrix, and an ad-hoc answer joins a set (or starts one) in one action — then
 **re-runs the whole set** against the current index as a background job.
 The run's question manifest is materialized when the job is enqueued, so an
 edit made while the job sits queued cannot change what runs. Answers are

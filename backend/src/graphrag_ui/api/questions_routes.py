@@ -2,8 +2,8 @@
 
 Permissions: reads are project:view; set and question mutations are
 project:edit_content (curating test content). Audit actions:
-question_set.created / question_set.archived and question.created /
-question.updated / question.forked / question.archived.
+question_set.created / question_set.renamed / question_set.archived and
+question.created / question.updated / question.forked / question.archived.
 """
 
 import uuid
@@ -32,6 +32,15 @@ class SetIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=200)
+
+    @field_validator("name")
+    @classmethod
+    def _not_blank(cls, v: str) -> str:
+        # A whitespace-only name would render as an empty picker entry.
+        v = v.strip()
+        if not v:
+            raise ValueError("name must not be blank")
+        return v
 
 
 class QuestionIn(BaseModel):
@@ -111,6 +120,26 @@ def register_questions_routes(app):
         ):
             raise _forbidden()
         qs = await questions_service.create_set(db, project, body.name, actor_id=user.id)
+        return SetOut.model_validate(qs)
+
+    @router.patch("/{pid}/question-sets/{sid}", response_model=SetOut)
+    async def rename_set(
+        pid: uuid.UUID, sid: uuid.UUID, body: SetIn, db: DbSession, user: CurrentUser
+    ):
+        project = await _project_or_404(db, pid)
+        if not can(
+            user.global_perms,
+            user.is_active,
+            Atom.project_edit_content,
+            await get_member_perms(db, pid, user.id),
+        ):
+            raise _forbidden()
+        try:
+            qs = await questions_service.rename_set(db, project, sid, body.name, actor_id=user.id)
+        except QuestionSetNotFound:
+            raise ApiError(
+                status.HTTP_404_NOT_FOUND, "question_set_not_found", "question set not found"
+            ) from None
         return SetOut.model_validate(qs)
 
     @router.delete("/{pid}/question-sets/{sid}", status_code=status.HTTP_204_NO_CONTENT)

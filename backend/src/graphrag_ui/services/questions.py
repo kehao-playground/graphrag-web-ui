@@ -118,6 +118,26 @@ async def list_sets(session: AsyncSession, project: Project) -> list[QuestionSet
     )
 
 
+async def rename_set(
+    session: AsyncSession, project: Project, set_id: uuid.UUID, name: str, actor_id: uuid.UUID
+) -> QuestionSet:
+    # No project lock: a run's manifest snapshots questions, never the set's
+    # name, so a rename cannot race anything a run records.
+    qs = await _set_or_raise(session, project.id, set_id)
+    old_name = qs.name
+    qs.name = name
+    await audit(
+        session,
+        actor_id,
+        "question_set.renamed",
+        "project",
+        str(project.id),
+        {"set_id": str(qs.id), "old_name": old_name, "name": name},
+    )
+    await session.commit()
+    return qs
+
+
 async def archive_set(
     session: AsyncSession, project: Project, set_id: uuid.UUID, actor_id: uuid.UUID
 ) -> None:

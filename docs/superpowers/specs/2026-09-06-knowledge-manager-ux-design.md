@@ -1205,7 +1205,7 @@ omitted them would report that it was.
 | `GET /api/projects/{id}/tags` | `project:view` | catalog + counts |
 | `GET /api/projects/{id}/health` | `project:view` | §7.5 |
 | `GET /api/projects/health?ids=` | `project:view` | filtered to visible projects |
-| `GET/POST/PATCH/DELETE /api/projects/{id}/question-sets[/{sid}]` | view / `project:edit_content` | questions nested; PATCH follows §5.3 immutability |
+| `GET/POST/PATCH/DELETE /api/projects/{id}/question-sets[/{sid}]` | view / `project:edit_content` | questions nested; a set's PATCH renames it (`question_set.renamed`), a question's PATCH follows §5.3 immutability; DELETE archives |
 | `GET /api/projects/{id}/test-runs` | `project:view` | matrix source; rows keyed by lineage |
 | `POST /api/projects/{id}/test-runs` | `project:run_jobs` | enqueues the job + manifest in one transaction; **409 `job_conflict`** while any job holds the project |
 | `GET /api/test-runs/{rid}/results` | `project:view` | includes `question_text` |
@@ -1297,6 +1297,16 @@ set in one action.
   that determines whether it gets used.
 - **Editing a question that has runs** warns that it starts a new version
   and that past runs keep the old wording (§5.3).
+- **Set and question curation lives in the workbench** (`project:edit_content`;
+  added by fix wave F11 — the slice shipped without it). The matrix mode's
+  picker row creates, renames and archives sets; the questions list adds,
+  edits and archives questions. Archiving a question that has runs says its
+  answers stay in those runs. The ad-hoc *Save as question* dialog can
+  create a set inline and is the only save path when none exists.
+- **First visit**: a project with no question set lands on the ad-hoc mode
+  (asking is what a first visit is for). The matrix mode then shows an empty
+  state with *Create question set* in place of the picker, and the launch
+  button reads *Run the set* until the project has a run.
 - **`Citation` is hand-maintained**, not generated: it lives in
   `frontend/src/api/types.ts:34` because the SSE contract has no backend
   `response_model`. It gains `entries[].source_name: string | null`, and

@@ -436,6 +436,7 @@ async def test_rating_an_unknown_result_is_404(client, base):
     [
         ("GET", "/api/projects/{pid}/question-sets", None, 200),
         ("POST", "/api/projects/{pid}/question-sets", {"name": "s"}, 403),
+        ("PATCH", "/api/projects/{pid}/question-sets/{sid}", {"name": "s"}, 403),
         ("GET", "/api/projects/{pid}/test-runs", None, 200),
         ("POST", "/api/projects/{pid}/test-runs", {"set_id": "{sid}", "method": "local"}, 403),
         ("GET", "/api/test-runs/{rid}/results", None, 200),

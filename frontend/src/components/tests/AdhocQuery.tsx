@@ -2,20 +2,26 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Button, Input, Modal, Select, Space, message } from "antd";
-import type { Citation, QueryMethod, QueryTimings } from "../../api/types";
-import { messageOfBody, sendOk, sseUrl } from "../../api/client";
+import type { Citation, QueryMethod, QuestionSet, QueryTimings } from "../../api/types";
+import { apiJson, messageOfBody, sendOk, sseUrl } from "../../api/client";
 import { questionSets } from "../../api/queries";
 import AnswerView from "./AnswerView";
 import { methodOptions } from "./methods";
 
 // Query answers are multi-paragraph prose; the backend default response_type.
 const RESPONSE_TYPE = "multiple paragraphs";
+// The save dialog's pseudo-option: create a set and save into it.
+const NEW_SET = "__new__";
 
 // The workbench's ad-hoc mode (spec §9.2): the interactive SSE path, kept
 // exactly as QueryPanel had it, with its rendering lifted into AnswerView
-// and a one-action save button into a question set.
+// and a one-action save button into a question set (project:edit_content).
 // zh-TW: the save button's literal label is 存成題目.
-export default function AdhocQuery({ projectId, canUse }: { projectId: string; canUse: boolean }) {
+export default function AdhocQuery({ projectId, canUse, canEdit }: {
+  projectId: string;
+  canUse: boolean;
+  canEdit: boolean;
+}) {
   const qc = useQueryClient();
   const { t } = useTranslation();
   const [method, setMethod] = useState<QueryMethod>("local");
@@ -26,6 +32,7 @@ export default function AdhocQuery({ projectId, canUse }: { projectId: string; c
   const [streaming, setStreaming] = useState(false);
   const [saveOpen, setSaveOpen] = useState(false);
   const [saveSet, setSaveSet] = useState<string>();
+  const [newSetName, setNewSetName] = useState("");
   const esRef = useRef<EventSource | null>(null);
 
   // Close on unmount (mode switch): unlike job logs there is no resume, and
@@ -87,11 +94,20 @@ export default function AdhocQuery({ projectId, canUse }: { projectId: string; c
   // answers are produced by runs, and this save button is how a good ad-hoc
   // question joins the set the next batch will ask.
   // zh-TW: the button's literal label is 存成題目.
+  // With no set yet the target defaults to a new one (R4-03): the dialog
+  // asks for its name instead of showing an empty dropdown.
+  const target = saveSet ?? (sets.data?.sets.length === 0 ? NEW_SET : undefined);
   const saveQuestion = useMutation({
-    mutationFn: (setId: string) => sendOk(
-      `/api/projects/${projectId}/question-sets/${setId}/questions`, "workbench.saveFailed",
-      { method: "POST", body: JSON.stringify({ text: query.trim() }) },
-    ),
+    mutationFn: async (setId: string) => {
+      const sid = setId !== NEW_SET ? setId : (await apiJson<QuestionSet>(
+        `/api/projects/${projectId}/question-sets`, "workbench.createSetFailed",
+        { method: "POST", body: JSON.stringify({ name: newSetName.trim() }) },
+      )).id;
+      await sendOk(
+        `/api/projects/${projectId}/question-sets/${sid}/questions`, "workbench.saveFailed",
+        { method: "POST", body: JSON.stringify({ text: query.trim() }) },
+      );
+    },
     onSuccess: () => {
       message.success(t("workbench.saved"));
       setSaveOpen(false);
@@ -100,7 +116,7 @@ export default function AdhocQuery({ projectId, canUse }: { projectId: string; c
   });
 
   const busy = streaming;
-  const canSave = !busy && query.trim().length > 0;
+  const canSave = canEdit && !busy && query.trim().length > 0;
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
       <Space direction="vertical" size="small" style={{ width: "100%" }}>
@@ -128,6 +144,7 @@ export default function AdhocQuery({ projectId, canUse }: { projectId: string; c
           <Button
             onClick={() => {
               setSaveSet(undefined);
+              setNewSetName("");
               setSaveOpen(true);
             }}
           >
@@ -152,19 +169,35 @@ export default function AdhocQuery({ projectId, canUse }: { projectId: string; c
         title={t("workbench.saveTitle")}
         okText={t("workbench.saveOk")}
         cancelText={t("common.cancel")}
-        okButtonProps={{ disabled: !saveSet }}
+        okButtonProps={{
+          disabled: !target || (target === NEW_SET && !newSetName.trim()),
+        }}
         confirmLoading={saveQuestion.isPending}
-        onOk={() => saveSet && saveQuestion.mutate(saveSet)}
+        onOk={() => target && saveQuestion.mutate(target)}
         onCancel={() => setSaveOpen(false)}
       >
-        <Select
-          style={{ width: "100%" }}
-          placeholder={t("workbench.setPlaceholder")}
-          value={saveSet}
-          onChange={setSaveSet}
-          loading={sets.isPending}
-          options={(sets.data?.sets ?? []).map((s) => ({ label: s.name, value: s.id }))}
-        />
+        <Space direction="vertical" size="small" style={{ width: "100%" }}>
+          <Select
+            style={{ width: "100%" }}
+            placeholder={t("workbench.setPlaceholder")}
+            value={target}
+            onChange={setSaveSet}
+            loading={sets.isPending}
+            options={[
+              ...(sets.data?.sets ?? []).map((s) => ({ label: s.name, value: s.id })),
+              { label: t("workbench.newSetOption"), value: NEW_SET },
+            ]}
+          />
+          {target === NEW_SET && (
+            <Input
+              aria-label={t("workbench.newSetName")}
+              placeholder={t("workbench.newSetName")}
+              maxLength={200}
+              value={newSetName}
+              onChange={(e) => setNewSetName(e.target.value)}
+            />
+          )}
+        </Space>
       </Modal>
     </Space>
   );
