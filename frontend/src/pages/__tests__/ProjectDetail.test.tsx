@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { vi, beforeEach } from "vitest";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { createQueryClient } from "../../api/queryClient";
-import { MemoryRouter, Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, RouterProvider, createMemoryRouter, createRoutesFromElements } from "react-router-dom";
 import ProjectDetail, { ProjectPane } from "../ProjectDetail";
 import { useAuth } from "../../stores/auth";
 import { stubFetch } from "../../testing/stubFetch";
@@ -121,22 +121,22 @@ function renderApp(opts: {
         files: { ...HEALTH.files, ...((opts.health.files ?? {}) as object) },
       }
     : HEALTH;
+  // A data router, as in App: the settings pane's useBlocker needs one.
+  const router = createMemoryRouter(createRoutesFromElements(
+    <Route path="/projects/:id" element={<ProjectDetail />}>
+      <Route index element={<Navigate to="overview" replace />} />
+      <Route path="overview" element={<ProjectPane pane="overview" />} />
+      <Route path="files" element={<ProjectPane pane="files" />} />
+      <Route path="jobs" element={<ProjectPane pane="jobs" />} />
+      <Route path="tests" element={<ProjectPane pane="tests" />} />
+      <Route path="explore" element={<ProjectPane pane="explore" />} />
+      <Route path="settings" element={<ProjectPane pane="settings" />} />
+      <Route path="members" element={<ProjectPane pane="members" />} />
+    </Route>,
+  ), { initialEntries: [opts.route ?? "/projects/p1"] });
   return render(
     <QueryClientProvider client={createQueryClient()}>
-      <MemoryRouter initialEntries={[opts.route ?? "/projects/p1"]}>
-        <Routes>
-          <Route path="/projects/:id" element={<ProjectDetail />}>
-            <Route index element={<Navigate to="overview" replace />} />
-            <Route path="overview" element={<ProjectPane pane="overview" />} />
-            <Route path="files" element={<ProjectPane pane="files" />} />
-            <Route path="jobs" element={<ProjectPane pane="jobs" />} />
-            <Route path="tests" element={<ProjectPane pane="tests" />} />
-            <Route path="explore" element={<ProjectPane pane="explore" />} />
-            <Route path="settings" element={<ProjectPane pane="settings" />} />
-            <Route path="members" element={<ProjectPane pane="members" />} />
-          </Route>
-        </Routes>
-      </MemoryRouter>
+      <RouterProvider router={router} />
     </QueryClientProvider>,
   )
 }
@@ -179,9 +179,10 @@ test("a reload keeps the pane", async () => {
 test("entries missing an atom are hidden, not disabled", async () => {
   renderApp({ route: "/projects/p1/overview", myPermissions: VIEWER_PERMS })
   expect(await screen.findByRole("heading", { name: "知識庫健康度" })).toBeInTheDocument()
-  // project:edit_settings / project:manage absent → the entries are removed outright
-  expect(screen.queryByRole("link", { name: "設定" })).not.toBeInTheDocument()
+  // project:manage absent → the entry is removed outright
   expect(screen.queryByRole("link", { name: "成員" })).not.toBeInTheDocument()
+  // settings reads are project:view (R3-24): the entry stays, writes lock in the pane
+  expect(screen.getByRole("link", { name: "設定" })).toBeInTheDocument()
   // project:view alone still reaches the knowledge-base panes
   expect(screen.getByRole("link", { name: /文件/ })).toBeInTheDocument()
 })
@@ -257,9 +258,9 @@ test("maintainer atoms: no member management, jobs launchable, files editable, s
   fireEvent.click(screen.getByRole("link", { name: /文件/ }))
   expect(await screen.findByText("點擊或拖曳檔案上傳")).toBeInTheDocument()
 
-  // project:edit_settings is absent → the settings entry is hidden, not
-  // disabled; the pane itself stays URL-reachable and renders read-only
-  expect(screen.queryByRole("link", { name: "設定" })).not.toBeInTheDocument()
+  // project:edit_settings is absent → the settings entry still shows
+  // (its reads are project:view, R3-24) and the pane renders read-only
+  expect(screen.getByRole("link", { name: "設定" })).toBeInTheDocument()
   unmount()
   renderApp({ route: "/projects/p1/settings", myPermissions: MAINTAINER_PERMS })
   expect(await screen.findByRole("button", { name: "儲存設定" })).toBeDisabled()
