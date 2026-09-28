@@ -34,16 +34,22 @@ class MockEventSource {
 // body; the sets catalog serves the one set the save dialog lists.
 let postedTo = "";
 let postedBody: unknown = null;
+let posts: [string, unknown][] = [];
+let setsBody: { sets: { id: string; name: string; created_at: string }[] };
 const apiMock = vi.fn(async (path: string, init?: RequestInit) => {
   if (init?.method === "POST") {
     postedTo = path;
     postedBody = JSON.parse(init.body as string);
+    posts.push([path, postedBody]);
+    if (path === "/api/projects/p1/question-sets") {
+      return new Response(JSON.stringify({
+        id: "s-new", name: (postedBody as { name: string }).name, created_at: "2026-09-28T00:00:00Z",
+      }), { status: 201 });
+    }
     return new Response(JSON.stringify({}), { status: 201 });
   }
   if (path === "/api/projects/p1/question-sets") {
-    return new Response(JSON.stringify({
-      sets: [{ id: "s1", name: "客服常問 20 題", created_at: "2026-09-01T00:00:00Z" }],
-    }), { status: 200 });
+    return new Response(JSON.stringify(setsBody), { status: 200 });
   }
   return new Response(JSON.stringify({}), { status: 200 });
 });
@@ -53,6 +59,8 @@ stubFetch(apiMock);
 const TIMINGS = { frames_ms: 1, search_ms: 2, citations_ms: 3, total_ms: 6 };
 
 beforeEach(() => {
+  posts = [];
+  setsBody = { sets: [{ id: "s1", name: "客服常問 20 題", created_at: "2026-09-01T00:00:00Z" }] };
   MockEventSource.instances = [];
   vi.stubGlobal("EventSource", MockEventSource);
   useAuth.setState({ accessToken: "test-token" });
@@ -66,10 +74,10 @@ afterEach(() => {
   document.querySelectorAll(".ant-modal-root").forEach((el) => el.remove());
 });
 
-function mount(canUse = true) {
+function mount(canUse = true, canEdit = true) {
   return render(
     <QueryClientProvider client={createQueryClient()}>
-      <AdhocQuery projectId="p1" canUse={canUse} />
+      <AdhocQuery projectId="p1" canUse={canUse} canEdit={canEdit} />
     </QueryClientProvider>,
   );
 }
@@ -169,7 +177,7 @@ test("transport error (pre-stream 4xx / network) shows the generic message and c
 test("unmount closes the EventSource", async () => {
   const { unmount } = render(
     <QueryClientProvider client={createQueryClient()}>
-      <AdhocQuery projectId="p1" canUse />
+      <AdhocQuery projectId="p1" canUse canEdit />
     </QueryClientProvider>,
   );
   const user = userEvent.setup();
@@ -234,4 +242,26 @@ test("an ad-hoc answer saves into a question set in one action", async () => {
     expect(postedTo).toBe("/api/projects/p1/question-sets/s1/questions");
     expect(postedBody).toEqual({ text: "退貨要幾天?" });
   });
+});
+
+test("with no set yet, save as question creates one inline", async () => {
+  setsBody = { sets: [] };
+  mount();
+  await userEvent.type(screen.getByPlaceholderText(/輸入問題/), "退貨要幾天?");
+  await userEvent.click(screen.getByRole("button", { name: "存成題目" }));
+  const dialog = await screen.findByRole("dialog");
+  // No set to pick: the dialog asks for the new set's name instead of
+  // showing an empty dropdown.
+  await userEvent.type(await within(dialog).findByLabelText("新題組名稱"), "客服 FAQ");
+  await userEvent.click(within(dialog).getByRole("button", { name: /^確\s?定$/ }));
+  await waitFor(() => expect(posts).toEqual([
+    ["/api/projects/p1/question-sets", { name: "客服 FAQ" }],
+    ["/api/projects/p1/question-sets/s-new/questions", { text: "退貨要幾天?" }],
+  ]));
+});
+
+test("save as question needs project:edit_content", async () => {
+  mount(true, false);
+  await userEvent.type(screen.getByPlaceholderText(/輸入問題/), "退貨要幾天?");
+  expect(screen.queryByRole("button", { name: "存成題目" })).not.toBeInTheDocument();
 });

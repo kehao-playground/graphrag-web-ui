@@ -19,7 +19,7 @@ from sqlalchemy import select
 # TestRun/TestResult are referenced through the module on purpose: pytest
 # tries to collect any module-level name starting with "Test".
 from graphrag_ui.adapters import models
-from graphrag_ui.adapters.models import Job, Project, Question
+from graphrag_ui.adapters.models import AuditLog, Job, Project, Question
 from graphrag_ui.adapters.workspace import FakeInitializer
 from graphrag_ui.api.projects_routes import get_initializer
 from tests.test_projects import _activate, _setup_two_users
@@ -192,3 +192,44 @@ async def test_listing_a_foreign_sets_questions_is_404_not_a_leak(client, app, p
     r = await client.get(f"/api/projects/{bob_pid}/question-sets/{sid}/questions", headers=bob)
     assert r.status_code == 404
     assert r.json()["code"] == "question_set_not_found"
+
+
+async def test_renaming_a_set_changes_its_name_and_audits(client, db_session, project_with_set):
+    """R3-23: spec 8 lists PATCH /question-sets/{sid}; a rename keeps the
+    set's id, so its runs and the picker selection survive it."""
+    alice, pid, sid = project_with_set
+    r = await client.patch(
+        f"/api/projects/{pid}/question-sets/{sid}", headers=alice, json={"name": "  Regression  "}
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["id"] == sid and r.json()["name"] == "Regression"
+    sets = (await client.get(f"/api/projects/{pid}/question-sets", headers=alice)).json()
+    assert [s["name"] for s in sets["sets"]] == ["Regression"]
+    payload = (
+        await db_session.execute(
+            select(AuditLog.payload).where(
+                AuditLog.action == "question_set.renamed", AuditLog.target_id == pid
+            )
+        )
+    ).scalar_one()
+    assert payload == {"set_id": sid, "old_name": "Smoke", "name": "Regression"}
+
+
+async def test_renaming_an_archived_set_is_404(client, project_with_set):
+    alice, pid, sid = project_with_set
+    assert (
+        await client.delete(f"/api/projects/{pid}/question-sets/{sid}", headers=alice)
+    ).status_code == 204
+    r = await client.patch(
+        f"/api/projects/{pid}/question-sets/{sid}", headers=alice, json={"name": "Back"}
+    )
+    assert r.status_code == 404 and r.json()["code"] == "question_set_not_found"
+
+
+@pytest.mark.parametrize("method", ["POST", "PATCH"])
+async def test_a_blank_set_name_is_rejected(client, project_with_set, method):
+    """A whitespace-only name would render as an empty picker entry."""
+    alice, pid, sid = project_with_set
+    path = f"/api/projects/{pid}/question-sets" + (f"/{sid}" if method == "PATCH" else "")
+    r = await client.request(method, path, headers=alice, json={"name": "   "})
+    assert r.status_code == 422

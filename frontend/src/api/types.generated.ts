@@ -626,7 +626,8 @@ export interface paths {
         delete: operations["archive_set_api_projects__pid__question_sets__sid__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /** Rename Set */
+        patch: operations["rename_set_api_projects__pid__question_sets__sid__patch"];
         trace?: never;
     };
     "/api/projects/{pid}/question-sets/{sid}/questions": {
@@ -3182,6 +3183,42 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rename_set_api_projects__pid__question_sets__sid__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+                sid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetOut"];
+                };
             };
             /** @description Validation Error */
             422: {
