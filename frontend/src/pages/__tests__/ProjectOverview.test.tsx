@@ -14,17 +14,54 @@ import { stubFetch } from "../../testing/stubFetch";
 // the fields its rule reads (plan Task 6, spec §9.3).
 const H = (over: Partial<ActionHealth> = {}): ActionHealth => ({
   active_job: null,
+  api_key_missing: false,
   artifacts_stale: false,
-  files: { new: 0, modified: 0, removed: 0, skipped: 0 },
+  files: { new: 0, modified: 0, removed: 0, skipped: 0, total: 5 },
   has_baseline: true,
   ingest_check: "available",
+  last_index: { job_id: "j0" },
   latest_run: null,
   ...over,
 });
 
-test("an active job outranks everything", () => {
-  expect(nextAction(H({ active_job: { id: "j1", type: "index" }, files: { ...H().files, removed: 3 } })).key)
-    .toBe("activeJob");
+test("an active job outranks everything and opens that job's log", () => {
+  const a = nextAction(H({
+    active_job: { id: "j1", type: "index" }, api_key_missing: true, files: { ...H().files, removed: 3 },
+  }));
+  expect(a.key).toBe("activeJob");
+  expect(a.target).toBe("jobs?log=j1");
+});
+
+// Test runs are off the jobs page (decision D2); the workbench shows them.
+test("a running test run's card leads to the workbench", () => {
+  expect(nextAction(H({ active_job: { id: "t1", type: "test_run" } })).target).toBe("tests");
+});
+
+// R4-04: every project starts empty; the first step is uploading, not a
+// full index of nothing, and it is not an error.
+test("a project without documents asks for an upload, as info", () => {
+  const a = nextAction(H({
+    files: { ...H().files, total: 0 }, has_baseline: false, last_index: null, api_key_missing: true,
+  }));
+  expect(a).toEqual({ key: "noDocuments", severity: "info", target: "files" });
+});
+
+// F9-01: a placeholder key fails the index at its first model call.
+test("a missing API key ranks right after documents, before any index advice", () => {
+  const a = nextAction(H({ api_key_missing: true, has_baseline: false, last_index: null }));
+  expect(a).toEqual({ key: "apiKeyMissing", severity: "warning", target: "settings" });
+  expect(nextAction(H({ api_key_missing: true, artifacts_stale: true })).key).toBe("apiKeyMissing");
+});
+
+test("no baseline is info before any index ran, an error after one failed", () => {
+  expect(nextAction(H({ has_baseline: false, last_index: null })).severity).toBe("info");
+  expect(nextAction(H({ has_baseline: false })).severity).toBe("error");
+});
+
+// R4-05: the skipped card leads to the evidence (the run's log), not to a
+// file filter with nothing on it to review.
+test("the skipped card targets the last index run's log", () => {
+  expect(nextAction(H({ files: { ...H().files, skipped: 2 } })).target).toBe("jobs?log=j0");
 });
 
 test("missing output under an existing baseline outranks a missing baseline check", () => {
@@ -68,6 +105,7 @@ test("no baseline asks for a full index and says an update will not do", () => {
 // latest_run.ratings, which the pure ladder never touches.
 const CLEAN = {
   active_job: null,
+  api_key_missing: false,
   artifacts_stale: false,
   files: { indexed: 5, modified: 0, new: 0, removed: 0, skipped: 0, total: 5 },
   has_baseline: true,
@@ -91,6 +129,7 @@ stubFetch(api);
 // Renders the overview alone at its routed URL, so the action card's
 // links carry the absolute hrefs the real router would produce.
 function renderOverview(over: {
+  api_key_missing?: boolean;
   artifacts_stale?: boolean;
   files?: Partial<(typeof CLEAN)["files"]>;
   ingest_check?: string;
@@ -126,4 +165,26 @@ test("unavailable title_column adds a caveat without changing the ranking", asyn
   renderOverview({ ingest_check: "unavailable_title_column", files: { removed: 1 } });
   expect(await screen.findByText(/靜默略過偵測已關閉/)).toBeInTheDocument();
   expect(screen.getByText(/只有完整重建/)).toBeInTheDocument();
+});
+
+test("the skipped card links to the last run's log first, then the files", async () => {
+  renderOverview({ files: { skipped: 2, indexed: 3 } });
+  expect(await screen.findByText(/編碼/)).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: /查看上次索引的日誌/ }))
+    .toHaveAttribute("href", "/projects/p1/jobs?log=j0");
+  expect(screen.getByRole("link", { name: /查看未收錄文件/ }))
+    .toHaveAttribute("href", "/projects/p1/files?state=skipped");
+});
+
+test("an empty project's card is an info upload prompt", async () => {
+  renderOverview({ files: { indexed: 0, total: 0 } });
+  const link = await screen.findByRole("link", { name: /前往文件/ });
+  expect(link).toHaveAttribute("href", "/projects/p1/files");
+  expect(link.closest(".ant-alert")).toHaveClass("ant-alert-info");
+});
+
+test("a placeholder API key sends the user to settings", async () => {
+  renderOverview({ api_key_missing: true });
+  expect(await screen.findByRole("link", { name: /前往設定/ }))
+    .toHaveAttribute("href", "/projects/p1/settings");
 });

@@ -16,6 +16,7 @@ import JobsPanel from "../components/JobsPanel";
 import Workbench from "../components/tests/Workbench";
 import ExplorePanel from "../components/ExplorePanel";
 import ProjectSidebar from "../components/project/ProjectSidebar";
+import { useActiveJobWatch } from "../components/project/useActiveJobWatch";
 import ProjectOverview from "./ProjectOverview";
 
 // The routed panes (spec §4). App nests one <ProjectPane pane=…> per route
@@ -73,6 +74,9 @@ export default function ProjectDetail() {
 
   const project = useQuery({ ...projectById(id ?? ""), enabled: !!id });
   const members = useQuery({ ...projectMembers(id ?? ""), enabled: !!id });
+  // Mounted with the layout, so it watches the job slot whichever pane is
+  // open; gated on the project so a 404/403 project never polls.
+  useActiveJobWatch(id ?? "", project.isSuccess);
   const invalidateMembers = () =>
     qc.invalidateQueries({ queryKey: projectMembers(id ?? "").queryKey });
 

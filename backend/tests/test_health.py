@@ -334,3 +334,34 @@ async def test_batch_health_rejects_an_oversized_id_list(client, alice_headers):
         headers=alice_headers,
     )
     assert r.status_code == 422
+
+
+async def test_api_key_missing_flags_a_referenced_placeholder_or_absent_key(
+    client, app, alice_headers
+):
+    """F9-01: a key settings.yaml references is unusable while its .env value
+    is graphrag init's stand-in, empty, or absent — the overview must say so
+    before a paid index fails at its first model call."""
+    app.dependency_overrides[get_initializer] = FakeInitializer
+    pid = await _make_project(client, alice_headers)
+    root = ws_path(uuid.UUID(pid))
+
+    async def missing() -> bool:
+        r = await client.get(f"/api/projects/{pid}/health", headers=alice_headers)
+        return r.json()["api_key_missing"]
+
+    # FakeInitializer's settings.yaml references no key at all
+    assert await missing() is False
+
+    settings = root / "settings.yaml"
+    settings.write_text(settings.read_text() + "models:\n  m:\n    api_key: ${GRAPHRAG_API_KEY}\n")
+    assert await missing() is True  # referenced, no .env line
+
+    (root / ".env").write_text("GRAPHRAG_API_KEY=<API_KEY>\n")
+    assert await missing() is True
+
+    (root / ".env").write_text("GRAPHRAG_API_KEY=\n")
+    assert await missing() is True
+
+    (root / ".env").write_text("GRAPHRAG_API_KEY=sk-real-value\nUNUSED=<OTHER>\n")
+    assert await missing() is False  # an unreferenced placeholder does not count

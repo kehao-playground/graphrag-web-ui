@@ -5,6 +5,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { Alert, Button, Modal, Space, Spin, Upload, message } from "antd";
 import type { UploadProps } from "antd";
 import { apiJson, sendOk } from "../api/client";
+import { invalidateProjectFiles } from "../api/invalidate";
 import { jobsPreflight, projectFiles, projectTags } from "../api/queries";
 import { isFrozen } from "./project/frozen";
 import type { BulkDeleteResult, Project, UploadedFile } from "../api/types";
@@ -45,7 +46,8 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const files = useQuery(projectFiles(projectId));
-  const invalidateFiles = () => qc.invalidateQueries({ queryKey: projectFiles(projectId).queryKey });
+  // Files, tags and the health badges all move with an upload or delete.
+  const invalidateFiles = () => invalidateProjectFiles(qc, projectId);
 
   // Tag catalog for the toolbar's filter (GET /tags, Task 6); quiet on
   // failure (see projectTags).
@@ -208,7 +210,7 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
           </Button>
         </Space>
       )}
-      <Spin spinning={files.isFetching}>
+      <Spin spinning={files.isPending}>
         <FilesTable
           files={visible}
           canEdit={canEdit}

@@ -422,7 +422,7 @@ and dropped again.
 baseline, so every file reads `new` until a **full `index`** — and per the
 table above an `update` will not create one, so the requirement is
 enforced by the rule rather than merely documented. Stated in the release
-notes and surfaced by overview action card 3 (§9.3).
+notes and surfaced by overview action card 5 (§9.3).
 
 ### 5.3 Question sets, runs, ratings
 
@@ -542,7 +542,7 @@ existing audit log (`test.rated`), not by row versioning.
 scan alone. A deleted file is exactly the case where the filesystem has
 nothing and `project_files` has nothing (§7.1 removes the row with the
 file), so an FS-driven listing could never produce a `removed` row and
-the state, the health count and overview card 4 would all be unreachable.
+the state, the health count and overview card 6 would all be unreachable.
 The baseline is the only thing that still remembers the name, so it must
 be part of the enumeration.
 
@@ -664,7 +664,7 @@ ingest_check: "available"
 
 `unavailable_not_indexed` is a cheap `stat` on `output/documents.parquet`,
 not a read — it is how the "baseline claims files are indexed but the
-output is **gone**" fault (§7.5, overview card 2) is detected. A `stat`
+output is **gone**" fault (§7.5, overview card 4) is detected. A `stat`
 proves existence and nothing more: a present-but-corrupt parquet is
 outside what this detects, and the guarantee is worded as missing output,
 not healthy output. Corruption surfaces where it already does — the query
@@ -1041,7 +1041,7 @@ and the active-job condition withholds links.
 interrupted index, links stay off until a successful index promotes a new
 baseline — the console cannot tell a half-written `output/` from a whole
 one, and guessing is what this whole section exists to avoid. `/health`
-reports `artifacts_stale` for this state and overview card 2 names it
+reports `artifacts_stale` for this state and overview card 4 names it
 (§7.5, §9.3), so the user sees *why* links vanished and what fixes it,
 rather than meeting a silent degradation.
 
@@ -1146,6 +1146,8 @@ GET /api/projects/{id}/health
   latest_run: {run_id, set_id, method, index_job_id,
                ratings: {good, fair, poor, unrated},
                regressions: int} | null
+  api_key_missing: bool         -- a key settings.yaml references is
+                                -- absent from .env or a placeholder
 ```
 
 `artifacts_stale` is reported for the same reason `ingest_check` is: it
@@ -1159,7 +1161,7 @@ true** means the project once had output and the file is no longer there —
 deleted, or on a volume that did not come back. A file that exists but is
 corrupt is not covered (§6.3). Its files still report
 `indexed` from the baseline, which is why the overview must call it out
-(action card 2, §9.3) instead of scoring the project healthy.
+(action card 4, §9.3) instead of scoring the project healthy.
 
 `regressions` is computed server-side (count of lineages whose newest
 rating is worse than the previous run's) because the overview must state
@@ -1309,8 +1311,16 @@ set in one action.
   check, and each card links to its target **with filters already
   applied**:
 
-  1. `active_job` → a job is running; link to its log.
-  2. `has_baseline` **and** (`ingest_check == "unavailable_not_indexed"`
+  1. `active_job` → a job is running; link to its log
+     (`jobs?log=<id>`, which opens the log drawer); a running test run
+     links to the workbench instead, since the jobs page lists only
+     index and update jobs.
+  2. `files.total == 0` → nothing to index yet; upload documents. Every
+     project starts here, so the card is *info*, not an error (R4-04).
+  3. `api_key_missing` → a key `settings.yaml` references is absent from
+     the workspace `.env` or still `graphrag init`'s placeholder; any
+     index would fail at its first model call. Links to Settings (F9-01).
+  4. `has_baseline` **and** (`ingest_check == "unavailable_not_indexed"`
      **or** `artifacts_stale`) → the indexed output is gone, or was left
      behind by an attempt that failed part-way, while the baseline still
      claims files are indexed; run a **full index**. This outranks
@@ -1318,24 +1328,28 @@ set in one action.
      output that is missing or untrustworthy. The card also explains that
      citation links are switched off until this is repaired (§7.4), so the
      absence is legible rather than mysterious.
-  3. no `has_baseline` → run a **full index** to establish a trustworthy
-     baseline (an update will not do it — §5.2).
-  4. `removed > 0` → deleted documents are still answering queries; only
+  5. no `has_baseline` → run a **full index** to establish a trustworthy
+     baseline (an update will not do it — §5.2). *Info* while no index
+     has ever finished (`last_index` null), an error once one has.
+  6. `removed > 0` → deleted documents are still answering queries; only
      a **full index** clears them.
-  5. `new + modified > 0` → rebuild; link to `files?state=new,modified`.
-  6. `skipped > 0` → documents graphrag did not ingest; link to
-     `files?state=skipped`.
-  7. `latest_run.regressions > 0` → link to the workbench filtered to
+  7. `new + modified > 0` → rebuild; link to `files?state=new,modified`.
+  8. `skipped > 0` → documents graphrag did not ingest. The card names
+     what to check (encoding, empty content, `input.file_pattern`) and
+     that a re-index without a fix repeats the result; it links first to
+     the last index run's log (`jobs?log=<last_index.job_id>`), then to
+     `files?state=skipped` (R4-05).
+  9. `latest_run.regressions > 0` → link to the workbench filtered to
      regressions.
-  8. otherwise healthy.
+  10. otherwise healthy.
 
   `removed` outranks `new`/`modified` because it is the only one that
   needs a *full* index rather than an update, and an earlier draft omitted
   it entirely — a project whose only problem was deleted documents
-  reported itself healthy. Rule 2 exists for the same class of mistake:
+  reported itself healthy. Rule 4 exists for the same class of mistake:
   missing output is not the absence of a problem.
 
-  When `ingest_check == "unavailable_title_column"`, rules 4-6 still
+  When `ingest_check == "unavailable_title_column"`, rules 6-8 still
   apply but the card adds that silent-skip detection is off, so `skipped`
   is not evidence of health either way.
 - **Citation loop closes**: `AnswerView`'s `Sources` citations become
@@ -1442,7 +1456,7 @@ Backend:
   editing a referenced one forks the lineage and archives the old row;
   historic `test_results` keep their `question_text`.
 - `/health` `regressions` arithmetic; the `has_baseline` +
-  `unavailable_not_indexed` fault surfacing as action card 2; `?ids=`
+  `unavailable_not_indexed` fault surfacing as action card 4; `?ids=`
   filtered to visible projects and carrying `skipped`/`ingest_check`.
 - `preview_file` — a match beyond the first 64 KiB is still found and
   centered; an unmatched passage returns the head with `match: false`;
@@ -1525,7 +1539,7 @@ Existing suites stay green: 365 backend, 101 frontend at time of writing.
 - **Migration is additive.** No existing column changes type or meaning;
   `jobs.params` and `jobs.progress` are nullable. Existing projects have
   no baseline, so every file reads `new` until a **full index** — accurate,
-  briefly noisy, self-correcting, and surfaced as action card 3 (§9.3)
+  briefly noisy, self-correcting, and surfaced as action card 5 (§9.3)
   rather than left for the user to infer.
 - **The input freeze is a behavior change** for existing endpoints:
   uploads and deletes during an `index`/`update` job used to succeed and

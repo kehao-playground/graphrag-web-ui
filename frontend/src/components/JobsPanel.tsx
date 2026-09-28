@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import {
@@ -6,11 +7,11 @@ import {
 } from "antd";
 import type { TableProps } from "antd";
 import { sendOk } from "../api/client";
-import { jobsPreflight, projectJobs } from "../api/queries";
+import { jobsPreflight, projectHealth, projectJobs } from "../api/queries";
 import { JobStatusColor } from "../api/types";
 import type { Job } from "../api/types";
 import { i18n } from "../i18n";
-import { jobTypeShortLabel } from "./labels";
+import { jobStatusLabel, jobTypeLabel, jobTypeShortLabel } from "./labels";
 import JobLogViewer from "./JobLogViewer";
 
 
@@ -47,12 +48,25 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
   const METHOD_OPTIONS = (["standard", "fast"] as const).map((v) => ({ label: methodLabel(v), value: v }));
   const [type, setType] = useState<"index" | "update">("index");
   const [method, setMethod] = useState<"standard" | "fast">("standard");
-  const [logJobId, setLogJobId] = useState<string | null>(null);
-  const [logOpen, setLogOpen] = useState(false);
+  // The open log drawer lives in the URL (?log=<job id>), so the
+  // overview's "open the log" links land with it open.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const logJobId = searchParams.get("log");
+  const setLogJobId = (id: string | null) => setSearchParams((prev) => {
+    const next = new URLSearchParams(prev);
+    if (id) next.set("log", id);
+    else next.delete("log");
+    return next;
+  });
 
   // The shared preflight, loud here: the launch guardrail reads it, so a
   // failure is this pane's own error rather than a missing decoration.
   const preflight = useQuery({ ...jobsPreflight(projectId), meta: { silent: false } });
+  const activeJob = preflight.data?.active_job ?? null;
+  // Spec §10: the launch refuses up front when the API image lost the CLI.
+  const cliMissing = preflight.data?.graphrag === "not-installed";
+  // The document counts the launch confirm states (R4-25).
+  const health = useQuery(projectHealth(projectId));
 
   // Poll every 5s only while a job is queued/running/cancelling; otherwise
   // the query is quiet (refetchInterval false).
@@ -88,9 +102,30 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
     },
   });
 
-  // Cost guardrail: double confirm showing last-run cost + cache/disk watermarks.
+  // Elapsed time on active rows ticks once a second, only while one runs.
+  const [now, setNow] = useState(() => Date.now());
+  const ticking = (jobs.data ?? []).some((j) => j.started_at && !j.finished_at);
+  useEffect(() => {
+    if (!ticking) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [ticking]);
+
+  // What the launch will cover: a full index reads every document still in
+  // input/, an update only the new and modified ones.
+  const scopeLine = () => {
+    const f = health.data?.files;
+    if (!f) return null;
+    return type === "index"
+      ? t("jobs.confirmIndexScope", { count: f.total - f.removed, method: methodLabel(method) })
+      : t("jobs.confirmUpdateScope", { count: f.new + f.modified, method: methodLabel(method) });
+  };
+
+  // Cost guardrail: double confirm naming the scope and the billing, then
+  // last-run cost + cache/disk watermarks.
   const confirmLaunch = () => {
     const pf = preflight.data;
+    const scope = scopeLine();
     const last = pf?.last_run ?? null;
     const cacheOver = !!pf && pf.cache_bytes > pf.cache_quota_mb * 1024 * 1024;
     const diskLow = !!pf && pf.disk_free_mb < pf.disk_watermark_mb;
@@ -98,6 +133,8 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
       title: t("jobs.confirmTitle", { type: typeLabel(type) }),
       content: (
         <Space direction="vertical" style={{ width: "100%" }}>
+          {scope && <Typography.Text>{scope}</Typography.Text>}
+          <Typography.Text type="secondary">{t("jobs.confirmBilling")}</Typography.Text>
           {last ? (
             <Typography.Text>
               {t("jobs.lastRun", { s: Math.round(last.total_runtime_seconds ?? 0), docs: last.num_documents ?? 0 })}
@@ -134,7 +171,9 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
       title: t("common.status"),
       dataIndex: "display_status",
       width: 140,
-      render: (_, j) => <Tag color={JobStatusColor[j.display_status] ?? "default"}>{j.display_status}</Tag>,
+      render: (_, j) => (
+        <Tag color={JobStatusColor[j.display_status] ?? "default"}>{jobStatusLabel(j.display_status, t)}</Tag>
+      ),
     },
     { title: t("jobs.exitCode"), dataIndex: "exit_code", width: 90, render: (_, j) => (j.exit_code ?? t("common.notApplicable")) },
     {
@@ -146,10 +185,14 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
     {
       title: t("jobs.duration"),
       width: 110,
+      // A running job shows its elapsed time (R4-26), a finished one its span.
       render: (_, j) =>
-        j.started_at && j.finished_at
-          ? humanDuration((new Date(j.finished_at).getTime() - new Date(j.started_at).getTime()) / 1000)
-        : t("common.notApplicable"),
+        j.started_at
+          ? humanDuration(
+            ((j.finished_at ? new Date(j.finished_at).getTime() : now) - new Date(j.started_at).getTime())
+              / 1000,
+          )
+          : t("common.notApplicable"),
     },
     {
       title: t("common.actions"),
@@ -158,10 +201,7 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
         <Space>
           <Button
             size="small"
-            onClick={() => {
-              setLogJobId(j.id);
-              setLogOpen(true);
-            }}
+            onClick={() => setLogJobId(j.id)}
           >
             {t("jobs.logs")}
           </Button>
@@ -175,8 +215,27 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
     },
   ];
 
+  // The drawer names its job when the list has it; a job outside the list
+  // (a test run from the overview's link) keeps the generic title.
+  const logJob = (jobs.data ?? []).find((j) => j.id === logJobId);
+  const logTitle = logJob
+    ? t(logJob.started_at ? "jobs.logsTitleStarted" : "jobs.logsTitleQueued", {
+      type: typeLabel(logJob.type),
+      method: methodLabel(logJob.method),
+      time: new Date(logJob.started_at ?? logJob.queued_at).toLocaleString(i18n.language),
+    })
+    : t("jobs.logsTitle");
+
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
+      {cliMissing && <Alert type="error" showIcon message={t("jobs.graphragMissing")} />}
+      {activeJob && (
+        <Alert
+          type="warning"
+          showIcon
+          message={t("jobs.activeJobNotice", { type: jobTypeLabel(activeJob.type, t) })}
+        />
+      )}
       <Space wrap>
         <Select
           aria-label={t("jobs.type")}
@@ -194,14 +253,19 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
           disabled={!canEdit}
           options={METHOD_OPTIONS}
         />
-        <Button type="primary" disabled={!canEdit} loading={startJob.isPending} onClick={confirmLaunch}>
+        <Button
+          type="primary"
+          disabled={!canEdit || activeJob !== null || cliMissing}
+          loading={startJob.isPending}
+          onClick={confirmLaunch}
+        >
           {t("jobs.startIndex")}
         </Button>
       </Space>
       <Table
         rowKey="id"
         size="small"
-        loading={jobs.isFetching}
+        loading={jobs.isPending}
         dataSource={jobs.data ?? []}
         columns={columns}
         pagination={false}
@@ -212,7 +276,7 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
           ),
         }}
       />
-      <JobLogViewer jobId={logJobId} open={logOpen} onClose={() => setLogOpen(false)} />
+      <JobLogViewer jobId={logJobId} open={logJobId !== null} title={logTitle} onClose={() => setLogJobId(null)} />
     </Space>
   );
 }

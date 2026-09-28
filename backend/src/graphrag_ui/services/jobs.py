@@ -4,6 +4,7 @@ Owns the transaction boundary; raises domain errors the API layer maps."""
 import asyncio
 import shutil
 import uuid
+from collections.abc import Sequence
 from pathlib import Path
 
 from sqlalchemy.exc import IntegrityError
@@ -67,9 +68,9 @@ async def get(session: AsyncSession, job_id: uuid.UUID) -> Job | None:
 
 
 async def list_for_project(
-    session: AsyncSession, project_id: uuid.UUID, *, job_type: str | None = None
+    session: AsyncSession, project_id: uuid.UUID, *, job_types: Sequence[str] | None = None
 ) -> list[Job]:
-    return await jobs_repo.list_jobs(session, project_id, job_type=job_type)
+    return await jobs_repo.list_jobs(session, project_id, job_types=job_types)
 
 
 def _tree_bytes(path: Path) -> int:

@@ -6,9 +6,11 @@ import { sseUrl } from "../api/client";
 // Live job log viewer: native EventSource over the SSE route (Task 4);
 // sseUrl() carries the auth rule. Reconnect after a drop is native: the
 // browser replays Last-Event-ID.
-export default function JobLogViewer({ jobId, open, onClose }: {
+export default function JobLogViewer({ jobId, open, title, onClose }: {
   jobId: string | null;
   open: boolean;
+  // The caller's identity line for the job; the generic title otherwise.
+  title?: string;
   onClose: () => void;
 }) {
   const preRef = useRef<HTMLPreElement>(null);
@@ -37,7 +39,7 @@ export default function JobLogViewer({ jobId, open, onClose }: {
   }, [chunks]);
 
   return (
-    <Drawer title={t("jobs.logsTitle")} open={open} onClose={onClose} size="large">
+    <Drawer title={title ?? t("jobs.logsTitle")} open={open} onClose={onClose} size="large">
       <pre
         ref={preRef}
         style={{

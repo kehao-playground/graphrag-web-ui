@@ -104,7 +104,9 @@ def register_jobs_routes(app):
         # Static Literal spelling of domain.jobs.JOB_TYPES (same posture
         # as JobCreateIn): validates, feeds the OpenAPI enum, and an
         # unknown type is a 422 rather than a silently empty list.
-        type: Annotated[Literal["index", "update", "test_run"] | None, Query()] = None,
+        # Repeatable (?type=index&type=update): the jobs page asks for
+        # both launchable types in one request (decision D2).
+        type: Annotated[list[Literal["index", "update", "test_run"]] | None, Query()] = None,
     ):
         # Server-side exclusion so the jobs page can drop test_run rows
         # (spec 8).
@@ -116,7 +118,7 @@ def register_jobs_routes(app):
             await get_member_perms(db, pid, user.id),
         ):
             raise _forbidden()
-        return [job_out(j) for j in await jobs_service.list_for_project(db, pid, job_type=type)]
+        return [job_out(j) for j in await jobs_service.list_for_project(db, pid, job_types=type)]
 
     @router.get("/projects/{pid}/jobs/preflight", response_model=PreflightOut)
     async def preflight(pid: uuid.UUID, db: DbSession, user: CurrentUser):
@@ -130,6 +132,7 @@ def register_jobs_routes(app):
             raise _forbidden()
         body = await jobs_service.preflight(db, project)
         body["active_job"] = job_out(body["active_job"]) if body["active_job"] else None
+        body["graphrag"] = app.state.graphrag_version
         return body
 
     @router.get("/jobs/{job_id}", response_model=JobOut)

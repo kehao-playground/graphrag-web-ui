@@ -590,6 +590,10 @@
               }
             ]
           },
+          "api_key_missing": {
+            "title": "Api Key Missing",
+            "type": "boolean"
+          },
           "artifacts_stale": {
             "title": "Artifacts Stale",
             "type": "boolean"
@@ -633,7 +637,8 @@
           "artifacts_stale",
           "last_index",
           "active_job",
-          "latest_run"
+          "latest_run",
+          "api_key_missing"
         ],
         "title": "HealthOut",
         "type": "object"
@@ -1074,6 +1079,10 @@
             "title": "Disk Watermark Mb",
             "type": "integer"
           },
+          "graphrag": {
+            "title": "Graphrag",
+            "type": "string"
+          },
           "last_run": {
             "anyOf": [
               {
@@ -1091,7 +1100,8 @@
           "cache_bytes",
           "cache_quota_mb",
           "disk_free_mb",
-          "disk_watermark_mb"
+          "disk_watermark_mb",
+          "graphrag"
         ],
         "title": "PreflightOut",
         "type": "object"
@@ -4197,12 +4207,15 @@
             "schema": {
               "anyOf": [
                 {
-                  "enum": [
-                    "index",
-                    "update",
-                    "test_run"
-                  ],
-                  "type": "string"
+                  "items": {
+                    "enum": [
+                      "index",
+                      "update",
+                      "test_run"
+                    ],
+                    "type": "string"
+                  },
+                  "type": "array"
                 },
                 {
                   "type": "null"

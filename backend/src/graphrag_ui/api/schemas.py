@@ -187,6 +187,9 @@ class PreflightOut(BaseModel):
     cache_quota_mb: int
     disk_free_mb: int
     disk_watermark_mb: int
+    # /api/ready's value (installed version or "not-installed"), so the
+    # launch dialog can refuse a job the CLI cannot run (spec §10).
+    graphrag: str
 
 
 class AuditEntryOut(BaseModel):

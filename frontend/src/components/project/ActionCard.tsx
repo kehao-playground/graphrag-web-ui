@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Alert, Typography } from "antd";
+import { Alert, Space, Typography } from "antd";
 import type { ProjectHealth } from "../../api/types";
 import { jobTypeLabel } from "../labels";
 import { nextAction } from "./nextAction";
@@ -17,13 +17,28 @@ export default function ActionCard({ projectId, health }: {
   const { t } = useTranslation();
   const a = nextAction(health);
 
-  const copy: Record<NextActionKey, { title: string; desc: string; link: string | null }> = {
+  // `extra` is a second, pane-relative link under the primary one.
+  const copy: Record<NextActionKey, {
+    title: string; desc: string; link: string | null; extra?: { to: string; label: string };
+  }> = {
     activeJob: {
       title: t("overview.actionActiveJobTitle"),
       desc: t("overview.actionActiveJobDesc", {
         type: jobTypeLabel(health.active_job?.type ?? "", t),
       }),
-      link: t("overview.linkJobs"),
+      link: health.active_job?.type === "test_run"
+        ? t("overview.linkTestRun")
+        : t("overview.linkActiveJobLog"),
+    },
+    noDocuments: {
+      title: t("overview.actionNoDocumentsTitle"),
+      desc: t("overview.actionNoDocumentsDesc"),
+      link: t("overview.linkFiles"),
+    },
+    apiKeyMissing: {
+      title: t("overview.actionApiKeyMissingTitle"),
+      desc: t("overview.actionApiKeyMissingDesc"),
+      link: t("overview.linkSettings"),
     },
     artifactsMissing: {
       title: t("overview.actionArtifactsMissingTitle"),
@@ -48,7 +63,12 @@ export default function ActionCard({ projectId, health }: {
     skipped: {
       title: t("overview.actionSkippedTitle"),
       desc: t("overview.actionSkippedDesc", { count: health.files.skipped }),
-      link: t("overview.linkSkippedFiles"),
+      // The primary target is the run's log when there is one; the file
+      // filter stays reachable as the second link.
+      link: health.last_index ? t("overview.linkLastIndexLog") : t("overview.linkSkippedFiles"),
+      extra: health.last_index
+        ? { to: "files?state=skipped", label: t("overview.linkSkippedFiles") }
+        : undefined,
     },
     regressions: {
       title: t("overview.actionRegressionsTitle"),
@@ -78,9 +98,12 @@ export default function ActionCard({ projectId, health }: {
               {t("overview.caveatTitleColumn")}
             </Typography.Paragraph>
           )}
-          {a.target && c.link && (
-            <Link to={`/projects/${projectId}/${a.target}`}>{c.link}</Link>
-          )}
+          <Space size="large" wrap>
+            {a.target && c.link && (
+              <Link to={`/projects/${projectId}/${a.target}`}>{c.link}</Link>
+            )}
+            {c.extra && <Link to={`/projects/${projectId}/${c.extra.to}`}>{c.extra.label}</Link>}
+          </Space>
         </>
       }
     />

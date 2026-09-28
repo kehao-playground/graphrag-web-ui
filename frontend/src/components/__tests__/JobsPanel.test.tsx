@@ -44,7 +44,18 @@ const PREFLIGHT = {
   cache_quota_mb: 512,
   disk_free_mb: 50000,
   disk_watermark_mb: 2048,
+  graphrag: "3.1.2",
 };
+
+// The launch confirm names the document count from /health (R4-25).
+const HEALTH = {
+  active_job: null, api_key_missing: false, artifacts_stale: false,
+  files: { indexed: 4, modified: 1, new: 2, removed: 1, skipped: 0, total: 8 },
+  has_baseline: true, ingest_check: "available", last_index: null, latest_run: null,
+};
+
+// The jobs page lists only the launchable types (decision D2).
+const LIST = "/api/projects/p1/jobs?type=index&type=update";
 
 // Same mock discipline as FilesPanel/SettingsPanel tests: branch by URL (and
 // method for POST) so a wrong endpoint or body cannot silently pass.
@@ -58,8 +69,11 @@ const apiMock = vi.fn(async (path: string, init?: RequestInit) => {
   if (path === "/api/projects/p1/jobs" && init?.method === "POST") {
     return postResponse();
   }
-  if (path === "/api/projects/p1/jobs") {
+  if (path === LIST) {
     return new Response(JSON.stringify(jobsList), { status: 200 });
+  }
+  if (path === "/api/projects/p1/health") {
+    return new Response(JSON.stringify(HEALTH), { status: 200 });
   }
   if (path === "/api/jobs/j1/cancel" && init?.method === "POST") {
     return new Response(JSON.stringify({ detail: "cancellation requested" }), { status: 202 });
@@ -68,6 +82,13 @@ const apiMock = vi.fn(async (path: string, init?: RequestInit) => {
 });
 // The real api client stays under test; only fetch is stubbed.
 stubFetch(apiMock);
+
+// The log drawer streams over EventSource, which jsdom lacks.
+class NoopEventSource {
+  addEventListener() {}
+  close() {}
+}
+vi.stubGlobal("EventSource", NoopEventSource);
 
 // Modal.confirm portals live outside the React tree RTL unmounts; close and
 // purge them between tests so leftover ok/cancel buttons (which animate away
@@ -88,10 +109,10 @@ beforeEach(() => {
 });
 
 
-function mount(canEdit: boolean) {
+function mount(canEdit: boolean, route = "/") {
   render(
     <QueryClientProvider client={createQueryClient()}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[route]}>
         <JobsPanel projectId="p1" canEdit={canEdit} />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -148,7 +169,7 @@ test("cancelling display_status renders the cancelling tag", async () => {
     started_at: "2026-08-21T00:00:30Z",
   })];
   mount(true);
-  expect(await screen.findByText("cancelling")).toBeInTheDocument();
+  expect(await screen.findByText("取消中")).toBeInTheDocument();
   // cancel already requested → no cancel button
   expect(screen.queryByRole("button", { name: /^取\s?消$/ })).not.toBeInTheDocument();
 });
@@ -156,7 +177,7 @@ test("cancelling display_status renders the cancelling tag", async () => {
 test("canEdit=false: launch disabled, no 取消, 日誌 still available", async () => {
   mount(false);
   // Await the table row (the type Select label renders earlier than rows).
-  await screen.findByText("queued");
+  await screen.findByText("排隊中");
   expect(screen.getByRole("button", { name: "開始索引" })).toBeDisabled();
   expect(screen.queryByRole("button", { name: /^取\s?消$/ })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: /^日\s?誌$/ })).toBeInTheDocument();
@@ -173,4 +194,68 @@ test("modal warns when cache exceeds quota and disk is under watermark", async (
   await user.click(await screen.findByRole("button", { name: "開始索引" }));
   expect(await screen.findByText(/快取已超過上限/)).toBeInTheDocument();
   expect(screen.getByText(/磁碟水位不足/)).toBeInTheDocument();
+});
+
+test("the list asks for index and update jobs only", async () => {
+  mount(true);
+  await screen.findByText("排隊中");
+  expect(apiMock).toHaveBeenCalledWith(LIST, expect.anything());
+});
+
+test("statuses render translated, unknown ones raw", async () => {
+  jobsList = [
+    job({ id: "a", status: "failed", display_status: "failed(interrupted)" }),
+    job({ id: "b", status: "succeeded", display_status: "succeeded" }),
+    job({ id: "c", status: "failed", display_status: "exploded" }),
+  ];
+  mount(true);
+  expect(await screen.findByText("失敗(中斷)")).toBeInTheDocument();
+  expect(screen.getByText("成功")).toBeInTheDocument();
+  expect(screen.getByText("exploded")).toBeInTheDocument();
+});
+
+// R3-20 / R4-25: say a job holds the project before the click, not after.
+test("an active job shows a notice and disables Start", async () => {
+  preflightResponse = () => new Response(JSON.stringify({
+    ...PREFLIGHT, active_job: job({ id: "t1", type: "test_run", status: "running" }),
+  }), { status: 200 });
+  mount(true);
+  expect(await screen.findByText(/測試執行作業正在執行/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "開始索引" })).toBeDisabled();
+});
+
+// F3-01: the spec §10 pre-check, read from the preflight.
+test("a missing graphrag CLI shows an error and disables Start", async () => {
+  preflightResponse = () =>
+    new Response(JSON.stringify({ ...PREFLIGHT, graphrag: "not-installed" }), { status: 200 });
+  mount(true);
+  expect(await screen.findByText(/找不到 graphrag/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "開始索引" })).toBeDisabled();
+});
+
+test("the confirm names the document count, the method and the billing", async () => {
+  mount(true);
+  const user = userEvent.setup();
+  await waitFor(() => expect(apiMock).toHaveBeenCalledWith("/api/projects/p1/health", expect.anything()));
+  await user.click(await screen.findByRole("button", { name: "開始索引" }));
+  // index = every document still in input/ (total 8 minus 1 removed)
+  expect(await screen.findByText("將以「標準」方法索引 7 份文件。")).toBeInTheDocument();
+  expect(screen.getByText(/計費/)).toBeInTheDocument();
+});
+
+// R4-26: a running row shows time moving.
+test("a running row shows its elapsed time", async () => {
+  jobsList = [job({
+    status: "running", display_status: "running",
+    started_at: new Date(Date.now() - 125_000).toISOString(),
+  })];
+  mount(true);
+  expect(await screen.findByText(/^2 分 \d+ 秒$/)).toBeInTheDocument();
+});
+
+// The overview's "open the log" links land here with ?log=<id>.
+test("?log= opens that job's log drawer, titled with the job", async () => {
+  jobsList = [job({ status: "running", display_status: "running", started_at: "2026-08-21T00:00:30Z" })];
+  mount(true, "/?log=j1");
+  expect(await screen.findByText(/^索引 · 標準 · 開始於 /)).toBeInTheDocument();
 });

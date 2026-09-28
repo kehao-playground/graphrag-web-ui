@@ -156,9 +156,11 @@ export const filePreview = (pid: string, name: string, locator: Locator | null) 
 
 // ---- jobs ----------------------------------------------------------------
 
+// The jobs page's list: the launchable types only — test runs have the
+// workbench (decision D2).
 export const projectJobs = (pid: string) => queryOptions({
   queryKey: ["projects", pid, "jobs"],
-  queryFn: () => apiJson<Job[]>(`/api/projects/${pid}/jobs`, "jobs.loadFailed"),
+  queryFn: () => apiJson<Job[]>(`/api/projects/${pid}/jobs?type=index&type=update`, "jobs.loadFailed"),
 });
 
 // Shared by the documents, jobs and workbench panes: active_job is what
