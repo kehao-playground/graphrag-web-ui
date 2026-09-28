@@ -30,6 +30,15 @@ class EnvValidationError(ValueError):
         self.params = params
 
 
+# graphrag init writes `<API_KEY>`-style stand-ins; such a value (or an
+# empty one) is not a usable secret, whatever its mask looks like.
+_PLACEHOLDER_RE = re.compile(r"^<[A-Za-z0-9_]+>$")
+
+
+def is_placeholder(value: str) -> bool:
+    return value == "" or _PLACEHOLDER_RE.fullmatch(value) is not None
+
+
 def _mask(value: str) -> str:
     return (value[:2] + "****") if len(value) >= 6 else "****"
 
@@ -58,14 +67,16 @@ def _atomic_write(project: Project, lines: list[str]) -> None:
 
 
 def list_env(project: Project) -> list[dict]:
-    """[{key, masked}] from the workspace .env; missing file → []."""
+    """[{key, masked, is_placeholder}] from the workspace .env; missing file → []."""
     entries = []
     for raw in _read_lines(project):
         line = raw.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, _, value = line.partition("=")
-        entries.append({"key": key, "masked": _mask(value)})
+        entries.append(
+            {"key": key, "masked": _mask(value), "is_placeholder": is_placeholder(value)}
+        )
     return entries
 
 

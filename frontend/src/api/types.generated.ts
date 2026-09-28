@@ -1044,6 +1044,8 @@ export interface components {
         };
         /** EnvKeyOut */
         EnvKeyOut: {
+            /** Is Placeholder */
+            is_placeholder: boolean;
             /** Key */
             key: string;
             /** Masked */

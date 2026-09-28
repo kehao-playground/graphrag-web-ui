@@ -30,6 +30,9 @@ from graphrag_ui.services.projects import get_member_perms
 class EnvKeyOut(BaseModel):
     key: str
     masked: str
+    # True while the value is empty or graphrag init's `<API_KEY>` stand-in:
+    # the key still has to be set before an index can call the model.
+    is_placeholder: bool
 
 
 class EnvOut(BaseModel):

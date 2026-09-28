@@ -77,7 +77,9 @@ async def test_patch_get_masked_cycle(client, app, db_session):
     r = await client.get(f"/api/projects/{pid}/env", headers=alice)
 
     assert r.status_code == 200
-    assert r.json() == {"keys": [{"key": "GRAPHRAG_API_KEY", "masked": "sk****"}]}
+    assert r.json() == {
+        "keys": [{"key": "GRAPHRAG_API_KEY", "masked": "sk****", "is_placeholder": False}]
+    }
     assert SECRET not in r.text
 
     # disk carries the real line
@@ -98,7 +100,9 @@ async def test_patch_same_key_replaces_in_place(client, app):
     lines = [ln for ln in _env_path(pid).read_text().splitlines() if ln]
     assert lines == ["GRAPHRAG_API_KEY=new-secret-value-9"]
     r = await client.get(f"/api/projects/{pid}/env", headers=alice)
-    assert r.json()["keys"] == [{"key": "GRAPHRAG_API_KEY", "masked": "ne****"}]
+    assert r.json()["keys"] == [
+        {"key": "GRAPHRAG_API_KEY", "masked": "ne****", "is_placeholder": False}
+    ]
 
 
 async def test_patch_preserves_other_lines_and_order(client, app):
@@ -115,8 +119,8 @@ async def test_patch_preserves_other_lines_and_order(client, app):
     )
     r = await client.get(f"/api/projects/{pid}/env", headers=alice)
     assert r.json()["keys"] == [
-        {"key": "GRAPHRAG_API_KEY", "masked": "sk****"},
-        {"key": "OTHER_KEY", "masked": "ke****"},
+        {"key": "GRAPHRAG_API_KEY", "masked": "sk****", "is_placeholder": False},
+        {"key": "OTHER_KEY", "masked": "ke****", "is_placeholder": False},
     ]
 
 
@@ -192,7 +196,9 @@ async def test_viewer_reads_but_cannot_write(client, app):
 
     r = await client.get(f"/api/projects/{pid}/env", headers=bob)
     assert r.status_code == 200  # viewer+ can read (masked)
-    assert r.json()["keys"] == [{"key": "GRAPHRAG_API_KEY", "masked": "sk****"}]
+    assert r.json()["keys"] == [
+        {"key": "GRAPHRAG_API_KEY", "masked": "sk****", "is_placeholder": False}
+    ]
     assert (await _set(client, bob, pid, "GRAPHRAG_API_KEY", "evil")).status_code == 403
     assert (
         await client.delete(f"/api/projects/{pid}/env/GRAPHRAG_API_KEY", headers=bob)
@@ -280,3 +286,18 @@ async def test_delete_referenced_key_is_400_and_leaves_disk_unchanged(client, ap
     assert SECRET not in r.text
     assert f"GRAPHRAG_API_KEY={SECRET}" in _env_path(pid).read_text()
     assert await _env_audit(db_session, pid) == [("env.key_set", {"key": "GRAPHRAG_API_KEY"})]
+
+
+async def test_list_flags_the_init_placeholder_and_empty_values(client, app):
+    """R4-23: graphrag init writes GRAPHRAG_API_KEY=<API_KEY>; its mask looks
+    like a real key, so the listing says which values are not set yet."""
+    alice = await _alice(client, app)
+    pid = await _make_project(client, alice)
+    _env_path(pid).write_text("GRAPHRAG_API_KEY=<API_KEY>\nEMPTY_KEY=\nREAL_KEY=sk-live-value\n")
+
+    r = await client.get(f"/api/projects/{pid}/env", headers=alice)
+    assert r.json()["keys"] == [
+        {"key": "GRAPHRAG_API_KEY", "masked": "<A****", "is_placeholder": True},
+        {"key": "EMPTY_KEY", "masked": "****", "is_placeholder": True},
+        {"key": "REAL_KEY", "masked": "sk****", "is_placeholder": False},
+    ]
