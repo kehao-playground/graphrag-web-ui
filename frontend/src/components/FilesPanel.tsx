@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router-dom";
@@ -12,6 +12,8 @@ import type { BulkDeleteResult, Project, UploadedFile } from "../api/types";
 import FilePreviewDrawer from "./files/FilePreviewDrawer";
 import FilesToolbar from "./files/FilesToolbar";
 import FilesTable from "./files/FilesTable";
+import TagsModal from "./files/TagsModal";
+import type { TagTarget } from "./files/TagsModal";
 import { humanBytes, isIndexState } from "./files/indexState";
 import type { IndexState } from "./files/indexState";
 
@@ -26,8 +28,11 @@ const ACCEPT: Record<"text" | "csv" | "json", string> = {
 // ingest_check reasons that carry an explanatory sentence (spec §6.3). Any
 // other non-available value still shows the banner, just without a reason.
 const INGEST_REASONS = [
-  "unavailable_no_baseline", "unavailable_not_indexed", "unavailable_title_column",
+  "unavailable_not_indexed", "unavailable_title_column",
 ] as const;
+
+// One keyed toast per upload drop: progress while it runs, then the summary.
+const UPLOAD_KEY = "files-upload";
 
 export default function FilesPanel({ projectId, inputFileType, canEdit }: {
   projectId: string;
@@ -43,6 +48,7 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [previewName, setPreviewName] = useState<string | null>(null);
+  const [tagTarget, setTagTarget] = useState<TagTarget | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
 
   const files = useQuery(projectFiles(projectId));
@@ -58,11 +64,20 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
       `/api/projects/${projectId}/files/${encodeURIComponent(name)}`, "files.deleteFailed",
       { method: "DELETE" },
     ),
-    onSuccess: () => {
+    onSuccess: (_, name) => {
       message.success(t("files.deleted"));
+      // A deleted row leaves the selection with it, so the bulk actions
+      // never act on a name that is gone (R1-112).
+      setSelected((s) => s.filter((n) => n !== name));
       void invalidateFiles();
     },
   });
+
+  const all = useMemo(() => files.data?.files ?? [], [files.data]);
+  // The selection as rows that still exist: a refetch may drop names the
+  // selection still holds, and the bulk actions count what is really there.
+  const selectedRows = useMemo(() => all.filter((f) => selected.includes(f.name)), [all, selected]);
+  const maxFileBytes = files.data?.max_file_bytes;
 
   // Frozen = an index/update job holds the project (spec 5.2b): the backend
   // refuses uploads/deletes/bulk deletes with 409 while it runs. The panel
@@ -94,7 +109,7 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
   // Deleting N documents is not the same act as deleting one: the confirm
   // names the count and the total size before anything is unlinked.
   const confirmBulkDelete = () => {
-    const rows = all.filter((f) => selected.includes(f.name));
+    const rows = selectedRows;
     const bytes = rows.reduce((n, f) => n + (f.size ?? 0), 0);
     Modal.confirm({
       title: t("files.bulkDeleteTitle", { n: rows.length, size: humanBytes(bytes) }),
@@ -104,24 +119,81 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
     });
   };
 
+  // One drop = one batch (R4-07): antd calls customRequest once per file,
+  // all in the same tick, so an in-flight counter marks the batch's end.
+  // The drop gets one keyed toast — progress, then a summary — and one
+  // listing refresh, instead of a toast and a refetch per file.
+  const batch = useRef({ pending: 0, total: 0, ok: [] as string[], failed: [] as string[], solo: "" });
+
+  // `reason` goes into the batch summary after the file's name; `solo` is
+  // the whole sentence shown when the drop was that one file.
+  const settleUpload = (name: string, error: { reason: string; solo: string } | null) => {
+    const b = batch.current;
+    if (error === null) b.ok.push(name);
+    else {
+      b.failed.push(t("files.uploadFailedItem", { name, reason: error.reason }));
+      b.solo = error.solo;
+    }
+    b.pending -= 1;
+    if (b.pending > 0) {
+      message.open({
+        key: UPLOAD_KEY, type: "loading", duration: 0,
+        content: t("files.uploadProgress", { done: b.ok.length + b.failed.length, n: b.total }),
+      });
+      return;
+    }
+    const { ok, failed, total, solo } = b;
+    batch.current = { pending: 0, total: 0, ok: [], failed: [], solo: "" };
+    if (failed.length === 0) {
+      message.open({
+        key: UPLOAD_KEY, type: "success",
+        content: total === 1 ? t("files.uploaded", { name: ok[0] }) : t("files.uploadedMany", { n: total }),
+      });
+    } else if (total === 1) {
+      message.open({ key: UPLOAD_KEY, type: "error", content: solo });
+    } else {
+      message.open({
+        key: UPLOAD_KEY, type: ok.length === 0 ? "error" : "warning", duration: 8,
+        content: t("files.uploadPartial", { ok: ok.length, n: failed.length, names: failed.join("; ") }),
+      });
+    }
+    if (ok.length > 0) void invalidateFiles();
+  };
+
   // customRequest keeps the multipart POST inside api() so the auth header
   // and 401-retry apply; the browser sets the multipart boundary itself.
   const customRequest: UploadProps["customRequest"] = async ({ file, onSuccess, onError }) => {
+    const f = file as File;
+    const b = batch.current;
+    b.pending += 1;
+    b.total += 1;
+    message.open({
+      key: UPLOAD_KEY, type: "loading", duration: 0,
+      content: t("files.uploadProgress", { done: b.ok.length + b.failed.length, n: b.total }),
+    });
+    // The server is the authority on the cap; checking here only spares
+    // the user a doomed transfer of a file it will refuse (R4-08).
+    if (maxFileBytes !== undefined && f.size > maxFileBytes) {
+      const max = humanBytes(maxFileBytes);
+      const solo = t("files.tooLarge", { name: f.name, max });
+      onError?.(new Error(solo));
+      settleUpload(f.name, { reason: t("files.tooLargeReason", { max }), solo });
+      return;
+    }
     const fd = new FormData();
-    fd.append("file", file);
+    fd.append("file", f);
     try {
       const out = await apiJson<UploadedFile>(
         `/api/projects/${projectId}/files`, "files.uploadFailed", { method: "POST", body: fd },
       );
       onSuccess?.(out, file);
-      message.success(t("files.uploaded", { name: (file as File).name }));
-      void invalidateFiles();
+      settleUpload(f.name, null);
     } catch (e) {
       // HTTP errors arrive localized; api() rethrows network-level
       // failures, which surface the same way
       const error = e instanceof Error ? e : new Error(t("files.uploadNetworkFailed"));
       onError?.(error);
-      message.error(error.message);
+      settleUpload(f.name, { reason: error.message, solo: error.message });
     }
   };
 
@@ -141,7 +213,6 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
 
   // Filtering is client-side: hundreds of rows do not need server paging,
   // and a round trip per keystroke would be worse than the render it saves.
-  const all = files.data?.files ?? [];
   const q = search.trim().toLowerCase();
   const visible = all.filter((f) =>
     (q === "" || f.name.toLowerCase().includes(q))
@@ -164,7 +235,10 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
           disabled={frozen}
         >
           <p className="ant-upload-text">{t("files.uploadHint")}</p>
-          <p className="ant-upload-hint">{t("files.acceptHint", { accept })}</p>
+          <p className="ant-upload-hint">
+            {t("files.acceptHint", { accept })}
+            {maxFileBytes !== undefined && ` · ${t("files.limitHint", { max: humanBytes(maxFileBytes) })}`}
+          </p>
         </Upload.Dragger>
       )}
       {frozen && (
@@ -191,7 +265,10 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
           action={<Link to={`/projects/${projectId}/jobs`}>{t("files.goToJobs")}</Link>}
         />
       )}
-      {files.data && files.data.ingest_check !== "available" && (
+      {/* Only when there is something to act on (R4-31): before the first
+          index there is no baseline to compare against, and saying so is
+          jargon ahead of the first upload. */}
+      {files.data && files.data.has_baseline && files.data.ingest_check !== "available" && (
         <Alert
           type="warning"
           showIcon
@@ -201,9 +278,16 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
       )}
       {canEdit && (
         <Space>
+          {/* Tags are metadata, not input: tagging stays open while indexing. */}
+          <Button
+            disabled={selectedRows.length === 0}
+            onClick={() => setTagTarget({ kind: "bulk", names: selectedRows.map((f) => f.name) })}
+          >
+            {t("files.tagSelected")}
+          </Button>
           <Button
             danger
-            disabled={frozen || selected.length === 0}
+            disabled={frozen || selectedRows.length === 0}
             onClick={confirmBulkDelete}
           >
             {t("files.bulkDelete")}
@@ -219,8 +303,17 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
           onSelect={setSelected}
           onDelete={(name) => deleteFile.mutate(name)}
           onPreview={setPreviewName}
+          onEditTags={(name, current) => setTagTarget({ kind: "row", name, current })}
         />
       </Spin>
+      {tagTarget && (
+        <TagsModal
+          projectId={projectId}
+          target={tagTarget}
+          catalog={tags.data?.tags ?? []}
+          onClose={() => setTagTarget(null)}
+        />
+      )}
       <FilePreviewDrawer
         projectId={projectId}
         name={previewName}

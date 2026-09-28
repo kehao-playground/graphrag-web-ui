@@ -1098,6 +1098,8 @@ export interface components {
             has_baseline: boolean;
             /** Ingest Check */
             ingest_check: string;
+            /** Max File Bytes */
+            max_file_bytes: number;
             /** Quota Bytes */
             quota_bytes: number;
             /** Usage Bytes */

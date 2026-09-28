@@ -66,6 +66,8 @@ async def test_upload_list_delete_lifecycle(client, db_session):
     assert isinstance(entry["modified_at"], str) and entry["modified_at"]
     assert body["usage_bytes"] == 7
     assert body["quota_bytes"] == 5000 * 1024 * 1024  # default PROJECT_QUOTA_MB
+    # the per-file cap, so the SPA can check a file before sending it (R4-08)
+    assert body["max_file_bytes"] == 50 * 1024 * 1024  # default UPLOAD_MAX_FILE_MB
 
     # usage_bytes accumulates across files
     assert (await _upload(client, alice, pid, "data.txt", b"0123456789")).status_code == 201
@@ -191,6 +193,7 @@ async def test_quota_exceeded(client, monkeypatch):
         body = await _list(client, alice, pid)
         assert [f["name"] for f in body["files"]] == ["a.md"]
         assert body["quota_bytes"] == 1024 * 1024
+        assert body["max_file_bytes"] == 50 * 1024 * 1024
     finally:
         # restore for later tests even if asserts fail mid-way
         get_settings.cache_clear()

@@ -52,6 +52,10 @@ class FileListOut(BaseModel):
     files: list[FileEntryOut]
     usage_bytes: int
     quota_bytes: int
+    # UPLOAD_MAX_FILE_MB in bytes: the SPA checks a file against it before
+    # sending, and names the limit in the uploader (the server stays the
+    # authority — this only saves a doomed round trip).
+    max_file_bytes: int
     # Whether `skipped` can be emitted at all, and why not. On the response,
     # not on each row: it is a property of the artifacts, and repeating it
     # per file would invite the UI to render it per file (spec 6.3).
@@ -224,6 +228,7 @@ def register_files_routes(app):
             files=[FileEntryOut(**f) for f in listing["files"]],
             usage_bytes=await files_service.usage_bytes(project),
             quota_bytes=files_service.quota_bytes(),
+            max_file_bytes=max_file_bytes(),
             ingest_check=listing["ingest_check"],
             has_baseline=listing["has_baseline"],
         )
