@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Button, Input, Modal, Select, Space, message } from "antd";
-import type { Citation, QueryMethod, QueryTimings, QuestionSetList } from "../../api/types";
-import { apiJson, messageOfBody, sendOk, sseUrl } from "../../api/client";
+import type { Citation, QueryMethod, QueryTimings } from "../../api/types";
+import { messageOfBody, sendOk, sseUrl } from "../../api/client";
+import { questionSets } from "../../api/queries";
 import AnswerView from "./AnswerView";
 import { methodOptions } from "./methods";
 
@@ -80,13 +81,7 @@ export default function AdhocQuery({ projectId, canUse }: { projectId: string; c
   // Save-target sets: fetched only while the save dialog is open, so a
   // query session that never saves pays no extra request. Quiet on failure
   // (a missing catalog costs the save target list, not the query).
-  const sets = useQuery({
-    queryKey: ["projects", projectId, "question-sets"],
-    queryFn: () =>
-      apiJson<QuestionSetList>(`/api/projects/${projectId}/question-sets`, "workbench.loadSetsFailed"),
-    enabled: saveOpen,
-    retry: false,
-  });
+  const sets = useQuery({ ...questionSets(projectId), enabled: saveOpen, meta: { silent: true } });
 
   // One action saves the QUESTION (not the answer) into the chosen set;
   // answers are produced by runs, and this save button is how a good ad-hoc
@@ -100,9 +95,8 @@ export default function AdhocQuery({ projectId, canUse }: { projectId: string; c
     onSuccess: () => {
       message.success(t("workbench.saved"));
       setSaveOpen(false);
-      qc.invalidateQueries({ queryKey: ["projects", projectId, "question-sets"] });
+      void qc.invalidateQueries({ queryKey: questionSets(projectId).queryKey });
     },
-    onError: (e) => message.error(e.message),
   });
 
   const busy = streaming;

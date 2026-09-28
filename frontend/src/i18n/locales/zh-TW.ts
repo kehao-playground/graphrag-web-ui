@@ -355,7 +355,7 @@ export default {
     },
   },
   jobs: {
-    typeIndex: "索引", typeUpdate: "更新",
+    typeIndex: "索引", typeUpdate: "更新", typeTestRun: "測試執行",
     methodStandard: "標準", methodFast: "快速",
     durationSeconds: "{{s}} 秒",
     durationMinutes: "{{m}} 分",

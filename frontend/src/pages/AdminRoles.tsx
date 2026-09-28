@@ -1,12 +1,13 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import {
   Alert, Button, Card, Checkbox, Form, Input, Modal, Popconfirm,
-  Select, Space, Table, Tag, Typography, message,
+  Select, Space, Table, Tag, Typography,
 } from "antd";
 import type { TableProps } from "antd";
-import { apiJson, sendOk } from "../api/client";
+import { sendOk } from "../api/client";
+import { adminRoles } from "../api/queries";
 import type { Role } from "../api/types";
 
 // Display labels only (spec §8): every permission DECISION stays
@@ -43,37 +44,28 @@ export default function AdminRoles() {
   const permLabel = (atom: string) =>
     t(`perms.${atom.replace(":", "_") as PermKey}`, atom);
 
-  const roles = useQuery({
-    queryKey: ["admin", "roles"],
-    queryFn: () => apiJson<Role[]>("/api/admin/roles", "adminRoles.loadFailed"),
-  });
-  useEffect(() => {
-    if (roles.error) message.error(roles.error.message);
-  }, [roles.error]);
+  const roles = useQuery(adminRoles());
 
-  const invalidate = () =>
-    qc.invalidateQueries({ queryKey: ["admin", "roles"] });
+  const invalidate = () => qc.invalidateQueries({ queryKey: adminRoles().queryKey });
 
   const create = useMutation({
     mutationFn: (v: RoleForm) =>
       sendOk("/api/admin/roles", "adminRoles.saveFailed", { method: "POST", body: JSON.stringify(v) }),
-    onSuccess: () => { setCreateOpen(false); createForm.resetFields(); invalidate(); },
-    onError: (e) => message.error(e.message),
+    onSuccess: () => { setCreateOpen(false); createForm.resetFields(); void invalidate(); },
   });
 
   const patch = useMutation({
     mutationFn: ({ id, v }: { id: string; v: Omit<RoleForm, "scope"> }) =>
       sendOk(`/api/admin/roles/${id}`, "adminRoles.saveFailed",
         { method: "PATCH", body: JSON.stringify(v) }),
-    onSuccess: () => { setEditOpen(false); invalidate(); },
-    onError: (e) => message.error(e.message),
+    onSuccess: () => { setEditOpen(false); void invalidate(); },
   });
 
   const remove = useMutation({
     mutationFn: (id: string) =>
       sendOk(`/api/admin/roles/${id}`, "adminRoles.deleteFailed", { method: "DELETE" }),
-    onSuccess: invalidate,
-    onError: (e) => message.error(e.message),  // 409 role_in_use lands here
+    // A 409 role_in_use surfaces through the shared mutation toast.
+    onSuccess: () => void invalidate(),
   });
 
   // One editor, two forms. `Form.useWatch` reads the live values without

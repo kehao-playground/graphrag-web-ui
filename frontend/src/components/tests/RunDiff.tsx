@@ -3,8 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { Alert, Modal, Skeleton, Space, Tag, Typography } from "antd";
-import type { ResultList, TestResult, TestRun } from "../../api/types";
-import { apiJson } from "../../api/client";
+import type { TestResult, TestRun } from "../../api/types";
+import { runResults } from "../../api/queries";
 import { methodLabel } from "./methods";
 import { sentenceDiff } from "./sentenceDiff";
 import type { DiffSegment } from "./sentenceDiff";
@@ -62,9 +62,9 @@ function Pane({ label, result, segments, side }: {
 }
 
 // The side-by-side diff (spec §9.2): two selected cells, answers compared at
-// sentence granularity. Fetches both runs' result lists under the same cache
-// keys the drawer uses, so opening a diff right after rating through the
-// drawer costs no extra request.
+// sentence granularity. Fetches both runs' result lists through the query
+// the drawer uses, so opening a diff right after rating through the drawer
+// costs no extra request. Errors render in the modal, not as a toast.
 export default function RunDiff({ open, left, right, onClose }: {
   open: boolean;
   onClose: () => void;
@@ -74,11 +74,9 @@ export default function RunDiff({ open, left, right, onClose }: {
   const { t } = useTranslation();
   const useSideResults = (side: DiffSide | null) =>
     useQuery({
-      queryKey: ["test-runs", side?.run.id, "results"],
-      queryFn: () =>
-        apiJson<ResultList>(`/api/test-runs/${side!.run.id}/results`, "workbench.loadResultsFailed"),
+      ...runResults(side?.run.id ?? ""),
       enabled: open && !!side,
-      retry: false,
+      meta: { silent: true },
     });
   const lq = useSideResults(left);
   const rq = useSideResults(right);

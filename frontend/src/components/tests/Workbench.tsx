@@ -1,15 +1,14 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import {
   Alert, Button, Collapse, Input, Modal, Segmented, Select, Space, Typography, message,
 } from "antd";
-import { apiJson, sendOk } from "../../api/client";
-import type {
-  Matrix, MatrixCell, MatrixRow, Preflight, Question, QuestionList, QuestionSetList, QueryMethod,
-  TestRun,
-} from "../../api/types";
+import { sendOk } from "../../api/client";
+import { jobsPreflight, questionSets, setQuestions, testRunMatrix } from "../../api/queries";
+import type { MatrixCell, MatrixRow, Question, QueryMethod, TestRun } from "../../api/types";
+import { jobTypeLabel } from "../labels";
 import AdhocQuery from "./AdhocQuery";
 import RatingMatrix from "./RatingMatrix";
 import ResultDrawer from "./ResultDrawer";
@@ -57,15 +56,7 @@ export default function Workbench({ projectId, canUse, canRunJobs }: {
   const [editing, setEditing] = useState<Question | null>(null);
   const [editText, setEditText] = useState("");
 
-  const sets = useQuery({
-    queryKey: ["projects", projectId, "question-sets"],
-    queryFn: () =>
-      apiJson<QuestionSetList>(`/api/projects/${projectId}/question-sets`, "workbench.loadSetsFailed"),
-    retry: false,
-  });
-  useEffect(() => {
-    if (sets.error) message.error(sets.error.message);
-  }, [sets.error]);
+  const sets = useQuery(questionSets(projectId));
 
   // Derived default: the catalog's first set until the user picks one —
   // computed during render (no effect), so a later catalog refresh keeps
@@ -77,53 +68,27 @@ export default function Workbench({ projectId, canUse, canRunJobs }: {
   // eagerly while it is selected. The same list feeds the questions
   // section and the edit-question entry.
   const questions = useQuery({
-    queryKey: ["projects", projectId, "question-sets", effectiveSetId, "questions"],
-    queryFn: () => apiJson<QuestionList>(
-      `/api/projects/${projectId}/question-sets/${effectiveSetId}/questions`,
-      "workbench.loadQuestionsFailed",
-    ),
+    ...setQuestions(projectId, effectiveSetId ?? ""),
     enabled: !!effectiveSetId,
-    retry: false,
   });
-  useEffect(() => {
-    if (questions.error) message.error(questions.error.message);
-  }, [questions.error]);
 
-  // Conflict source = the same preflight every other tab shares
-  // (FilesPanel/JobsPanel cache key): active_job covers ANY queued/running
-  // job — index, update or another test run all block POST /test-runs
-  // (spec §7.3). Quiet on failure: a missing preflight costs the notice,
-  // not the workbench; a stale miss still surfaces as the backend's 409.
-  const preflight = useQuery({
-    queryKey: ["projects", projectId, "jobs", "preflight"],
-    queryFn: () =>
-      apiJson<Preflight>(`/api/projects/${projectId}/jobs/preflight`, "jobs.loadPreflightFailed"),
-    retry: false,
-  });
+  // Conflict source = the preflight every pane shares: active_job covers
+  // ANY queued/running job — index, update or another test run all block
+  // POST /test-runs (spec §7.3). Quiet on failure: a missing preflight
+  // costs the notice, not the workbench.
+  const preflight = useQuery(jobsPreflight(projectId));
   const activeJob = preflight.data?.active_job ?? null;
 
   // The matrix window: the backend's default (5 most recent runs, oldest
   // first). Poll only while a test run actually holds the project, so the
   // cells fill in as the batch progresses.
   const matrix = useQuery({
-    queryKey: ["projects", projectId, "test-runs"],
-    queryFn: () =>
-      apiJson<Matrix>(`/api/projects/${projectId}/test-runs`, "workbench.loadMatrixFailed"),
+    ...testRunMatrix(projectId),
     refetchInterval: (q) =>
       q.state.data?.runs.some((r) => r.finished_at === null) ? 2000 : false,
-    retry: false,
   });
-  useEffect(() => {
-    if (matrix.error) message.error(matrix.error.message);
-  }, [matrix.error]);
-
-  // Any active job names itself here: the label mapping covers all three
-  // types so the notice never implies only indexing can block.
-  const jobTypeLabel = (v: string) =>
-    v === "index" ? t("workbench.typeIndex")
-    : v === "update" ? t("workbench.typeUpdate")
-    : v === "test_run" ? t("workbench.typeTestRun")
-    : v;
+  const invalidateMatrix = () =>
+    qc.invalidateQueries({ queryKey: testRunMatrix(projectId).queryKey });
 
   const startRun = useMutation({
     mutationFn: () => sendOk(`/api/projects/${projectId}/test-runs`, "workbench.startFailed", {
@@ -133,10 +98,9 @@ export default function Workbench({ projectId, canUse, canRunJobs }: {
     onSuccess: () => {
       message.success(t("workbench.queued"));
       setLaunchOpen(false);
-      void qc.invalidateQueries({ queryKey: ["projects", projectId, "test-runs"] });
-      void qc.invalidateQueries({ queryKey: ["projects", projectId, "jobs", "preflight"] });
+      void invalidateMatrix();
+      void qc.invalidateQueries({ queryKey: jobsPreflight(projectId).queryKey });
     },
-    onError: (e) => message.error(e.message),
   });
 
   // "Has runs" per the client: the lineage appears in the matrix window
@@ -183,9 +147,8 @@ export default function Workbench({ projectId, canUse, canRunJobs }: {
       message.success(t("workbench.questionUpdated"));
       setEditOpen(false);
       setEditing(null);
-      void qc.invalidateQueries({ queryKey: ["projects", projectId, "question-sets"] });
+      void qc.invalidateQueries({ queryKey: questionSets(projectId).queryKey });
     },
-    onError: (e) => message.error(e.message),
   });
 
   const onCell = (run: TestRun, _row: MatrixRow, cell: MatrixCell) => {
@@ -237,7 +200,7 @@ export default function Workbench({ projectId, canUse, canRunJobs }: {
             <Alert
               type="warning"
               showIcon
-              message={t("workbench.jobRunning", { type: jobTypeLabel(activeJob.type) })}
+              message={t("workbench.jobRunning", { type: jobTypeLabel(activeJob.type, t) })}
             />
           )}
 
@@ -371,9 +334,7 @@ export default function Workbench({ projectId, canUse, canRunJobs }: {
             runId={drawerFor?.runId ?? null}
             resultId={drawerFor?.resultId ?? null}
             onClose={() => setDrawerFor(null)}
-            onRated={() =>
-              void qc.invalidateQueries({ queryKey: ["projects", projectId, "test-runs"] })
-            }
+            onRated={() => void invalidateMatrix()}
           />
 
           <RunDiff

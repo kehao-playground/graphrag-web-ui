@@ -3,7 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { vi, beforeEach, afterEach } from "vitest";
 import { Modal } from "antd";
 import { MemoryRouter } from "react-router-dom";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { createQueryClient } from "../../api/queryClient";
 import Workbench from "../tests/Workbench";
 import RatingMatrix from "../tests/RatingMatrix";
 import { MATRIX, SETS, QUESTIONS, PREFLIGHT } from "./workbenchFixtures";
@@ -41,7 +42,7 @@ beforeEach(() => {
 function renderWorkbench(opts: { activeJob?: { id: string; type: string } | null } = {}) {
   preflightBody = { ...PREFLIGHT, active_job: opts.activeJob ?? null };
   return render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={createQueryClient()}>
       {/* Workbench reads ?regressions=1 (slice ③ overview deep link), so
           it mounts inside a router like every real usage. */}
       <MemoryRouter>

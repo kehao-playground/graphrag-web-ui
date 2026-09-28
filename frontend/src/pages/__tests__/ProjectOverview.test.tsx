@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { vi, beforeEach } from "vitest";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { createQueryClient } from "../../api/queryClient";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import ProjectOverview from "../ProjectOverview";
 import { nextAction } from "../../components/project/nextAction";
@@ -96,7 +97,7 @@ function renderOverview(over: {
 } = {}) {
   healthBody = { ...CLEAN, ...over, files: { ...CLEAN.files, ...(over.files ?? {}) } };
   return render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={createQueryClient()}>
       <MemoryRouter initialEntries={["/projects/p1/overview"]}>
         <Routes>
           <Route path="/projects/:id/overview" element={<ProjectOverview projectId="p1" />} />

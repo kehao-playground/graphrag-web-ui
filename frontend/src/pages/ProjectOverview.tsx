@@ -1,10 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Alert, Card, Space, Spin, Typography } from "antd";
-import { api } from "../api/client";
+import { projectHealth } from "../api/queries";
 import type { ProjectHealth } from "../api/types";
 import ActionCard from "../components/project/ActionCard";
-import { jobTypeLabel } from "../components/project/nextAction";
+import { jobTypeLabel } from "../components/labels";
 import { methodLabel } from "../components/tests/methods";
 
 // The knowledge-base health overview (spec §9.3): one action card that is
@@ -14,17 +14,8 @@ import { methodLabel } from "../components/tests/methods";
 export default function ProjectOverview({ projectId }: { projectId: string }) {
   const { t } = useTranslation();
 
-  // Identical key and queryFn to ProjectSidebar: one request feeds both.
-  // A failed fetch resolves to null (not an error) so whichever observer
-  // registers first, the overview's empty state is deterministic.
-  const health = useQuery({
-    queryKey: ["projects", projectId, "health"],
-    queryFn: async () => {
-      const r = await api(`/api/projects/${projectId}/health`);
-      return r.ok ? ((await r.json()) as ProjectHealth) : null;
-    },
-    retry: false,
-  });
+  // The same query as ProjectSidebar's badges: one request feeds both.
+  const health = useQuery(projectHealth(projectId));
 
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>

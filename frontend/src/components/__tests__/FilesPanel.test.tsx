@@ -1,7 +1,10 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi, beforeEach } from "vitest";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { createQueryClient } from "../../api/queryClient";
+import { jobsPreflight } from "../../api/queries";
+import { message } from "antd";
 import { MemoryRouter } from "react-router-dom";
 import FilesPanel from "../FilesPanel";
 import { stubFetch } from "../../testing/stubFetch";
@@ -19,6 +22,9 @@ const api = vi.fn(async (path: string) => {
     return new Response(JSON.stringify({ tags: [{ name: "policy", count: 1 }] }), { status: 200 });
   }
   if (path === "/api/projects/p1/jobs/preflight") {
+    if (preflightBody === null) {
+      return new Response(JSON.stringify({ detail: "preflight exploded" }), { status: 500 });
+    }
     return new Response(JSON.stringify(preflightBody), { status: 200 });
   }
   if (path === "/api/projects/p1/files/notes.txt/preview") {
@@ -54,8 +60,8 @@ const FILES_BODY = {
 let filesBody: Record<string, unknown> = FILES_BODY;
 
 // PreflightOut as far as the panel cares: the active job that freezes
-// document work (spec 5.2b), or null.
-let preflightBody: Record<string, unknown> = { active_job: null };
+// document work (spec 5.2b), or null. A null body makes the endpoint 500.
+let preflightBody: Record<string, unknown> | null = { active_job: null };
 
 // BulkDeleteOut: what the server actually removed, and what it could not.
 let bulkDeleteBody: Record<string, unknown> = { deleted: 0, bytes: 0, failed: [] };
@@ -77,7 +83,7 @@ function renderPanel(opts: {
   filesBody = opts.body ?? FILES_BODY;
   if (opts.activeJob !== undefined) preflightBody = { active_job: opts.activeJob };
   return render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={createQueryClient()}>
       <MemoryRouter initialEntries={[opts.route ?? "/"]}>
         <FilesPanel projectId="p1" inputFileType="text" canEdit />
       </MemoryRouter>
@@ -178,6 +184,25 @@ test("a removed row offers no selection and no actions", async () => {
   const removedRow = (await screen.findByText("gone.md")).closest("tr")!;
   expect(within(removedRow).queryByRole("checkbox")).not.toBeInTheDocument();
   expect(within(removedRow).queryByRole("button", { name: "刪除" })).not.toBeInTheDocument();
+});
+
+test("a failed preflight stays quiet: no toast, the listing still renders", async () => {
+  preflightBody = null;
+  const toast = vi.spyOn(message, "error");
+  const qc = createQueryClient();
+  render(
+    <QueryClientProvider client={qc}>
+      <MemoryRouter>
+        <FilesPanel projectId="p1" inputFileType="text" canEdit />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+  expect(await screen.findByText("notes.txt")).toBeInTheDocument();
+  // Settled = the query has recorded the 500, so any toast has fired.
+  await waitFor(() => expect(qc.getQueryState(jobsPreflight("p1").queryKey)?.status)
+    .toBe("error"));
+  expect(toast).not.toHaveBeenCalled();
+  toast.mockRestore();
 });
 
 test("uploader and delete are disabled with a reason while indexing", async () => {

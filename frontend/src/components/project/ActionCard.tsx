@@ -2,7 +2,8 @@ import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Alert, Typography } from "antd";
 import type { ProjectHealth } from "../../api/types";
-import { jobTypeLabel, nextAction } from "./nextAction";
+import { jobTypeLabel } from "../labels";
+import { nextAction } from "./nextAction";
 import type { NextActionKey } from "./nextAction";
 
 // The rendered ordered check (spec §9.3): the ladder's pick, explained,

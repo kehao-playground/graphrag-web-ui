@@ -1,18 +1,15 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import {
   Alert, Button, Card, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message,
 } from "antd";
 import type { TableProps } from "antd";
-import { apiJson, sendOk } from "../api/client";
-import type { Role, User } from "../api/types";
+import { sendOk } from "../api/client";
+import { adminUsers, roleCatalog } from "../api/queries";
+import type { User } from "../api/types";
+import { roleLabel } from "../components/labels";
 import { useAuth } from "../stores/auth";
-
-// Built-in role names are the backend seed's closed set, so the template
-// key stays inside typed-t's key union; custom roles render their raw name.
-type BuiltinRoleName =
-  "user_admin" | "ops" | "viewer" | "maintainer" | "editor" | "owner";
 
 interface CreateForm {
   email: string;
@@ -36,16 +33,8 @@ export default function AdminUsers() {
   const [editForm] = Form.useForm<EditForm>();
   const [resetForm] = Form.useForm<{ new_password: string }>();
 
-  // Different endpoint and shape from ["users"] (the narrow GET /api/users list); keys must stay separate
-  const { data: users, isPending, error } = useQuery({
-    queryKey: ["admin", "users"],
-    queryFn: () => apiJson<User[]>("/api/admin/users", "projects.loadUsersFailed"),
-    retry: false,
-  });
-
-  useEffect(() => {
-    if (error) message.error(error.message);
-  }, [error]);
+  const { data: users, isPending, error } = useQuery(adminUsers());
+  const invalidateUsers = () => qc.invalidateQueries({ queryKey: adminUsers().queryKey });
 
   const create = useMutation({
     mutationFn: (v: CreateForm) =>
@@ -54,27 +43,16 @@ export default function AdminUsers() {
       message.success(t("adminUsers.created"));
       setCreateOpen(false);
       createForm.resetFields();
-      qc.invalidateQueries({ queryKey: ["admin", "users"] });
+      void invalidateUsers();
     },
-    onError: (e) => message.error(e.message),
   });
 
   // Grantable global roles (GET /api/roles?scope=global): every logged-in
   // user may read the catalog — names leak nothing sensitive.
-  const rolesQ = useQuery({
-    queryKey: ["roles", "global"],
-    queryFn: () => apiJson<Role[]>("/api/roles?scope=global", "adminUsers.loadRolesFailed"),
-    retry: false,
-  });
+  const rolesQ = useQuery(roleCatalog("global"));
 
-  useEffect(() => {
-    if (rolesQ.error) message.error(rolesQ.error.message);
-  }, [rolesQ.error]);
-
-  const roleLabel = (name: string, isSystem: boolean) =>
-    isSystem ? t(`roles.${name as BuiltinRoleName}`) : name;
   const GLOBAL_ROLE_OPTIONS = (rolesQ.data ?? []).map((r) => ({
-    label: roleLabel(r.name, r.is_system), value: r.id,
+    label: roleLabel(r, t), value: r.id,
   }));
 
   const patch = useMutation({
@@ -85,9 +63,8 @@ export default function AdminUsers() {
       message.success(t("adminUsers.updated"));
       setEditTarget(undefined);
       editForm.resetFields();
-      qc.invalidateQueries({ queryKey: ["admin", "users"] });
+      void invalidateUsers();
     },
-    onError: (e) => message.error(e.message),
   });
 
   const resetPassword = useMutation({
@@ -100,7 +77,6 @@ export default function AdminUsers() {
       setResetTarget(undefined);
       resetForm.resetFields();
     },
-    onError: (e) => message.error(e.message),
   });
 
   const columns: TableProps<User>["columns"] = [
@@ -114,7 +90,7 @@ export default function AdminUsers() {
           {u.roles.length === 0 && <Tag>—</Tag>}
           {u.roles.map((r) => (
             <Tag key={r.id} color={r.name === "user_admin" ? "gold" : r.name === "ops" ? "geekblue" : undefined}>
-              {roleLabel(r.name, r.is_system)}
+              {roleLabel(r, t)}
             </Tag>
           ))}
         </Space>

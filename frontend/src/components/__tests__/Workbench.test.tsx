@@ -3,7 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { vi, beforeEach, afterEach } from "vitest";
 import { Modal } from "antd";
 import { MemoryRouter } from "react-router-dom";
- import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+ import { QueryClientProvider } from "@tanstack/react-query";
+import { createQueryClient } from "../../api/queryClient";
  import Workbench from "../tests/Workbench";
 import { MATRIX, SETS, QUESTIONS, PREFLIGHT, RESULTS_RUN3, RESULTS_RUN4, cellLabel } from "./workbenchFixtures";
 import { stubFetch } from "../../testing/stubFetch";
@@ -59,7 +60,7 @@ function renderWorkbench(opts: {
 } = {}) {
   preflightBody = { ...PREFLIGHT, active_job: opts.activeJob ?? null };
   return render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={createQueryClient()}>
       <MemoryRouter initialEntries={[opts.route ?? "/projects/p1/tests"]}>
         <Workbench projectId="p1" canUse canRunJobs />
       </MemoryRouter>

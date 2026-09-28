@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { Alert, Empty, Input, Select, Slider, Space, Spin, message } from "antd";
+import { Alert, Empty, Input, Select, Slider, Space, Spin } from "antd";
 import Graph from "graphology";
 import { SigmaContainer, useSigma } from "@react-sigma/core";
 import { useLayoutForceAtlas2 } from "@react-sigma/layout-forceatlas2";
 import "@react-sigma/core/lib/style.css";
-import { fetchGraph } from "../api/client";
+import { artifactGraph } from "../api/queries";
 import type { GraphData, GraphEdge } from "../api/types";
 import { buildGraph } from "./graphBuilder";
 import { communityColor } from "./palette";
@@ -98,17 +98,7 @@ export default function GraphView({ projectId, canUse = true }: { projectId: str
   if (graphRef.current === null) graphRef.current = new Graph({ multi: true });
   const sigmaGraph = graphRef.current;
 
-  const graph = useQuery({
-    queryKey: ["graph", projectId, level],
-    queryFn: () => fetchGraph(projectId, level),
-    enabled: canUse,
-    placeholderData: keepPreviousData,
-    retry: false,
-  });
-
-  useEffect(() => {
-    if (graph.error) message.error(graph.error.message);
-  }, [graph.error]);
+  const graph = useQuery({ ...artifactGraph(projectId, level), enabled: canUse });
 
   const typeOptions = useMemo(() => {
     const distinct = [...new Set((graph.data?.nodes ?? []).map((n) => n.type))];

@@ -1,12 +1,12 @@
-import { lazy, Suspense, useEffect, useState } from "react";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { lazy, Suspense, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import type { ParseKeys } from "i18next";
 import {
-  Alert, Descriptions, Drawer, Input, InputNumber, Segmented, Select, Space, Spin, Table, Typography, message,
+  Alert, Descriptions, Drawer, Input, InputNumber, Segmented, Select, Space, Spin, Table, Typography,
 } from "antd";
 import type { TableProps } from "antd";
-import { fetchArtifactDetail, fetchArtifacts } from "../api/client";
+import { artifactDetail, artifactList } from "../api/queries";
 import { i18n } from "../i18n";
 import ErrorBoundary from "./ErrorBoundary";
 import type { ArtifactTableName } from "../api/types";
@@ -104,9 +104,10 @@ export default function ExplorePanel({ projectId, canUse }: { projectId: string;
 
   const meta = TABLE_META[table];
 
+  // The key is the request actually sent: filters the table does not
+  // support never reach it (or the cache key).
   const list = useQuery({
-    queryKey: ["projects", projectId, "artifacts", table, { limit, offset, q, type: typeTags[0], community }],
-    queryFn: () => fetchArtifacts(projectId, table, {
+    ...artifactList(projectId, table, {
       limit,
       offset,
       q: q || undefined,
@@ -114,23 +115,12 @@ export default function ExplorePanel({ projectId, canUse }: { projectId: string;
       community: meta.communityFilter && community !== null ? community : undefined,
     }),
     enabled: canUse && mode === "table",
-    placeholderData: keepPreviousData,
-    retry: false,
   });
 
   const detail = useQuery({
-    queryKey: ["projects", projectId, "artifacts", table, "detail", hrid],
-    queryFn: () => fetchArtifactDetail(projectId, table, hrid as number),
+    ...artifactDetail(projectId, table, hrid ?? -1),
     enabled: canUse && hrid !== null,
-    retry: false,
   });
-
-  useEffect(() => {
-    if (list.error) message.error(list.error.message);
-  }, [list.error]);
-  useEffect(() => {
-    if (detail.error) message.error(detail.error.message);
-  }, [detail.error]);
 
   // Any filter/table change restarts at page 1 (offset 0).
   const resetPage = () => setOffset(0);

@@ -348,7 +348,7 @@ const enUS = {
     },
   },
   jobs: {
-    typeIndex: "Index", typeUpdate: "Update",
+    typeIndex: "Index", typeUpdate: "Update", typeTestRun: "Test run",
     methodStandard: "Standard", methodFast: "Fast",
     durationSeconds: "{{s}}s",
     durationMinutes: "{{m}}m",

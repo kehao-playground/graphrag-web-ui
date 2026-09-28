@@ -3,8 +3,7 @@ import { Badge, Menu } from "antd";
 import type { MenuProps } from "antd";
 import { Link, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { api } from "../../api/client";
-import type { ProjectHealth } from "../../api/types";
+import { projectHealth } from "../../api/queries";
 
 // A sidebar entry = a pane route + the backend-computed atom that gates it
 // (spec §8). An atom the viewer lacks removes the entry outright — hidden,
@@ -39,15 +38,8 @@ export default function ProjectSidebar({ projectId, permissions }: {
 
   // Badge source is the backend's health aggregate, not a client-side
   // count. Quiet on failure: a missing badge costs nothing, and the panes
-  // own surfacing errors. The overview page shares this query key.
-  const health = useQuery({
-    queryKey: ["projects", projectId, "health"],
-    queryFn: async () => {
-      const r = await api(`/api/projects/${projectId}/health`);
-      return r.ok ? ((await r.json()) as ProjectHealth) : null;
-    },
-    retry: false,
-  });
+  // own surfacing errors. The overview page shares this query.
+  const health = useQuery(projectHealth(projectId));
 
   // files → "not yet indexed" = new + modified (spec §9.1); jobs → one
   // running job is the only live state a job pane entry can carry.

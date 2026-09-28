@@ -1,14 +1,16 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import {
   Alert, Button, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message,
 } from "antd";
 import type { TableProps } from "antd";
-import { apiJson, sendOk } from "../api/client";
+import { sendOk } from "../api/client";
+import { jobsPreflight, projectJobs } from "../api/queries";
 import { JobStatusColor } from "../api/types";
-import type { Job, Preflight } from "../api/types";
+import type { Job } from "../api/types";
 import { i18n } from "../i18n";
+import { jobTypeShortLabel } from "./labels";
 import JobLogViewer from "./JobLogViewer";
 
 
@@ -38,8 +40,7 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
   const { t, i18n } = useTranslation();
   // JobOut types method/type as plain strings; the lookups cover the known
   // values and the fallback shows unknowns raw.
-  const typeLabel = (v: string) =>
-    v === "index" ? t("jobs.typeIndex") : v === "update" ? t("jobs.typeUpdate") : v;
+  const typeLabel = (v: string) => jobTypeShortLabel(v, t);
   const methodLabel = (v: string) =>
     v === "standard" ? t("jobs.methodStandard") : v === "fast" ? t("jobs.methodFast") : v;
   const TYPE_OPTIONS = (["index", "update"] as const).map((v) => ({ label: typeLabel(v), value: v }));
@@ -49,19 +50,14 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
   const [logJobId, setLogJobId] = useState<string | null>(null);
   const [logOpen, setLogOpen] = useState(false);
 
-  const preflight = useQuery({
-    queryKey: ["projects", projectId, "jobs", "preflight"],
-    queryFn: () =>
-      apiJson<Preflight>(`/api/projects/${projectId}/jobs/preflight`, "jobs.loadPreflightFailed"),
-    retry: false,
-  });
+  // The shared preflight, loud here: the launch guardrail reads it, so a
+  // failure is this pane's own error rather than a missing decoration.
+  const preflight = useQuery({ ...jobsPreflight(projectId), meta: { silent: false } });
 
   // Poll every 5s only while a job is queued/running/cancelling; otherwise
   // the query is quiet (refetchInterval false).
   const jobs = useQuery({
-    queryKey: ["projects", projectId, "jobs"],
-    queryFn: () => apiJson<Job[]>(`/api/projects/${projectId}/jobs`, "jobs.loadFailed"),
-    retry: false,
+    ...projectJobs(projectId),
     refetchInterval: (query) =>
       query.state.data?.some(
         (j) => ["queued", "running"].includes(j.status) || j.display_status === "cancelling",
@@ -70,17 +66,8 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
         : false,
   });
 
-  useEffect(() => {
-    if (preflight.error) message.error(preflight.error.message);
-  }, [preflight.error]);
-  useEffect(() => {
-    if (jobs.error) message.error(jobs.error.message);
-  }, [jobs.error]);
-
-  const invalidateJobs = () => {
-    qc.invalidateQueries({ queryKey: ["projects", projectId, "jobs"] });
-    qc.invalidateQueries({ queryKey: ["projects", projectId, "jobs", "preflight"] });
-  };
+  // Prefix invalidation: the jobs key also covers the preflight below it.
+  const invalidateJobs = () => qc.invalidateQueries({ queryKey: projectJobs(projectId).queryKey });
 
   const startJob = useMutation({
     mutationFn: () => sendOk(`/api/projects/${projectId}/jobs`, "jobs.startFailed", {
@@ -89,18 +76,16 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
     }),
     onSuccess: () => {
       message.success(t("jobs.queued"));
-      invalidateJobs();
+      void invalidateJobs();
     },
-    onError: (e) => message.error(e.message),
   });
 
   const cancelJob = useMutation({
     mutationFn: (id: string) => sendOk(`/api/jobs/${id}/cancel`, "jobs.cancelFailed", { method: "POST" }),
     onSuccess: () => {
       message.success(t("jobs.cancelRequested"));
-      invalidateJobs();
+      void invalidateJobs();
     },
-    onError: (e) => message.error(e.message),
   });
 
   // Cost guardrail: double confirm showing last-run cost + cache/disk watermarks.

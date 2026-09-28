@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Button, Collapse, Skeleton, Tooltip, Typography } from "antd";
-import type { Citation, FilesOut, QueryTimings } from "../../api/types";
-import { apiJson } from "../../api/client";
+import type { Citation, QueryTimings } from "../../api/types";
+import { projectFiles } from "../../api/queries";
 import FilePreviewDrawer, { type Locator } from "../files/FilePreviewDrawer";
 
 // One rendering for every answer (spec §9.2): the ad-hoc stream and the
@@ -40,14 +40,11 @@ export default function AnswerView({ projectId, answer, citations, timings, stre
   );
 
   // The live file listing is how the loop learns a cited document no
-  // longer exists. Same key as FilesPanel (read-only share; it may
-  // refetch), and only fetched at all when something could link.
-  const files = useQuery({
-    queryKey: ["projects", projectId, "files"],
-    queryFn: () => apiJson<FilesOut>(`/api/projects/${projectId}/files`, "files.loadFailed"),
-    enabled: linkable,
-    retry: false,
-  });
+  // longer exists. The documents pane's query (read-only share; fresh for
+  // 30 s, so a remount per picked result reuses it), only fetched at all
+  // when something could link, and quiet: a failed listing costs the
+  // links, not the answer.
+  const files = useQuery({ ...projectFiles(projectId), enabled: linkable, meta: { silent: true } });
 
   // The listing is filesystem-authoritative for existence (spec §5.1): a
   // name absent from it — or present only as a `removed` row, which has no
