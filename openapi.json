@@ -374,6 +374,10 @@
       },
       "EnvKeyOut": {
         "properties": {
+          "is_placeholder": {
+            "title": "Is Placeholder",
+            "type": "boolean"
+          },
           "key": {
             "title": "Key",
             "type": "string"
@@ -385,7 +389,8 @@
         },
         "required": [
           "key",
-          "masked"
+          "masked",
+          "is_placeholder"
         ],
         "title": "EnvKeyOut",
         "type": "object"
