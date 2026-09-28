@@ -4,8 +4,10 @@ import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router-dom";
 import { Alert, Button, Modal, Space, Spin, Upload, message } from "antd";
 import type { UploadProps } from "antd";
-import { api, detailOf } from "../api/client";
-import type { BulkDeleteResult, FilesOut, Preflight, Project, TagCatalog } from "../api/types";
+import { apiJson, sendOk } from "../api/client";
+import type {
+  BulkDeleteResult, FilesOut, Preflight, Project, TagCatalog, UploadedFile,
+} from "../api/types";
 import FilePreviewDrawer from "./files/FilePreviewDrawer";
 import FilesToolbar from "./files/FilesToolbar";
 import FilesTable from "./files/FilesTable";
@@ -44,11 +46,7 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
 
   const files = useQuery({
     queryKey: ["projects", projectId, "files"],
-    queryFn: async () => {
-      const r = await api(`/api/projects/${projectId}/files`);
-      if (!r.ok) throw new Error(await detailOf(r, "files.loadFailed"));
-      return (await r.json()) as FilesOut;
-    },
+    queryFn: () => apiJson<FilesOut>(`/api/projects/${projectId}/files`, "files.loadFailed"),
     retry: false,
   });
 
@@ -60,19 +58,15 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
   // failure: a missing catalog costs the filter's options, not the panel.
   const tags = useQuery({
     queryKey: ["projects", projectId, "tags"],
-    queryFn: async () => {
-      const r = await api(`/api/projects/${projectId}/tags`);
-      if (!r.ok) throw new Error(await detailOf(r, "files.loadTagsFailed"));
-      return (await r.json()) as TagCatalog;
-    },
+    queryFn: () => apiJson<TagCatalog>(`/api/projects/${projectId}/tags`, "files.loadTagsFailed"),
     retry: false,
   });
 
   const deleteFile = useMutation({
-    mutationFn: async (name: string) => {
-      const r = await api(`/api/projects/${projectId}/files/${encodeURIComponent(name)}`, { method: "DELETE" });
-      if (!r.ok) throw new Error(await detailOf(r, "files.deleteFailed"));
-    },
+    mutationFn: (name: string) => sendOk(
+      `/api/projects/${projectId}/files/${encodeURIComponent(name)}`, "files.deleteFailed",
+      { method: "DELETE" },
+    ),
     onSuccess: () => {
       message.success(t("files.deleted"));
       qc.invalidateQueries({ queryKey: ["projects", projectId, "files"] });
@@ -88,26 +82,18 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
   // the panel).
   const preflight = useQuery({
     queryKey: ["projects", projectId, "jobs", "preflight"],
-    queryFn: async () => {
-      const r = await api(`/api/projects/${projectId}/jobs/preflight`);
-      if (!r.ok) throw new Error(await detailOf(r, "jobs.loadPreflightFailed"));
-      return (await r.json()) as Preflight;
-    },
+    queryFn: () =>
+      apiJson<Preflight>(`/api/projects/${projectId}/jobs/preflight`, "jobs.loadPreflightFailed"),
     retry: false,
   });
   const activeType = preflight.data?.active_job?.type;
   const frozen = activeType === "index" || activeType === "update";
 
   const bulkDelete = useMutation({
-    mutationFn: async (names: string[]) => {
-      const r = await api(`/api/projects/${projectId}/files:bulk-delete`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ names }),
-      });
-      if (!r.ok) throw new Error(await detailOf(r, "files.bulkDeleteFailed"));
-      return (await r.json()) as BulkDeleteResult;
-    },
+    mutationFn: (names: string[]) => apiJson<BulkDeleteResult>(
+      `/api/projects/${projectId}/files:bulk-delete`, "files.bulkDeleteFailed",
+      { method: "POST", body: JSON.stringify({ names }) },
+    ),
     onSuccess: (result) => {
       // The server's count, not the selection's: a file whose unlink failed
       // stays, and says so by name.
@@ -142,18 +128,15 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
     const fd = new FormData();
     fd.append("file", file);
     try {
-      const r = await api(`/api/projects/${projectId}/files`, { method: "POST", body: fd });
-      if (r.ok) {
-        onSuccess?.(await r.json(), file);
-        message.success(t("files.uploaded", { name: (file as File).name }));
-        qc.invalidateQueries({ queryKey: ["projects", projectId, "files"] });
-      } else {
-        const error = new Error(await detailOf(r, "files.uploadFailed"));
-        onError?.(error);
-        message.error(error.message);
-      }
+      const out = await apiJson<UploadedFile>(
+        `/api/projects/${projectId}/files`, "files.uploadFailed", { method: "POST", body: fd },
+      );
+      onSuccess?.(out, file);
+      message.success(t("files.uploaded", { name: (file as File).name }));
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "files"] });
     } catch (e) {
-      // api() rethrows network-level failures; surface them like HTTP errors
+      // HTTP errors arrive localized; api() rethrows network-level
+      // failures, which surface the same way
       const error = e instanceof Error ? e : new Error(t("files.uploadNetworkFailed"));
       onError?.(error);
       message.error(error.message);

@@ -5,7 +5,7 @@ import { Modal } from "antd";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import JobsPanel from "../JobsPanel";
-import type * as ApiClient from "../../api/client";
+import { stubFetch } from "../../testing/stubFetch";
 
 // Job row fixture matching backend JobOut (types.ts Job).
 function job(over: Record<string, unknown> = {}) {
@@ -64,11 +64,8 @@ const apiMock = vi.fn(async (path: string, init?: RequestInit) => {
   }
   return new Response(JSON.stringify({}), { status: 200 });
 });
-// Real bodyOf/detailOf stay under test; only the transport is mocked.
-vi.mock("../../api/client", async (importOriginal) => ({
-  ...(await importOriginal()) as typeof ApiClient,
-  api: (...args: unknown[]) => apiMock(...args as [string, RequestInit?]),
-}));
+// The real api client stays under test; only fetch is stubbed.
+stubFetch(apiMock);
 
 // Modal.confirm portals live outside the React tree RTL unmounts; close and
 // purge them between tests so leftover ok/cancel buttons (which animate away
@@ -102,15 +99,15 @@ test("launch: modal shows 上次執行 summary, confirm POSTs {type:index, metho
   mount(true);
   const user = userEvent.setup();
   // Wait for the preflight fetch so the modal deterministically shows last_run.
-  await waitFor(() => expect(apiMock).toHaveBeenCalledWith("/api/projects/p1/jobs/preflight"));
+  await waitFor(() => expect(apiMock).toHaveBeenCalledWith("/api/projects/p1/jobs/preflight", expect.anything()));
   await user.click(await screen.findByRole("button", { name: "開始索引" }));
   expect(await screen.findByText("上次執行:約 120 秒、3 份文件")).toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: /^開\s?始$/ }));
   await waitFor(() =>
-    expect(apiMock).toHaveBeenCalledWith("/api/projects/p1/jobs", {
+    expect(apiMock).toHaveBeenCalledWith("/api/projects/p1/jobs", expect.objectContaining({
       method: "POST",
       body: JSON.stringify({ type: "index", method: "standard" }),
-    }));
+    })));
 });
 
 test("409 from POST surfaces the backend detail via message.error", async () => {
@@ -127,7 +124,7 @@ test("queued row shows 取消 and POSTs cancel after Popconfirm", async () => {
   const user = userEvent.setup();
   await user.click(await screen.findByRole("button", { name: /^取\s?消$/ }));
   await user.click(await screen.findByRole("button", { name: "確定取消" }));
-  await waitFor(() => expect(apiMock).toHaveBeenCalledWith("/api/jobs/j1/cancel", { method: "POST" }));
+  await waitFor(() => expect(apiMock).toHaveBeenCalledWith("/api/jobs/j1/cancel", expect.objectContaining({ method: "POST" })));
 });
 
 test("cancelling display_status renders the cancelling tag", async () => {
@@ -159,7 +156,7 @@ test("modal warns when cache exceeds quota and disk is under watermark", async (
   PREFLIGHT.disk_free_mb = 1000;
   mount(true);
   const user = userEvent.setup();
-  await waitFor(() => expect(apiMock).toHaveBeenCalledWith("/api/projects/p1/jobs/preflight"));
+  await waitFor(() => expect(apiMock).toHaveBeenCalledWith("/api/projects/p1/jobs/preflight", expect.anything()));
   await user.click(await screen.findByRole("button", { name: "開始索引" }));
   expect(await screen.findByText(/快取已超過上限/)).toBeInTheDocument();
   expect(screen.getByText(/磁碟水位不足/)).toBeInTheDocument();

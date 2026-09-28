@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Button, Collapse, Skeleton, Tooltip, Typography } from "antd";
 import type { Citation, FilesOut, QueryTimings } from "../../api/types";
-import { api, detailOf } from "../../api/client";
+import { apiJson } from "../../api/client";
 import FilePreviewDrawer, { type Locator } from "../files/FilePreviewDrawer";
 
 // One rendering for every answer (spec §9.2): the ad-hoc stream and the
@@ -44,11 +44,7 @@ export default function AnswerView({ projectId, answer, citations, timings, stre
   // refetch), and only fetched at all when something could link.
   const files = useQuery({
     queryKey: ["projects", projectId, "files"],
-    queryFn: async () => {
-      const r = await api(`/api/projects/${projectId}/files`);
-      if (!r.ok) throw new Error(await detailOf(r, "files.loadFailed"));
-      return (await r.json()) as FilesOut;
-    },
+    queryFn: () => apiJson<FilesOut>(`/api/projects/${projectId}/files`, "files.loadFailed"),
     enabled: linkable,
     retry: false,
   });

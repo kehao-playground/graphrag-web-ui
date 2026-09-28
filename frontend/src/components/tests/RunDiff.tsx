@@ -3,8 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { Alert, Modal, Skeleton, Space, Tag, Typography } from "antd";
-import type { TestResult, TestRun } from "../../api/types";
-import { api, detailOf } from "../../api/client";
+import type { ResultList, TestResult, TestRun } from "../../api/types";
+import { apiJson } from "../../api/client";
 import { methodLabel } from "./methods";
 import { sentenceDiff } from "./sentenceDiff";
 import type { DiffSegment } from "./sentenceDiff";
@@ -75,11 +75,8 @@ export default function RunDiff({ open, left, right, onClose }: {
   const useSideResults = (side: DiffSide | null) =>
     useQuery({
       queryKey: ["test-runs", side?.run.id, "results"],
-      queryFn: async () => {
-        const r = await api(`/api/test-runs/${side!.run.id}/results`);
-        if (!r.ok) throw new Error(await detailOf(r, "workbench.loadResultsFailed"));
-        return (await r.json()) as { results: TestResult[] };
-      },
+      queryFn: () =>
+        apiJson<ResultList>(`/api/test-runs/${side!.run.id}/results`, "workbench.loadResultsFailed"),
       enabled: open && !!side,
       retry: false,
     });

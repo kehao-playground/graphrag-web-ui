@@ -4,36 +4,34 @@ import { vi, beforeEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import FilesPanel from "../FilesPanel";
-import type * as ApiClient from "../../api/client";
+import { stubFetch } from "../../testing/stubFetch";
 
 // Same mock discipline as Projects.test.tsx: branch by URL so a lookup-key
 // mistake (wrong endpoint) cannot silently pass on another call's payload.
-// Real bodyOf/detailOf stay under test; only the transport is mocked.
-vi.mock("../../api/client", async (importOriginal) => ({
-  ...(await importOriginal()) as typeof ApiClient,
-  api: vi.fn(async (path: string) => {
-    // Route by URL like Projects.test.tsx: the FilesOut fixture is only
-    // served on the /files endpoint, so a wrong-path query starves the panel.
-    if (path === "/api/projects/p1/files") {
-      return new Response(JSON.stringify(filesBody), { status: 200 });
-    }
-    if (path === "/api/projects/p1/tags") {
-      return new Response(JSON.stringify({ tags: [{ name: "policy", count: 1 }] }), { status: 200 });
-    }
-    if (path === "/api/projects/p1/jobs/preflight") {
-      return new Response(JSON.stringify(preflightBody), { status: 200 });
-    }
-    if (path === "/api/projects/p1/files/notes.txt/preview") {
-      return new Response(JSON.stringify({
-        text: "PREVIEW-BODY", offset: 0, total_size: 12, match: false,
-      }), { status: 200 });
-    }
-    if (path === "/api/projects/p1/files:bulk-delete") {
-      return new Response(JSON.stringify(bulkDeleteBody), { status: 200 });
-    }
-    return new Response(JSON.stringify({}), { status: 200 });
-  }),
-}));
+// The real api client stays under test; only fetch is stubbed.
+const api = vi.fn(async (path: string) => {
+  // Route by URL like Projects.test.tsx: the FilesOut fixture is only
+  // served on the /files endpoint, so a wrong-path query starves the panel.
+  if (path === "/api/projects/p1/files") {
+    return new Response(JSON.stringify(filesBody), { status: 200 });
+  }
+  if (path === "/api/projects/p1/tags") {
+    return new Response(JSON.stringify({ tags: [{ name: "policy", count: 1 }] }), { status: 200 });
+  }
+  if (path === "/api/projects/p1/jobs/preflight") {
+    return new Response(JSON.stringify(preflightBody), { status: 200 });
+  }
+  if (path === "/api/projects/p1/files/notes.txt/preview") {
+    return new Response(JSON.stringify({
+      text: "PREVIEW-BODY", offset: 0, total_size: 12, match: false,
+    }), { status: 200 });
+  }
+  if (path === "/api/projects/p1/files:bulk-delete") {
+    return new Response(JSON.stringify(bulkDeleteBody), { status: 200 });
+  }
+  return new Response(JSON.stringify({}), { status: 200 });
+});
+stubFetch(api);
 
 // FileListOut fixture (Task 5): FileEntryOut rows carry index_state and
 // tags, the response carries ingest_check/has_baseline. One row per state

@@ -3,11 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Alert, Card, Empty, Input, Space, Table, Tag, Typography, message } from "antd";
 import type { TableProps } from "antd";
-import { api, detailOf } from "../api/client";
-import type { components } from "../api/types.generated";
-
-type AuditEntry = components["schemas"]["AuditEntryOut"];
-type AuditPage = components["schemas"]["AuditPageOut"];
+import { apiJson } from "../api/client";
+import type { AuditEntry, AuditPage } from "../api/types";
 
 const PAGE_SIZE = 50;
 
@@ -51,9 +48,7 @@ export default function AdminAudit() {
       });
       if (action) params.set("action", action);
       if (targetType) params.set("target_type", targetType);
-      const r = await api(`/api/admin/audit?${params}`);
-      if (!r.ok) throw new Error(await detailOf(r, "adminAudit.loadFailed"));
-      return (await r.json()) as AuditPage;
+      return apiJson<AuditPage>(`/api/admin/audit?${params}`, "adminAudit.loadFailed");
     },
   });
 

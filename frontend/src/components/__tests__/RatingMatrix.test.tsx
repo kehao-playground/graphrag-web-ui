@@ -6,12 +6,12 @@ import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Workbench from "../tests/Workbench";
 import RatingMatrix from "../tests/RatingMatrix";
-import type * as ApiClient from "../../api/client";
 import { MATRIX, SETS, QUESTIONS, PREFLIGHT } from "./workbenchFixtures";
+import { stubFetch } from "../../testing/stubFetch";
 
 // Same mock discipline as FilesPanel/JobsPanel tests: branch by URL so a
 // wrong endpoint cannot silently pass on another call's payload. Real
-// bodyOf/detailOf stay under test; only the transport is mocked.
+// The real api client stays under test; only fetch is stubbed.
 let preflightBody: Record<string, unknown> = PREFLIGHT;
 const apiMock = vi.fn(async (path: string) => {
   if (path === "/api/projects/p1/question-sets") return json(SETS);
@@ -23,10 +23,7 @@ const apiMock = vi.fn(async (path: string) => {
 function json(body: unknown) {
   return new Response(JSON.stringify(body), { status: 200 });
 }
-vi.mock("../../api/client", async (importOriginal) => ({
-  ...(await importOriginal()) as typeof ApiClient,
-  api: (...args: unknown[]) => apiMock(...args as [string]),
-}));
+stubFetch(apiMock);
 
 // Modal.confirm portals live outside the React tree RTL unmounts; purge
 // them between tests (JobsPanel.test pattern).

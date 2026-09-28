@@ -5,8 +5,8 @@ import { Modal } from "antd";
 import { MemoryRouter } from "react-router-dom";
  import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
  import Workbench from "../tests/Workbench";
- import type * as ApiClient from "../../api/client";
 import { MATRIX, SETS, QUESTIONS, PREFLIGHT, RESULTS_RUN3, RESULTS_RUN4, cellLabel } from "./workbenchFixtures";
+import { stubFetch } from "../../testing/stubFetch";
 
 // Same mock discipline as FilesPanel/JobsPanel tests: branch by URL (and
 // method for POST/PUT/PATCH) so a wrong endpoint or body cannot silently
@@ -34,10 +34,7 @@ const apiMock = vi.fn(async (path: string, init?: RequestInit) => {
 function json(body: unknown) {
   return new Response(JSON.stringify(body), { status: 200 });
 }
-vi.mock("../../api/client", async (importOriginal) => ({
-  ...(await importOriginal()) as typeof ApiClient,
-  api: (...args: unknown[]) => apiMock(...args as [string, RequestInit?]),
-}));
+stubFetch(apiMock);
 
 
 // Modal.confirm portals live outside the React tree RTL unmounts; purge
@@ -82,10 +79,10 @@ test("the launch dialog states question count and method before committing", asy
   // Committing POSTs the selected set + method to /test-runs.
   await userEvent.click(screen.getByRole("button", { name: "開始執行" }));
   await waitFor(() =>
-    expect(apiMock).toHaveBeenCalledWith("/api/projects/p1/test-runs", {
+    expect(apiMock).toHaveBeenCalledWith("/api/projects/p1/test-runs", expect.objectContaining({
       method: "POST",
       body: JSON.stringify({ set_id: "s1", method: "local" }),
-    }));
+    })));
 });
 
 test("a job conflict names which job is running", async () => {
@@ -185,10 +182,10 @@ test("editing a never-run question opens the editor without the fork warning", a
   // zh-TW: 儲存 is auto-spaced to 儲 存 by antd's CJK button handling.
   await userEvent.click(screen.getByRole("button", { name: /儲\s*存/ }));
   await waitFor(() =>
-    expect(apiMock).toHaveBeenCalledWith("/api/projects/p1/question-sets/s1/questions/q-0", {
+    expect(apiMock).toHaveBeenCalledWith("/api/projects/p1/question-sets/s1/questions/q-0", expect.objectContaining({
       method: "PATCH",
       body: JSON.stringify({ text: "題目 1 (改)" }),
-    }));
+    })));
 });
 
 test("two selected cells open the side-by-side diff", async () => {

@@ -2,9 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Button, Input, Modal, Select, Space, message } from "antd";
-import type { Citation, QueryMethod, QueryTimings, QuestionSet } from "../../api/types";
-import { api, detailOf, messageOfBody } from "../../api/client";
-import { useAuth } from "../../stores/auth";
+import type { Citation, QueryMethod, QueryTimings, QuestionSetList } from "../../api/types";
+import { apiJson, messageOfBody, sendOk, sseUrl } from "../../api/client";
 import AnswerView from "./AnswerView";
 import { methodOptions } from "./methods";
 
@@ -39,18 +38,9 @@ export default function AdhocQuery({ projectId, canUse }: { projectId: string; c
     setCitations([]);
     setTimings(null);
     setStreaming(true);
-    // Read the token at stream-open time only (same rationale as JobLogViewer:
-    // subscribing to the store would replay the query on token rotation).
-    const token = useAuth.getState().accessToken;
-    const url =
-      `/api/projects/${projectId}/query/stream` +
-      `?method=${method}` +
-      `&query=${encodeURIComponent(q)}` +
-      `&response_type=${encodeURIComponent(RESPONSE_TYPE)}` +
-      // No token in proxy mode (cookie auth); an empty token= param would
-      // just read as an invalid bearer upstream (spec §6.4).
-      (token ? `&token=${encodeURIComponent(token)}` : "");
-    const es = new EventSource(url);
+    const es = new EventSource(sseUrl(`/api/projects/${projectId}/query/stream`, {
+      method, query: q, response_type: RESPONSE_TYPE,
+    }));
     esRef.current = es;
 
     // data is a JSON-encoded string fragment; json.dumps keeps it single-line.
@@ -92,11 +82,8 @@ export default function AdhocQuery({ projectId, canUse }: { projectId: string; c
   // (a missing catalog costs the save target list, not the query).
   const sets = useQuery({
     queryKey: ["projects", projectId, "question-sets"],
-    queryFn: async () => {
-      const r = await api(`/api/projects/${projectId}/question-sets`);
-      if (!r.ok) throw new Error(await detailOf(r, "workbench.loadSetsFailed"));
-      return (await r.json()) as { sets: QuestionSet[] };
-    },
+    queryFn: () =>
+      apiJson<QuestionSetList>(`/api/projects/${projectId}/question-sets`, "workbench.loadSetsFailed"),
     enabled: saveOpen,
     retry: false,
   });
@@ -106,13 +93,10 @@ export default function AdhocQuery({ projectId, canUse }: { projectId: string; c
   // question joins the set the next batch will ask.
   // zh-TW: the button's literal label is 存成題目.
   const saveQuestion = useMutation({
-    mutationFn: async (setId: string) => {
-      const r = await api(`/api/projects/${projectId}/question-sets/${setId}/questions`, {
-        method: "POST",
-        body: JSON.stringify({ text: query.trim() }),
-      });
-      if (!r.ok) throw new Error(await detailOf(r, "workbench.saveFailed"));
-    },
+    mutationFn: (setId: string) => sendOk(
+      `/api/projects/${projectId}/question-sets/${setId}/questions`, "workbench.saveFailed",
+      { method: "POST", body: JSON.stringify({ text: query.trim() }) },
+    ),
     onSuccess: () => {
       message.success(t("workbench.saved"));
       setSaveOpen(false);

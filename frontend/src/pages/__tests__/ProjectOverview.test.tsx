@@ -5,7 +5,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import ProjectOverview from "../ProjectOverview";
 import { nextAction } from "../../components/project/nextAction";
 import type { ActionHealth } from "../../components/project/nextAction";
-import type * as ApiClient from "../../api/client";
+import { stubFetch } from "../../testing/stubFetch";
 
 // --- nextAction: one ordered check, unit-tested without rendering ---
 
@@ -81,13 +81,11 @@ const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200
 
 // Same mock discipline as ProjectDetail.test: only the one URL the
 // overview may hit is enumerated, so a wrong endpoint fails loudly.
-vi.mock("../../api/client", async (importOriginal) => ({
-  ...(await importOriginal()) as typeof ApiClient,
-  api: vi.fn(async (url: string) => {
-    if (url === "/api/projects/p1/health") return json(healthBody);
-    throw new Error(`unexpected GET ${url}`);
-  }),
-}));
+const api = vi.fn(async (url: string) => {
+  if (url === "/api/projects/p1/health") return json(healthBody);
+  throw new Error(`unexpected GET ${url}`);
+});
+stubFetch(api);
 
 // Renders the overview alone at its routed URL, so the action card's
 // links carry the absolute hrefs the real router would produce.

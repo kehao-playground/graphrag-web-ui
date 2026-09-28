@@ -8,19 +8,21 @@ import {
 import type { TableProps } from "antd";
 import { fetchArtifactDetail, fetchArtifacts } from "../api/client";
 import { i18n } from "../i18n";
+import ErrorBoundary from "./ErrorBoundary";
 import type { ArtifactTableName } from "../api/types";
 
 // the graph stack (sigma + graphology, ~204 kB chunk / ~51 kB gzip):
 // lazy-load it so it lands in its own chunk, fetched the first time graph
-// mode is used.
-const GraphView = lazy(() => import("./GraphView"));
+// mode is used. React caches a rejected lazy() for good, so the error
+// boundary's Retry swaps in a fresh one (see graphView state below).
+const loadGraphView = () => lazy(() => import("./GraphView"));
 
 type Row = Record<string, unknown>;
 type Mode = "graph" | "table";
 
 // Localized label for any column the detail drawer can show (get_row returns
 // SELECT *, a superset of the list projections). Dynamic template key — the
-// ParseKeys cast follows client.ts (a typed union can't absorb `${string}`).
+// ParseKeys cast is needed because a typed union cannot absorb `${string}`.
 const columnLabel = (k: string) => i18n.t(`explore.columns.${k}` as ParseKeys);
 
 // Mirror of the backend domain registry (Task 1): localized table label, the
@@ -89,6 +91,7 @@ export default function ExplorePanel({ projectId, canUse }: { projectId: string;
     value: name,
   }));
   const [mode, setMode] = useState<Mode>("table");
+  const [GraphView, setGraphView] = useState(loadGraphView);
   const [table, setTable] = useState<ArtifactTableName>("entities");
   const [offset, setOffset] = useState(0);
   const [limit, setLimit] = useState(50);
@@ -149,9 +152,11 @@ export default function ExplorePanel({ projectId, canUse }: { projectId: string;
         options={[{ label: t("explore.modeGraph"), value: "graph" }, { label: t("explore.modeTable"), value: "table" }]}
       />
       {mode === "graph" ? (
-        <Suspense fallback={<Spin style={{ display: "block", marginTop: 64 }} />}>
-          <GraphView projectId={projectId} canUse={canUse} />
-        </Suspense>
+        <ErrorBoundary onReset={() => setGraphView(() => loadGraphView())}>
+          <Suspense fallback={<Spin style={{ display: "block", marginTop: 64 }} />}>
+            <GraphView projectId={projectId} canUse={canUse} />
+          </Suspense>
+        </ErrorBoundary>
       ) : (
         <>
           <Space wrap>

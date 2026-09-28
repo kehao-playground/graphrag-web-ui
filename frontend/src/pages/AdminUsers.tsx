@@ -5,7 +5,7 @@ import {
   Alert, Button, Card, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message,
 } from "antd";
 import type { TableProps } from "antd";
-import { api, detailOf } from "../api/client";
+import { apiJson, sendOk } from "../api/client";
 import type { Role, User } from "../api/types";
 import { useAuth } from "../stores/auth";
 
@@ -39,11 +39,7 @@ export default function AdminUsers() {
   // Different endpoint and shape from ["users"] (the narrow GET /api/users list); keys must stay separate
   const { data: users, isPending, error } = useQuery({
     queryKey: ["admin", "users"],
-    queryFn: async () => {
-      const r = await api("/api/admin/users");
-      if (!r.ok) throw new Error(await detailOf(r, "projects.loadUsersFailed"));
-      return (await r.json()) as User[];
-    },
+    queryFn: () => apiJson<User[]>("/api/admin/users", "projects.loadUsersFailed"),
     retry: false,
   });
 
@@ -52,10 +48,8 @@ export default function AdminUsers() {
   }, [error]);
 
   const create = useMutation({
-    mutationFn: async (v: CreateForm) => {
-      const r = await api("/api/admin/users", { method: "POST", body: JSON.stringify(v) });
-      if (!r.ok) throw new Error(await detailOf(r, "projects.createFailed"));
-    },
+    mutationFn: (v: CreateForm) =>
+      sendOk("/api/admin/users", "projects.createFailed", { method: "POST", body: JSON.stringify(v) }),
     onSuccess: () => {
       message.success(t("adminUsers.created"));
       setCreateOpen(false);
@@ -69,11 +63,7 @@ export default function AdminUsers() {
   // user may read the catalog — names leak nothing sensitive.
   const rolesQ = useQuery({
     queryKey: ["roles", "global"],
-    queryFn: async () => {
-      const r = await api("/api/roles?scope=global");
-      if (!r.ok) throw new Error(await detailOf(r, "adminUsers.loadRolesFailed"));
-      return (await r.json()) as Role[];
-    },
+    queryFn: () => apiJson<Role[]>("/api/roles?scope=global", "adminUsers.loadRolesFailed"),
     retry: false,
   });
 
@@ -88,10 +78,9 @@ export default function AdminUsers() {
   }));
 
   const patch = useMutation({
-    mutationFn: async ({ id, ...body }: { id: string } & Partial<EditForm & { is_active: boolean }>) => {
-      const r = await api(`/api/admin/users/${id}`, { method: "PATCH", body: JSON.stringify(body) });
-      if (!r.ok) throw new Error(await detailOf(r, "adminUsers.updateFailed"));
-    },
+    mutationFn: ({ id, ...body }: { id: string } & Partial<EditForm & { is_active: boolean }>) =>
+      sendOk(`/api/admin/users/${id}`, "adminUsers.updateFailed",
+        { method: "PATCH", body: JSON.stringify(body) }),
     onSuccess: () => {
       message.success(t("adminUsers.updated"));
       setEditTarget(undefined);
@@ -102,13 +91,10 @@ export default function AdminUsers() {
   });
 
   const resetPassword = useMutation({
-    mutationFn: async ({ id, new_password }: { id: string; new_password: string }) => {
-      const r = await api(`/api/admin/users/${id}/reset-password`, {
-        method: "POST",
-        body: JSON.stringify({ new_password }),
-      });
-      if (!r.ok) throw new Error(await detailOf(r, "adminUsers.resetFailed"));
-    },
+    mutationFn: ({ id, new_password }: { id: string; new_password: string }) => sendOk(
+      `/api/admin/users/${id}/reset-password`, "adminUsers.resetFailed",
+      { method: "POST", body: JSON.stringify({ new_password }) },
+    ),
     onSuccess: () => {
       message.success(t("adminUsers.resetDone"));
       setResetTarget(undefined);

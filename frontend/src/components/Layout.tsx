@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Layout as AntLayout, Menu, Select, Typography } from "antd";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../stores/auth";
+import ErrorBoundary from "./ErrorBoundary";
 
 export default function Layout() {
   const navigate = useNavigate();
@@ -77,7 +78,11 @@ export default function Layout() {
       </AntLayout.Sider>
       <AntLayout.Content style={{ padding: 24 }}>
         <Typography.Text type="secondary">{user?.display_name}({user?.email})</Typography.Text>
-        <Outlet />
+        {/* A crashed pane stays inside the content area; navigating
+            elsewhere clears it. */}
+        <ErrorBoundary resetKey={location.pathname}>
+          <Outlet />
+        </ErrorBoundary>
       </AntLayout.Content>
     </AntLayout>
   );

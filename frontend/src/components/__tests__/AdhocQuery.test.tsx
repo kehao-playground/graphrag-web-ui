@@ -4,7 +4,7 @@ import { afterEach, beforeEach, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import AdhocQuery from "../tests/AdhocQuery";
 import { useAuth } from "../../stores/auth";
-import type * as ApiClient from "../../api/client";
+import { stubFetch } from "../../testing/stubFetch";
 
 // EventSource mock per the JobLogViewer pattern: a class capturing `url` +
 // listeners with a manual emit() and a close() spy. emit() without data
@@ -46,11 +46,8 @@ const apiMock = vi.fn(async (path: string, init?: RequestInit) => {
   }
   return new Response(JSON.stringify({}), { status: 200 });
 });
-// Real bodyOf/detailOf stay under test; only the transport is mocked.
-vi.mock("../../api/client", async (importOriginal) => ({
-  ...(await importOriginal()) as typeof ApiClient,
-  api: (...args: unknown[]) => apiMock(...args as [string, RequestInit?]),
-}));
+// The real api client stays under test; only fetch is stubbed.
+stubFetch(apiMock);
 
 const TIMINGS = { frames_ms: 1, search_ms: 2, citations_ms: 3, total_ms: 6 };
 
@@ -88,12 +85,11 @@ test("執行 opens EventSource with method, encoded query, response_type and tok
   const user = userEvent.setup();
   await user.type(screen.getByRole("textbox"), "什麼是 GraphRAG?");
   await user.click(screen.getByRole("button", { name: /^執\s?行$/ }));
-  const es = MockEventSource.instances[0]!;
-  expect(es.url).toContain("/api/projects/p1/query/stream");
-  expect(es.url).toContain("method=local");
-  expect(es.url).toContain(`query=${encodeURIComponent("什麼是 GraphRAG?")}`);
-  expect(es.url).toContain("response_type=multiple%20paragraphs");
-  expect(es.url).toContain("token=test-token");
+  const url = new URL(MockEventSource.instances[0]!.url, "http://x");
+  expect(url.pathname).toBe("/api/projects/p1/query/stream");
+  expect(Object.fromEntries(url.searchParams)).toEqual({
+    method: "local", query: "什麼是 GraphRAG?", response_type: "multiple paragraphs", token: "test-token",
+  });
 });
 
 test("chunks append progressively into the answer area", async () => {

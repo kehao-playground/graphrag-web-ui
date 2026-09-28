@@ -6,7 +6,7 @@ import {
   Alert, Button, Descriptions, Popconfirm, Select, Space, Spin, Table, Tag, Typography, message,
 } from "antd";
 import type { TableProps } from "antd";
-import { api, detailOf } from "../api/client";
+import { apiJson, sendOk } from "../api/client";
 import type { Member, Project, Role, UserBrief } from "../api/types";
 import FilesPanel from "../components/FilesPanel";
 import SettingsPanel from "../components/SettingsPanel";
@@ -76,22 +76,14 @@ export default function ProjectDetail() {
 
   const project = useQuery({
     queryKey: ["projects", id],
-    queryFn: async () => {
-      const r = await api(`/api/projects/${id}`);
-      if (!r.ok) throw new Error(await detailOf(r, "projects.loadFailed"));
-      return (await r.json()) as Project;
-    },
+    queryFn: () => apiJson<Project>(`/api/projects/${id}`, "projects.loadFailed"),
     enabled: !!id,
     retry: false,
   });
 
   const members = useQuery({
     queryKey: ["projects", id, "members"],
-    queryFn: async () => {
-      const r = await api(`/api/projects/${id}/members`);
-      if (!r.ok) throw new Error(await detailOf(r, "projectDetail.loadMembersFailed"));
-      return (await r.json()) as Member[];
-    },
+    queryFn: () => apiJson<Member[]>(`/api/projects/${id}/members`, "projectDetail.loadMembersFailed"),
     enabled: !!id,
     retry: false,
   });
@@ -118,11 +110,7 @@ export default function ProjectDetail() {
   // queries above, so it too lives above the early returns.
   const rolesQ = useQuery({
     queryKey: ["roles", "project"],
-    queryFn: async () => {
-      const r = await api("/api/roles?scope=project");
-      if (!r.ok) throw new Error(await detailOf(r, "projectDetail.loadRolesFailed"));
-      return (await r.json()) as Role[];
-    },
+    queryFn: () => apiJson<Role[]>("/api/roles?scope=project", "projectDetail.loadRolesFailed"),
     retry: false,
   });
 
@@ -147,11 +135,7 @@ export default function ProjectDetail() {
   // (the frontend filters out disabled ones)
   const users = useQuery({
     queryKey: ["users"],
-    queryFn: async () => {
-      const r = await api("/api/users");
-      if (!r.ok) throw new Error(await detailOf(r, "projects.loadUsersFailed"));
-      return (await r.json()) as UserBrief[];
-    },
+    queryFn: () => apiJson<UserBrief[]>("/api/users", "projects.loadUsersFailed"),
     enabled: canManage,
     retry: false,
   });
@@ -161,13 +145,10 @@ export default function ProjectDetail() {
   }, [users.error]);
 
   const putMember = useMutation({
-    mutationFn: async ({ userId, roleId }: { userId: string; roleId: string }) => {
-      const r = await api(`/api/projects/${id}/members/${userId}`, {
-        method: "PUT",
-        body: JSON.stringify({ role_id: roleId }),
-      });
-      if (!r.ok) throw new Error(await detailOf(r, "projectDetail.updateMemberFailed"));
-    },
+    mutationFn: ({ userId, roleId }: { userId: string; roleId: string }) => sendOk(
+      `/api/projects/${id}/members/${userId}`, "projectDetail.updateMemberFailed",
+      { method: "PUT", body: JSON.stringify({ role_id: roleId }) },
+    ),
     onSuccess: () => {
       setAddUserId(undefined);
       qc.invalidateQueries({ queryKey: ["projects", id, "members"] });
@@ -176,10 +157,9 @@ export default function ProjectDetail() {
   });
 
   const removeMember = useMutation({
-    mutationFn: async (userId: string) => {
-      const r = await api(`/api/projects/${id}/members/${userId}`, { method: "DELETE" });
-      if (!r.ok) throw new Error(await detailOf(r, "projectDetail.removeMemberFailed"));
-    },
+    mutationFn: (userId: string) => sendOk(
+      `/api/projects/${id}/members/${userId}`, "projectDetail.removeMemberFailed", { method: "DELETE" },
+    ),
     onSuccess: () => {
       message.success(t("projectDetail.memberRemoved"));
       qc.invalidateQueries({ queryKey: ["projects", id, "members"] });

@@ -5,9 +5,10 @@ import { useTranslation } from "react-i18next";
 import {
   Alert, Button, Collapse, Input, Modal, Segmented, Select, Space, Typography, message,
 } from "antd";
-import { api, detailOf } from "../../api/client";
+import { apiJson, sendOk } from "../../api/client";
 import type {
-  MatrixCell, MatrixRow, Question, QuestionSet, QueryMethod, TestRun,
+  Matrix, MatrixCell, MatrixRow, Preflight, Question, QuestionList, QuestionSetList, QueryMethod,
+  TestRun,
 } from "../../api/types";
 import AdhocQuery from "./AdhocQuery";
 import RatingMatrix from "./RatingMatrix";
@@ -58,11 +59,8 @@ export default function Workbench({ projectId, canUse, canRunJobs }: {
 
   const sets = useQuery({
     queryKey: ["projects", projectId, "question-sets"],
-    queryFn: async () => {
-      const r = await api(`/api/projects/${projectId}/question-sets`);
-      if (!r.ok) throw new Error(await detailOf(r, "workbench.loadSetsFailed"));
-      return (await r.json()) as { sets: QuestionSet[] };
-    },
+    queryFn: () =>
+      apiJson<QuestionSetList>(`/api/projects/${projectId}/question-sets`, "workbench.loadSetsFailed"),
     retry: false,
   });
   useEffect(() => {
@@ -80,11 +78,10 @@ export default function Workbench({ projectId, canUse, canRunJobs }: {
   // section and the edit-question entry.
   const questions = useQuery({
     queryKey: ["projects", projectId, "question-sets", effectiveSetId, "questions"],
-    queryFn: async () => {
-      const r = await api(`/api/projects/${projectId}/question-sets/${effectiveSetId}/questions`);
-      if (!r.ok) throw new Error(await detailOf(r, "workbench.loadQuestionsFailed"));
-      return (await r.json()) as { questions: Question[] };
-    },
+    queryFn: () => apiJson<QuestionList>(
+      `/api/projects/${projectId}/question-sets/${effectiveSetId}/questions`,
+      "workbench.loadQuestionsFailed",
+    ),
     enabled: !!effectiveSetId,
     retry: false,
   });
@@ -99,11 +96,8 @@ export default function Workbench({ projectId, canUse, canRunJobs }: {
   // not the workbench; a stale miss still surfaces as the backend's 409.
   const preflight = useQuery({
     queryKey: ["projects", projectId, "jobs", "preflight"],
-    queryFn: async () => {
-      const r = await api(`/api/projects/${projectId}/jobs/preflight`);
-      if (!r.ok) throw new Error(await detailOf(r, "jobs.preflightFailed"));
-      return (await r.json()) as { active_job: { id: string; type: string } | null };
-    },
+    queryFn: () =>
+      apiJson<Preflight>(`/api/projects/${projectId}/jobs/preflight`, "jobs.loadPreflightFailed"),
     retry: false,
   });
   const activeJob = preflight.data?.active_job ?? null;
@@ -113,11 +107,8 @@ export default function Workbench({ projectId, canUse, canRunJobs }: {
   // cells fill in as the batch progresses.
   const matrix = useQuery({
     queryKey: ["projects", projectId, "test-runs"],
-    queryFn: async () => {
-      const r = await api(`/api/projects/${projectId}/test-runs`);
-      if (!r.ok) throw new Error(await detailOf(r, "workbench.loadMatrixFailed"));
-      return (await r.json()) as { runs: TestRun[]; rows: MatrixRow[] };
-    },
+    queryFn: () =>
+      apiJson<Matrix>(`/api/projects/${projectId}/test-runs`, "workbench.loadMatrixFailed"),
     refetchInterval: (q) =>
       q.state.data?.runs.some((r) => r.finished_at === null) ? 2000 : false,
     retry: false,
@@ -135,13 +126,10 @@ export default function Workbench({ projectId, canUse, canRunJobs }: {
     : v;
 
   const startRun = useMutation({
-    mutationFn: async () => {
-      const r = await api(`/api/projects/${projectId}/test-runs`, {
-        method: "POST",
-        body: JSON.stringify({ set_id: effectiveSetId, method }),
-      });
-      if (!r.ok) throw new Error(await detailOf(r, "workbench.startFailed"));
-    },
+    mutationFn: () => sendOk(`/api/projects/${projectId}/test-runs`, "workbench.startFailed", {
+      method: "POST",
+      body: JSON.stringify({ set_id: effectiveSetId, method }),
+    }),
     onSuccess: () => {
       message.success(t("workbench.queued"));
       setLaunchOpen(false);
@@ -185,11 +173,11 @@ export default function Workbench({ projectId, canUse, canRunJobs }: {
     mutationFn: async () => {
       const q = editing;
       if (!q) return;
-      const r = await api(
+      await sendOk(
         `/api/projects/${projectId}/question-sets/${effectiveSetId}/questions/${q.id}`,
+        "workbench.saveFailed",
         { method: "PATCH", body: JSON.stringify({ text: editText.trim() }) },
       );
-      if (!r.ok) throw new Error(await detailOf(r, "workbench.saveFailed"));
     },
     onSuccess: () => {
       message.success(t("workbench.questionUpdated"));

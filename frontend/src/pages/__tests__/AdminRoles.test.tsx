@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import AdminRoles from "../AdminRoles";
 import { useAuth } from "../../stores/auth";
+import { stubFetch } from "../../testing/stubFetch";
 
 // No RTL auto-cleanup here: prior renders leak rows into later tests.
 afterEach(cleanup);
@@ -32,7 +33,7 @@ const { api } = vi.hoisted(() => ({
     throw new Error("unexpected " + path);
   }),
 }));
-vi.mock("../../api/client", () => ({ api, detailOf: async () => "err" }));
+stubFetch(api);
 
 beforeEach(() => {
   useAuth.setState({

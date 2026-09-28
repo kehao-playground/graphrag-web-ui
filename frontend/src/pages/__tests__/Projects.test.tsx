@@ -3,12 +3,12 @@ import { beforeEach, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import Projects from "../Projects";
-import type * as ApiClient from "../../api/client";
+import { stubFetch } from "../../testing/stubFetch";
 
 // The mock must branch by URL: if every call returned the same array,
 // /api/users would get the project array too — owner_id would never match,
 // and the test could not structurally catch a wrong lookup key.
-// Real detailOf stays under test; only the transport is mocked.
+// The real api client stays under test; only fetch is stubbed.
 const healthRequests: string[] = [];
 const apiMock = vi.fn(async (path: string) => {
   if (path === "/api/users") {
@@ -25,10 +25,7 @@ const apiMock = vi.fn(async (path: string) => {
   }
   return new Response(JSON.stringify(projectsBody), { status: 200 });
 });
-vi.mock("../../api/client", async (importOriginal) => ({
-  ...(await importOriginal()) as typeof ApiClient,
-  api: (...args: unknown[]) => apiMock(...args as [string]),
-}));
+stubFetch(apiMock);
 // Three visible projects: p2 is the one with pending documents (2 new + 1
 // modified); the others are clean so the health column stays quiet for them.
 // zh-TW: that pending count renders as 3 待索引.
