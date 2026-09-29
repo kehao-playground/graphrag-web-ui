@@ -5,6 +5,7 @@ neither is any `baseline` snapshot row; what is reclaimed are files and the
 `start` snapshot rows of terminal jobs past their log window, which are
 superseded input hashes, not history."""
 
+import asyncio
 import shutil
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -134,6 +135,14 @@ def _project_dirs(root: Path) -> list[Path]:
     return out
 
 
+def _prune_all(root: Path, keep_latest: int) -> int:
+    """prune_update_output for every project workspace; blocking (walks and
+    rmtrees), so sweep_all runs it in a worker thread (R2-19)."""
+    if not root.is_dir():
+        return 0
+    return sum(prune_update_output(d, keep_latest) for d in _project_dirs(root))
+
+
 async def sweep_all() -> dict:
     """One retention pass over everything: expired job logs (DB-wide),
     superseded start snapshots, and update_output pruning for every project
@@ -145,11 +154,9 @@ async def sweep_all() -> dict:
         deleted_logs = result["deleted_logs"]
         result = await sweep_index_snapshots(session, now)
         deleted_snapshots = result["deleted_snapshots"]
-    pruned = 0
-    root = Path(settings.workspaces_dir).resolve()
-    if root.is_dir():
-        for project_dir in _project_dirs(root):
-            pruned += prune_update_output(project_dir, settings.update_output_keep_latest)
+    pruned = await asyncio.to_thread(
+        _prune_all, Path(settings.workspaces_dir).resolve(), settings.update_output_keep_latest
+    )
     return {
         "deleted_logs": deleted_logs,
         "pruned_dirs": pruned,

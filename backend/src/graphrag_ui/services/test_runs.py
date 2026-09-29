@@ -12,6 +12,7 @@ briefly at start, computes the digest and loads the config inside it, then
 releases. The lock is never held for the run.
 """
 
+import asyncio
 import hashlib
 import logging
 import uuid
@@ -38,7 +39,7 @@ from graphrag_ui.adapters.models import (
 )
 from graphrag_ui.services import query as query_service
 from graphrag_ui.services.audit import audit
-from graphrag_ui.services.citations import read_generation
+from graphrag_ui.services.citations import CitationMemo, read_generation
 from graphrag_ui.services.errors import CodedServiceError
 from graphrag_ui.services.jobs import JobConflictError
 from graphrag_ui.services.project_lock import lock_project
@@ -212,7 +213,7 @@ async def execute_test_run(
         # not load (spec 7.2). Released at this transaction's commit.
         await lock_project(s, project.id)
         revision = workspace_config_revision(root)
-        config = _load_run_config(root)
+        config = await asyncio.to_thread(_load_run_config, root)
         run.started_at = datetime.now(UTC)
         run.workspace_config_revision = revision
         await s.commit()
@@ -220,10 +221,10 @@ async def execute_test_run(
     # G0 ONCE for the whole run, read before the preamble frame load
     # (spec 7.4): every question's G1 is evaluated against this one, so a
     # rebuild landing anywhere inside the run withholds every later link.
-    # The memo is run-scoped: at most one resolver call per question, and
-    # only for ids no earlier question already resolved.
+    # The memo is run-scoped: at most one resolver call per question, only
+    # for ids no earlier question already resolved, and one baseline read.
     g0 = await read_generation(project.id)
-    memo: dict[str, str | None] = {}
+    memo = CitationMemo()
 
     # One preamble for the whole run: Prepared.config is reused for every
     # question, so an edit to settings.yaml or .env mid-batch cannot change

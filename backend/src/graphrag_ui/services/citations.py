@@ -12,10 +12,11 @@ is the only honest option for a path that cannot hold the job mutex. The
 answer text is always returned - only the links are withheld.
 """
 
+import asyncio
 import inspect
 import logging
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -24,7 +25,7 @@ from sqlalchemy import select
 
 from graphrag_ui.adapters.artifacts import resolve_document_titles
 from graphrag_ui.adapters.db import get_session_factory
-from graphrag_ui.adapters.models import Job, Project
+from graphrag_ui.adapters.models import IndexSnapshot, Job, Project
 from graphrag_ui.domain.artifacts import recover_filename
 from graphrag_ui.services.index_snapshots import baseline_row, entries_of
 from graphrag_ui.services.project_lock import FREEZING_JOB_TYPES
@@ -69,6 +70,20 @@ async def read_generation(project_id: uuid.UUID) -> Generation:
     return Generation(row[0], int(row[1]), active is not None)
 
 
+@dataclass
+class CitationMemo:
+    """What enrichment may reuse across the answers of one run: resolved
+    titles per document id, and the baseline row with its entry names. A
+    batch threads one memo through every question; an interactive query
+    starts a fresh one, so it always reads the baseline anew. Reuse is safe
+    because every answer's G1 is still compared with the run's G0: a
+    rebuild landing mid-run withholds the links instead of trusting the
+    remembered baseline (R1-98)."""
+
+    titles: dict[str, str | None] = field(default_factory=dict)
+    baseline: tuple[IndexSnapshot | None, frozenset[str]] | None = None
+
+
 def _trustworthy(g0: Generation, g1: Generation, baseline_epoch: int | None) -> bool:
     """All four conditions of spec 7.4 step 6.
 
@@ -101,31 +116,29 @@ def _unlink(citations: list[dict]) -> list[dict]:
     return citations
 
 
-def _hrid_to_document(text_units: pd.DataFrame | None) -> dict[int, str]:
-    """hrid -> document_id through the ALREADY-LOADED text_units frame,
-    keying ids exactly like query._frame_texts: on human_readable_id when
-    the column exists (cached parquet shape), else on int(id) (search
-    context shape); non-int ids resolve nothing rather than raising."""
-    if text_units is None or "document_id" not in text_units.columns:
+def _hrid_to_document(text_units: pd.DataFrame | None, hrids: set[int]) -> dict[int, str]:
+    """hrid -> document_id for the CITED hrids only, through the
+    ALREADY-LOADED text_units frame, keying ids exactly like
+    query._frame_texts: on human_readable_id when the column exists (cached
+    parquet shape), else on int(id) (search context shape); non-int ids
+    resolve nothing rather than raising. Filtered in pandas, so a large
+    corpus costs one vectorized pass, not a Python loop per row (R1-72)."""
+    if text_units is None or not hrids or "document_id" not in text_units.columns:
         return {}
     id_col = "human_readable_id" if "human_readable_id" in text_units.columns else "id"
-    out: dict[int, str] = {}
-    for raw_id, document_id in zip(text_units[id_col], text_units["document_id"]):
-        try:
-            hrid = int(raw_id)
-        except (TypeError, ValueError):
-            continue
-        if document_id is None or (isinstance(document_id, float) and pd.isna(document_id)):
-            continue
-        out[hrid] = str(document_id)
-    return out
+    keys = pd.to_numeric(text_units[id_col], errors="coerce")
+    documents = text_units["document_id"]
+    cited = keys.isin(hrids) & documents.notna()
+    return {int(hrid): str(document_id) for hrid, document_id in zip(keys[cited], documents[cited])}
 
 
 async def _resolve(root: Path, document_ids: set[str]) -> dict[str, str]:
-    """The batched resolver, one call for the whole id set. Accepts an
+    """The batched resolver, one call for the whole id set, in a worker
+    thread: it scans documents.parquet with duckdb (R2-20). Accepts an
     awaitable wrapper too: the guard's barrier tests park on this exact
-    module attribute between step 3 and step 4 of the sequence."""
-    result: Any = resolve_document_titles(root, document_ids)
+    module attribute between step 3 and step 4 of the sequence (calling an
+    async wrapper in the thread only creates its coroutine; it runs here)."""
+    result: Any = await asyncio.to_thread(resolve_document_titles, root, document_ids)
     if inspect.isawaitable(result):
         result = await result
     return result
@@ -138,7 +151,7 @@ async def enrich_sources(
     project_id: uuid.UUID,
     *,
     g0: Generation,
-    memo: dict[str, str | None],
+    memo: CitationMemo,
 ) -> list[dict]:
     """Steps 3-6 of the normative sequence (spec 7.4): map the cited
     text-unit ids to document ids through the loaded frame, read
@@ -147,8 +160,8 @@ async def enrich_sources(
     the names only if all four guard conditions hold. `g0` is read by the
     caller before the frame load, which is why it is a parameter.
 
-    `memo` is a per-run dict the batch service threads through every
-    question; it is what makes the call-count contract (at most one
+    `memo` is the per-run CitationMemo the batch service threads through
+    every question; it is what makes the call-count contract (at most one
     resolver call per completed question, on unmemoized ids only)
     testable. Best-effort: any failure is logged and every source_name
     stays None - the answer itself is never at risk.
@@ -166,7 +179,7 @@ async def _enrich(
     root: Path,
     project_id: uuid.UUID,
     g0: Generation,
-    memo: dict[str, str | None],
+    memo: CitationMemo,
 ) -> list[dict]:
     if g0.baseline_snapshot_id is None:
         # No baseline pointer at G0: there is no provenance to resolve
@@ -174,28 +187,30 @@ async def _enrich(
         # configuration or input/ (spec 7.4) - unlink without another read.
         return _unlink(citations)
 
-    hrid_to_document = _hrid_to_document(text_units)
     cited_hrids = {
         entry["id"]
         for citation in citations
         if _is_sources(citation)
         for entry in citation.get("entries", [])
     }
-    document_ids = {hrid_to_document[hrid] for hrid in cited_hrids if hrid in hrid_to_document}
+    hrid_to_document = _hrid_to_document(text_units, cited_hrids)
+    document_ids = set(hrid_to_document.values())
     if not document_ids:
         # e.g. a global answer cites no text units: nothing to resolve, so
         # documents.parquet is not read at all (call-count contract).
         return _unlink(citations)
 
-    unmemoized = document_ids - memo.keys()
+    unmemoized = document_ids - memo.titles.keys()
     titles: dict[str, str] = {}
     if unmemoized:
         titles = await _resolve(root, unmemoized)
 
-    factory = get_session_factory()
-    async with factory() as s:
-        baseline = await baseline_row(s, project_id)
-        entries = {} if baseline is None else await entries_of(s, baseline.id)
+    if memo.baseline is None:
+        async with get_session_factory()() as s:
+            row = await baseline_row(s, project_id)
+            names = frozenset() if row is None else frozenset(await entries_of(s, row.id))
+        memo.baseline = (row, names)
+    baseline, candidates = memo.baseline
     if baseline is None:
         return _unlink(citations)
 
@@ -205,10 +220,9 @@ async def _enrich(
     # (feeding it back in would make resolution circular with the skipped
     # computation and inherit its narrowings).
     recovery_available = baseline.title_recovery == "available"
-    candidates = frozenset(entries)
     for document_id in unmemoized:
         title = titles.get(document_id)
-        memo[document_id] = (
+        memo.titles[document_id] = (
             None if title is None or not recovery_available else recover_filename(title, candidates)
         )
 
@@ -221,6 +235,6 @@ async def _enrich(
             name = None
             if attach and sources:
                 resolved_id = hrid_to_document.get(entry["id"])
-                name = None if resolved_id is None else memo.get(resolved_id)
+                name = None if resolved_id is None else memo.titles.get(resolved_id)
             entry["source_name"] = name
     return citations

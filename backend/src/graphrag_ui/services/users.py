@@ -74,7 +74,7 @@ async def create_user(
     user = User(
         email=email,
         display_name=display_name,
-        password_hash=hash_password(password),
+        password_hash=await hash_password(password),
         # An admin-set initial password must not live long — same semantics as reset_password
         must_change_password=True,
     )
@@ -137,7 +137,7 @@ async def update_user(
 async def reset_password(
     session: AsyncSession, user: User, new_password: str, actor_id: uuid.UUID | None
 ) -> None:
-    user.password_hash = hash_password(new_password)
+    user.password_hash = await hash_password(new_password)
     user.must_change_password = True  # an admin reset likewise forces a change at next login
     await audit(session, actor_id, "user.password_reset", "user", str(user.id))
     await revoke_all_for_user(

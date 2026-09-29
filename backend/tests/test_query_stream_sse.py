@@ -378,23 +378,32 @@ async def test_invalid_method_422(client, app, fake_adapter, fake_cache):
     assert r.status_code == 422
 
 
-def test_flatten_frames_resolves_parquet_shaped_ids_and_report_alias():
+def test_cited_texts_resolve_parquet_shaped_ids_under_canonical_keys():
     """Pure-join regression (final review CRITICAL #1/#2): cached parquet
     frames key rows by hash-string id + int human_readable_id, and the
-    reports table is named community_reports while markers say Reports."""
-    texts = query_service._flatten_frames(PARQUET_LOCAL_FRAMES)
+    reports table is named community_reports while markers say Reports.
+    R1-72/R1-89: only the cited rows are flattened, each frame once, under
+    the canonical key the domain folds marker labels onto."""
+    answer = "[Data: Sources (1, 2, 42); Reports (6); Entities (7)]"
+    texts = query_service._cited_texts(answer, PARQUET_LOCAL_FRAMES)
     # hash ids must not leak through as keys; int hrid keys carry the text
-    assert texts["sources"] == {0: "unit zero", 1: "unit one", 2: "unit two"}
-    assert texts["text_units"] == texts["units"] == texts["sources"]
-    # community_reports is aliased under the graphrag context key "reports"
-    assert (
-        texts["reports"]
-        == texts["community_reports"]
-        == {
-            5: "Report Five",
-            6: "Report Six",
-        }
-    )
+    assert texts == {
+        "sources": {1: "unit one", 2: "unit two"},
+        "reports": {6: "Report Six"},
+        "entities": {7: "Entity Seven"},
+    }
+
+
+def test_cited_texts_read_search_context_shaped_frames():
+    """Search-context frames put the int straight into a (string) id
+    column; a missing text cell reads as None, a non-int id resolves
+    nothing."""
+    context = {
+        "sources": pd.DataFrame({"id": ["1", "2", "x"], "text": ["one", None, "bad"]}),
+        "units": pd.DataFrame({"id": ["1"], "text": ["duplicate synonym"]}),
+    }
+    texts = query_service._cited_texts("[Data: Sources (1, 2)]", context)
+    assert texts == {"sources": {1: "one", 2: None}}
 
 
 async def test_stream_local_resolves_parquet_shaped_markers(client, app, monkeypatch):

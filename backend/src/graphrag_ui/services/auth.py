@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -33,13 +34,15 @@ def normalize_email(email: str) -> str:
     return email.strip().lower()
 
 
-def hash_password(pw: str) -> str:
-    return _ph.hash(pw)
+# argon2 is deliberately slow (~50-100 ms of CPU): both run in a worker
+# thread so a login or password change never stalls other requests (R1-73).
+async def hash_password(pw: str) -> str:
+    return await asyncio.to_thread(_ph.hash, pw)
 
 
-def verify_password(pw: str, hashed: str) -> bool:
+async def verify_password(pw: str, hashed: str) -> bool:
     try:
-        return _ph.verify(hashed, pw)
+        return await asyncio.to_thread(_ph.verify, hashed, pw)
     except (Argon2Error, ValueError):  # VerifyMismatchError / InvalidHashError
         return False
 
@@ -310,11 +313,10 @@ async def authenticate(session: AsyncSession, email: str, password: str) -> User
         await session.execute(select(User).where(func.lower(User.email) == normalize_email(email)))
     ).scalar_one_or_none()
     if user is None or not user.is_active:
-        verify_password(
-            password, _DUMMY_HASH
-        )  # flatten response time; prevents account enumeration via timing
+        # flatten response time; prevents account enumeration via timing
+        await verify_password(password, _DUMMY_HASH)
         return None
-    return user if verify_password(password, user.password_hash) else None
+    return user if await verify_password(password, user.password_hash) else None
 
 
 async def bootstrap_admin(session: AsyncSession) -> None:
@@ -352,7 +354,7 @@ async def bootstrap_admin(session: AsyncSession) -> None:
         return
     admin = User(
         email=normalize_email(s.bootstrap_admin_email),
-        password_hash=hash_password(s.bootstrap_admin_password),
+        password_hash=await hash_password(s.bootstrap_admin_password),
         display_name="Administrator",
         is_active=True,
         must_change_password=True,

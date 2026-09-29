@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
+import time
+from collections import OrderedDict
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any, Protocol
@@ -118,13 +121,66 @@ def _anchor_relative_paths(data: dict[str, Any], root: Path) -> dict[str, Any]:
     return data
 
 
+# The files a load reads; a change to any of them is a new configuration.
+_CONFIG_INPUTS = ("settings.yaml", ".env")
+# A file modified this recently may be rewritten within the same mtime tick
+# without its (mtime_ns, size) changing, so it is never memoised — git's
+# "racy clean" rule, as in services.files.scan_input.
+_RACY_WINDOW_NS = 2_000_000_000
+_MEMO_MAX = 64
+_memo: OrderedDict[Path, tuple[tuple, Any]] = OrderedDict()
+_memo_lock = threading.Lock()
+
+
+def _file_versions(root: Path) -> tuple | None:
+    """(inode, mtime_ns, size) per config input, or None when one was
+    modified inside the racy window."""
+    settled_before = time.time_ns() - _RACY_WINDOW_NS
+    versions: list[tuple[int, int, int] | None] = []
+    for name in _CONFIG_INPUTS:
+        try:
+            st = (root / name).stat()
+        except FileNotFoundError:
+            versions.append(None)
+            continue
+        if st.st_mtime_ns >= settled_before:
+            return None
+        versions.append((st.st_ino, st.st_mtime_ns, st.st_size))
+    return tuple(versions)
+
+
 def load_config(root: Path):
     """GraphRagConfig for the workspace at `root`, loaded inside the trust
     boundary: `${VAR}` substituted from the workspace .env alone, nothing
     merged into os.environ, no chdir, relative paths anchored to `root`.
     Every failure (missing placeholder, YAML, pydantic) surfaces as one type.
+
+    Memoised per version of settings.yaml and .env (R1-73): an interactive
+    query no longer re-parses and re-validates an unchanged workspace. The
+    returned config is shared and must not be mutated — the same contract
+    a test run already relies on when it reuses one config for every
+    question. Failures are never memoised. Thread-safe: callers run it
+    through asyncio.to_thread.
     """
     root = root.resolve()  # anchored paths must not depend on the process cwd
+    versions = _file_versions(root)
+    if versions is not None:
+        with _memo_lock:
+            hit = _memo.get(root)
+            if hit is not None and hit[0] == versions:
+                _memo.move_to_end(root)
+                return hit[1]
+    config = _load_config_uncached(root)
+    if versions is not None and versions == _file_versions(root):
+        with _memo_lock:
+            _memo[root] = (versions, config)
+            _memo.move_to_end(root)
+            while len(_memo) > _MEMO_MAX:
+                _memo.popitem(last=False)
+    return config
+
+
+def _load_config_uncached(root: Path):
     env = read_workspace_env(root)
 
     def _parse(text: str) -> dict[str, Any]:

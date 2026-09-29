@@ -157,8 +157,9 @@ async def _execute(job_id: uuid.UUID) -> None:
         )
     if job_type == "update" and res.status == "succeeded":
         # Retention (spec §6.3): the merge already consumed older deltas;
-        # keep only the newest update_output runs on disk.
-        prune_update_output(root, get_settings().update_output_keep_latest)
+        # keep only the newest update_output runs on disk. Each run holds a
+        # full copy of output/, so the rmtree runs off the loop (R2-19).
+        await asyncio.to_thread(prune_update_output, root, get_settings().update_output_keep_latest)
 
 
 async def run_loop(stop: asyncio.Event) -> None:

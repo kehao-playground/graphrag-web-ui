@@ -5,6 +5,7 @@ against the workspace root, and a rotated key is the key in use on the very
 next load. Real graphrag: these run wherever the pinned package imports."""
 
 import os
+import time
 from pathlib import Path
 
 import pytest
@@ -119,4 +120,35 @@ def test_an_escaping_path_is_a_config_error_not_an_anchor(tmp_path):
         _SETTINGS.replace("prompt: prompts/local_search_system_prompt.txt", "prompt: ../x/.env")
     )
     with pytest.raises(ConfigLoadError, match="local_search.prompt"):
+        load_config(root)
+
+
+def _settle(root: Path) -> None:
+    """Age both files past the racy window, as a workspace at rest is."""
+    old = time.time() - 60
+    for name in ("settings.yaml", ".env"):
+        os.utime(root / name, (old, old))
+
+
+def test_an_unchanged_workspace_reuses_the_loaded_config(tmp_path):
+    """R1-73 (2): settings.yaml + .env + pydantic validation run once per
+    file version, not once per interactive query."""
+    root = _workspace(tmp_path / "ws", "sk-a")
+    _settle(root)
+    assert load_config(root) is load_config(root)
+
+
+def test_an_edit_loads_again_and_a_fresh_file_is_never_cached(tmp_path):
+    """A same-length rotation is seen on the very next load: the memo keys
+    on each file's (inode, mtime_ns, size), and a file modified inside the
+    racy window (same clock tick as a following edit) is never memoised."""
+    root = _workspace(tmp_path / "ws", "sk-a")
+    _settle(root)
+    first = load_config(root)
+    (root / ".env").write_text("GRAPHRAG_API_KEY=sk-b\n")
+    second = load_config(root)
+    assert second is not first and _api_key(second) == "sk-b"
+    assert load_config(root) is not second
+    (root / ".env").unlink()
+    with pytest.raises(ConfigLoadError):
         load_config(root)
