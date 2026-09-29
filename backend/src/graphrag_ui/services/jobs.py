@@ -70,9 +70,16 @@ async def get(session: AsyncSession, job_id: uuid.UUID) -> Job | None:
 
 
 async def list_for_project(
-    session: AsyncSession, project_id: uuid.UUID, *, job_types: Sequence[str] | None = None
-) -> list[Job]:
-    return await jobs_repo.list_jobs(session, project_id, job_types=job_types)
+    session: AsyncSession,
+    project_id: uuid.UUID,
+    *,
+    limit: int,
+    offset: int,
+    job_types: Sequence[str] | None = None,
+) -> tuple[list[Job], int]:
+    return await jobs_repo.list_jobs(
+        session, project_id, limit=limit, offset=offset, job_types=job_types
+    )
 
 
 def _tree_bytes(path: Path) -> int:

@@ -197,15 +197,28 @@ async def get_job(session: AsyncSession, job_id: uuid.UUID) -> Job | None:
 async def list_jobs(
     session: AsyncSession,
     project_id: uuid.UUID,
-    limit: int = 50,
     *,
+    limit: int = 50,
+    offset: int = 0,
     job_types: Sequence[str] | None = None,
-) -> list[Job]:
-    query = select(Job).where(Job.project_id == project_id)
+) -> tuple[list[Job], int]:
+    """One page of a project's jobs, newest first, plus the total matching
+    the filter. id breaks queued_at ties (one transaction stamps every row
+    it inserts with the same now()), so pages never overlap."""
+    filters = [Job.project_id == project_id]
     if job_types:
-        query = query.where(Job.type.in_(job_types))
-    res = await session.execute(query.order_by(Job.queued_at.desc()).limit(limit))
-    return list(res.scalars().all())
+        filters.append(Job.type.in_(job_types))
+    res = await session.execute(
+        select(Job)
+        .where(*filters)
+        .order_by(Job.queued_at.desc(), Job.id.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    total = (
+        await session.execute(select(func.count()).select_from(Job).where(*filters))
+    ).scalar_one()
+    return list(res.scalars().all()), total
 
 
 async def find_stale_running(session: AsyncSession, older_than: datetime) -> list[Job]:

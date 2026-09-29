@@ -11,6 +11,7 @@ from sqlalchemy import select
 from graphrag_ui.adapters.models import SettingsVersion
 from graphrag_ui.adapters.workspace import FakeInitializer
 from graphrag_ui.api.projects_routes import get_initializer
+from graphrag_ui.api.schemas import SettingsConflictOut
 from graphrag_ui.domain.role_catalog import ROLE_ID_VIEWER
 from graphrag_ui.services.projects import ws_path
 from tests.test_projects import _activate, _setup_two_users
@@ -117,6 +118,8 @@ async def test_put_with_stale_hash_returns_conflict_payload(client, app, db_sess
     assert body["code"] == "settings_conflict"
     assert body["current_content"] == disk_now
     assert body["current_hash"] == hashlib.sha256(disk_now.encode()).hexdigest()
+    # the body is the one the contract documents for this 409 (R3-32)
+    SettingsConflictOut.model_validate(body)
 
     # no write happened: disk unchanged, no version row
     assert _settings_path(pid).read_text() == disk_now
@@ -147,7 +150,9 @@ async def test_restore_flow_via_versions(client, app, db_session):
     ).json()["content_hash"]
 
     # fetch v1 content from the history endpoint
-    versions = (await client.get(f"/api/projects/{pid}/settings/versions", headers=alice)).json()
+    versions = (await client.get(f"/api/projects/{pid}/settings/versions", headers=alice)).json()[
+        "items"
+    ]
     assert len(versions) == 2
     v1_detail = (
         await client.get(
@@ -264,7 +269,8 @@ async def test_versions_list_newest_first_and_detail_keys(client, app):
 
     r = await client.get(f"/api/projects/{pid}/settings/versions", headers=alice)
     assert r.status_code == 200
-    versions = r.json()
+    versions = r.json()["items"]
+    assert r.json()["total"] == 2
     assert len(versions) == 2
     for item in versions:
         assert set(item) == {"id", "content_hash", "saved_by", "created_at"}
@@ -428,3 +434,31 @@ async def test_put_changing_the_input_format_is_400(client, app):
         json={"content": ok, "expected_hash": got["content_hash"]},
     )
     assert r.status_code == 200, r.text
+
+
+async def test_versions_page_with_total(client, app, db_session):
+    """R3-10: settings history pages like the jobs list instead of a silent
+    50-row cap."""
+    alice = await _alice(client, app)
+    pid = await _make_project(client, alice)
+    me = (await client.get("/api/auth/me", headers=alice)).json()["id"]
+    db_session.add_all(
+        [
+            SettingsVersion(
+                project_id=pid,
+                content=f"v: {i}\n",
+                content_hash=f"{i:064d}",
+                saved_by=uuid.UUID(me),
+            )
+            for i in range(3)
+        ]
+    )
+    await db_session.commit()
+
+    url = f"/api/projects/{pid}/settings/versions"
+    first = (await client.get(f"{url}?limit=2", headers=alice)).json()
+    rest = (await client.get(f"{url}?limit=2&offset=2", headers=alice)).json()
+    assert first["total"] == rest["total"] == 3
+    assert len(first["items"]) == 2 and len(rest["items"]) == 1
+    assert len({v["id"] for v in first["items"] + rest["items"]}) == 3
+    assert (await client.get(f"{url}?limit=201", headers=alice)).status_code == 422

@@ -14,11 +14,14 @@ from pydantic import BaseModel
 from graphrag_ui.api.deps import (
     CurrentUser,
     DbSession,
+    PageLimit,
+    PageOffset,
     ProjectEditSettings,
     ProjectView,
     get_current_user,
 )
 from graphrag_ui.api.errors import ApiError
+from graphrag_ui.api.schemas import SettingsConflictOut
 from graphrag_ui.services.settings import (
     SettingsConflictError,
     get_version,
@@ -49,6 +52,13 @@ class VersionOut(BaseModel):
     created_at: str
 
 
+class VersionPageOut(BaseModel):
+    """One page of the settings history (decision D1)."""
+
+    items: list[VersionOut]
+    total: int
+
+
 class VersionDetailOut(VersionOut):
     content: str
 
@@ -63,7 +73,11 @@ def register_settings_routes(app):
         content, content_hash = read_settings(project)
         return SettingsOut(content=content, content_hash=content_hash)
 
-    @router.put("/{pid}/settings", response_model=SettingsWriteOut)
+    @router.put(
+        "/{pid}/settings",
+        response_model=SettingsWriteOut,
+        responses={409: {"model": SettingsConflictOut}},
+    )
     async def put_settings(
         project: ProjectEditSettings, body: SettingsWriteIn, db: DbSession, user: CurrentUser
     ):
@@ -75,26 +89,33 @@ def register_settings_routes(app):
             # {"detail": {...}} would break the frontend's expected keys
             return JSONResponse(
                 status_code=status.HTTP_409_CONFLICT,
-                content={
-                    "detail": "conflict",
-                    "code": "settings_conflict",
-                    "current_content": e.current_content,
-                    "current_hash": e.current_hash,
-                },
+                content=SettingsConflictOut(
+                    detail="conflict",
+                    code="settings_conflict",
+                    current_content=e.current_content,
+                    current_hash=e.current_hash,
+                ).model_dump(),
             )
         return SettingsWriteOut(content_hash=new_hash)
 
-    @router.get("/{pid}/settings/versions", response_model=list[VersionOut])
-    async def list_settings_versions(project: ProjectView, db: DbSession):
-        return [
-            VersionOut(
-                id=v.id,
-                content_hash=v.content_hash,
-                saved_by=str(v.saved_by),
-                created_at=v.created_at.isoformat(),
-            )
-            for v in await list_versions(db, project)
-        ]
+    @router.get("/{pid}/settings/versions", response_model=VersionPageOut)
+    async def list_settings_versions(
+        project: ProjectView, db: DbSession, limit: PageLimit = 50, offset: PageOffset = 0
+    ):
+        """Newest first, paged (at most 200 per page)."""
+        versions, total = await list_versions(db, project, limit=limit, offset=offset)
+        return VersionPageOut(
+            items=[
+                VersionOut(
+                    id=v.id,
+                    content_hash=v.content_hash,
+                    saved_by=str(v.saved_by),
+                    created_at=v.created_at.isoformat(),
+                )
+                for v in versions
+            ],
+            total=total,
+        )
 
     @router.get("/{pid}/settings/versions/{vid}", response_model=VersionDetailOut)
     async def get_settings_version(project: ProjectView, vid: int, db: DbSession):

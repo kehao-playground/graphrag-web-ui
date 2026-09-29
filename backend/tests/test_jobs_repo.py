@@ -107,8 +107,8 @@ async def test_list_jobs_newest_first(db_session):
     for n in range(3):
         j = await _insert(db_session, p, u)
         await finish(db_session, j.id, "succeeded", exit_code=0)
-    jobs = await list_jobs(db_session, p.id)
-    assert len(jobs) == 3
+    jobs, total = await list_jobs(db_session, p.id)
+    assert len(jobs) == 3 and total == 3
     assert jobs[0].queued_at >= jobs[-1].queued_at  # newest first
 
 

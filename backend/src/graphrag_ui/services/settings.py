@@ -10,7 +10,7 @@ import uuid
 from pathlib import Path
 
 import yaml
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.adapters.models import Project, SettingsVersion
@@ -20,9 +20,6 @@ from graphrag_ui.services.audit import audit
 from graphrag_ui.services.errors import CodedServiceError
 from graphrag_ui.services.project_lock import input_mutation
 from graphrag_ui.services.projects import ws_path
-
-# Versions list endpoint caps the returned rows (display history, not an archive)
-VERSIONS_PAGE_CAP = 50
 
 # Cap on editor-submitted content: settings.yaml is a hand-maintained config
 # and every write also snapshots a settings_versions row — anything beyond
@@ -193,15 +190,22 @@ def _atomic_write(path: Path, content: str) -> None:
     tmp.replace(path)
 
 
-async def list_versions(session: AsyncSession, project: Project) -> list[SettingsVersion]:
-    """Newest first, capped at VERSIONS_PAGE_CAP rows."""
+async def list_versions(
+    session: AsyncSession, project: Project, *, limit: int, offset: int
+) -> tuple[list[SettingsVersion], int]:
+    """One page of the settings history, newest first, plus its total."""
+    where = SettingsVersion.project_id == project.id
     stmt = (
         select(SettingsVersion)
-        .where(SettingsVersion.project_id == project.id)
+        .where(where)
         .order_by(SettingsVersion.created_at.desc(), SettingsVersion.id.desc())
-        .limit(VERSIONS_PAGE_CAP)
+        .limit(limit)
+        .offset(offset)
     )
-    return list((await session.execute(stmt)).scalars().all())
+    total = (
+        await session.execute(select(func.count()).select_from(SettingsVersion).where(where))
+    ).scalar_one()
+    return list((await session.execute(stmt)).scalars().all()), total
 
 
 async def get_version(

@@ -176,6 +176,14 @@ class JobOut(BaseModel):
     progress: JobProgressOut | None
 
 
+class JobPageOut(BaseModel):
+    """One page of a project's jobs, newest first (decision D1). total
+    counts every job matching the type filter, ignoring limit/offset."""
+
+    items: list[JobOut]
+    total: int
+
+
 class CancelOut(BaseModel):
     detail: str
 
@@ -313,3 +321,41 @@ class GraphOut(BaseModel):
     truncated: bool
     node_limit: int | None
     stale: bool
+
+
+class ApiErrorOut(BaseModel):
+    """Every 4xx body except 422 (i18n spec §4.1). code is the stable
+    machine code the SPA localizes from, params its interpolation values;
+    detail is an English developer-facing string, never shown when the
+    client knows the code."""
+
+    detail: str
+    code: str
+    params: dict[str, str | int] | None = None
+
+
+class ValidationIssueOut(BaseModel):
+    """One rejected field. The submitted value (`input`, `ctx`) is never
+    echoed back — it may be a password or a .env secret (R1-80)."""
+
+    type: str
+    loc: list[str | int]
+    msg: str
+
+
+class ValidationErrorOut(BaseModel):
+    """A 422: the request did not match the documented schema."""
+
+    detail: list[ValidationIssueOut]
+    code: Literal["validation_failed"]
+
+
+class SettingsConflictOut(BaseModel):
+    """The settings PUT 409: settings.yaml changed since the client read
+    it. Flat, so the conflict dialog can show the text now on disk and
+    retry against its hash."""
+
+    detail: str
+    code: Literal["settings_conflict"]
+    current_content: str
+    current_hash: str

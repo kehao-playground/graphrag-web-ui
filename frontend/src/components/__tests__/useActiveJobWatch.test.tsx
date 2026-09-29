@@ -49,7 +49,7 @@ test("an active job finishing invalidates the project's derived reads", async ()
   await waitFor(() => expect(invalidated(projectHealth("p1").queryKey)).toBe(true));
   for (const key of [
     ["projects", "p1", "files"], ["projects", "p1", "tags"],
-    ["projects", "p1", "jobs"], ["projects", "p1", "test-runs"],
+    ["projects", "p1", "jobs", "list"], ["projects", "p1", "test-runs"],
   ]) {
     expect(invalidated(key)).toBe(true);
   }
