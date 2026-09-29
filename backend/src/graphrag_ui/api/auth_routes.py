@@ -20,13 +20,12 @@ from graphrag_ui.domain.sliding_window import SlidingWindow
 from graphrag_ui.services.auth import (
     authenticate,
     create_access_token,
-    hash_password,
     issue_refresh_token,
-    revoke_all_for_user,
     revoke_refresh,
     rotate_refresh,
     verify_password,
 )
+from graphrag_ui.services.auth import change_password as change_password_service
 from graphrag_ui.services.roles import roles_for_user
 
 # Login rate limiting: in-memory sliding window keyed by (ip, lowercased
@@ -142,11 +141,7 @@ def register_auth_routes(app):
                 "auth_wrong_current_password",
                 "incorrect current password",
             )
-        user.user.password_hash = await hash_password(body.new_password)
-        user.user.must_change_password = False
-        # Changing the password revokes every refresh token (including this
-        # login's); the commit also flushes the user mutation above
-        await revoke_all_for_user(db, user.id)
+        await change_password_service(db, user.user, body.new_password)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     app.include_router(router)

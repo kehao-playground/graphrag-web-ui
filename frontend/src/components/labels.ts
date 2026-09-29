@@ -62,8 +62,10 @@ export const AUDIT_ACTIONS = [
   "settings.updated", "env.key_set", "env.key_deleted",
   "question_set.created", "question_set.renamed", "question_set.archived",
   "question.created", "question.updated", "question.forked", "question.archived",
+  "job.enqueued", "job.cancelled",
   "test_run.enqueued", "test.rated",
-  "user.created", "user.updated", "user.password_reset", "user.role_promoted",
+  "user.created", "user.updated", "user.password_changed", "user.password_reset",
+  "user.role_promoted",
   "role.created", "role.updated", "role.deleted",
 ] as const;
 

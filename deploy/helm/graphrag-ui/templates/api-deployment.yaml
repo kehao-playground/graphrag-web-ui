@@ -92,9 +92,15 @@ spec:
           volumeMounts:
             - name: workspaces
               mountPath: /data/workspaces
+          # The container CMD runs `alembic upgrade head` before uvicorn
+          # listens. Liveness waits for this probe, so a long migration gets
+          # 60 × 5 s = 5 min instead of being killed and re-run in a loop (R3-29).
+          startupProbe:
+            httpGet: { path: /api/health, port: 8000 }
+            periodSeconds: 5
+            failureThreshold: 60
           livenessProbe:              # spec §8.2: /api/health as liveness
             httpGet: { path: /api/health, port: 8000 }
-            initialDelaySeconds: 30   # startup runs alembic migration first; allow ample first-run time
             periodSeconds: 10
             failureThreshold: 5
           readinessProbe:             # spec §8.2: /api/ready as readiness (checks the DB connection)

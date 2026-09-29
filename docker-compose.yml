@@ -1,6 +1,7 @@
 services:
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: graphrag
       POSTGRES_PASSWORD: graphrag
@@ -13,6 +14,23 @@ services:
       retries: 20
   api:
     build: ./backend
+    restart: unless-stopped           # back up after a host reboot or a crash (incl. a failed migration retry)
+    # A reaper as PID 1 for the graphrag subprocesses; SIGTERM reaches
+    # uvicorn through it (the image CMD execs uvicorn, R2-27).
+    init: true
+    # Mirrors the chart's terminationGracePeriodSeconds: uvicorn's shutdown
+    # gets time to close SSE streams; an in-flight index is reconciled as
+    # failed(interrupted) at the next start (spec §10).
+    stop_grace_period: 120s
+    # Indexing subprocess, api and query cache share this limit (spec §8.2,
+    # same 2 GiB as the chart): an OOM kills the container, not the host.
+    mem_limit: 2g
+    healthcheck:                      # liveness, same endpoint as the chart's probe; no curl in the image
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 120s              # alembic upgrade runs before uvicorn listens
     environment:
       DATABASE_URL: postgresql+asyncpg://graphrag:graphrag@postgres:5432/graphrag
       WORKSPACES_DIR: /data/workspaces
@@ -36,8 +54,10 @@ services:
       postgres: { condition: service_healthy }
   web:
     build: ./frontend
+    restart: unless-stopped
     ports: ["8080:8080"]   # nginx-unprivileged listens on 8080 inside the container
-    depends_on: [api]
+    depends_on:
+      api: { condition: service_healthy }
 volumes:
   pgdata:
   workspaces:

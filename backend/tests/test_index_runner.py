@@ -1,6 +1,7 @@
 # backend/tests/test_index_runner.py
 import asyncio
 import json
+import logging
 import uuid
 
 from graphrag_ui.adapters.index_runner import (
@@ -30,6 +31,21 @@ async def test_success_captures_log_and_stats(tmp_path):
     assert res.status == "succeeded" and res.exit_code == 0 and res.error is None
     assert b"hello" in log.read_bytes()
     assert res.stats is None  # no stats.json written by the fake
+
+
+async def test_spawn_is_logged_with_the_job_id_and_pid(tmp_path, caplog):
+    job_id = uuid.uuid4()
+    log = log_path_for(tmp_path, job_id)
+    with caplog.at_level(logging.INFO, logger="graphrag_ui"):
+        await IndexRunner(argv_prefix=("sh", "-c")).run(
+            argv=["exit 0"],
+            root=tmp_path,
+            log_path=log,
+            job_type="index",
+            heartbeat=_hb,
+            cancel_requested=lambda: False,
+        )
+    assert f"job {job_id} spawned: pid=" in caplog.text
 
 
 async def test_subprocess_env_silences_litellm_import_warnings(tmp_path):
@@ -157,6 +173,7 @@ class _ExitedUnderneath:
     terminate()/kill() raise ProcessLookupError (R2-11)."""
 
     def __init__(self) -> None:
+        self.pid = 4242
         self.returncode: int | None = None
         self.stdout = asyncio.StreamReader()
         self._exited = asyncio.Event()

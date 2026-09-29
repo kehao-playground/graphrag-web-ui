@@ -40,4 +40,7 @@ EXPOSE 8000
 # RFC1918 space (covers compose bridge networks and every common CNI pod
 # CIDR); K8s narrows the reachable peer set further via NetworkPolicy.
 ENV FORWARDED_ALLOW_IPS=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
-CMD ["sh", "-c", "alembic upgrade head && uvicorn --factory graphrag_ui.main:create_app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips=\"$FORWARDED_ALLOW_IPS\""]
+# `exec` makes uvicorn replace the shell (R2-27): otherwise sh stays PID 1,
+# ignores SIGTERM and forwards nothing, so `docker stop` / a pod deletion
+# never runs the lifespan shutdown and ends in SIGKILL at the grace timeout.
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn --factory graphrag_ui.main:create_app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips=\"$FORWARDED_ALLOW_IPS\""]

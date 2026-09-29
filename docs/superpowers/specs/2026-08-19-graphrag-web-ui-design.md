@@ -87,7 +87,7 @@
 | `project_members` | (project_id, user_id) 唯一、role(owner/editor/viewer) |
 | `jobs` | project_id、type(index/update/dry_run)、method(standard/fast)、argv(實際執行的完整命令)、status、queued_by、**worker_id**、pid、**heartbeat_at**、**cancel_requested_at**、exit_code、error、stats(jsonb)、queued_at/started_at/finished_at |
 | `settings_versions` | project_id、content(yaml 文本)、**content_hash**、saved_by、created_at(設定檔版本備份,供回復) |
-| `audit_log` | actor_id、action、target_type、target_id、payload(jsonb)、created_at(專案/成員/使用者的建立刪除與權限異動) |
+| `audit_log` | actor_id、action、target_type、target_id、payload(jsonb)、created_at。**規則:每個改變狀態的路由都寫一筆**(修正波 F24,決策 D3,R2-23/R3-34),含 `job.enqueued`、`job.cancelled`(target 為專案,payload 帶 `job_id`/`type`)與使用者自行改密碼的 `user.password_changed`;被拒絕的請求(409 等)不寫。前端 `AUDIT_ACTIONS` 與後端寫入的 action 集合由 `test_audit_catalog.py` 雙向比對 |
 
 **必要約束:**
 
@@ -235,6 +235,9 @@ GraphRAG 的 `input.type` 是單一型別 + `input.file_pattern`(regex),一個 r
 
 服務:`postgres`、`api`(含 runner,掛 workspace volume)、`web`(nginx serve SPA + 反代 `/api`,`proxy_buffering off`)
 
+- 三個服務皆 `restart: unless-stopped`;`api` 以 `/api/health` 做 healthcheck(`start_period` 120 s 容納 alembic),`web` 等 `api` healthy 才啟動(修正波 F24,R3-12)
+- `api`:`mem_limit: 2g`(與 chart 的 limit 相同,理由見 §8.2)、`stop_grace_period: 120s`、`init: true`;映像 `CMD` 以 `exec uvicorn` 結尾,SIGTERM 直達 uvicorn 以執行 lifespan 收尾(R2-27)
+
 ### 8.2 Helm chart(K8s)
 
 - `api` Deployment(+ PVC 掛 `/data/workspaces`)+ Service
@@ -244,7 +247,7 @@ GraphRAG 的 `input.type` 是單一型別 + `input.file_pattern`(regex),一個 r
 - `web` Deployment + Service
 - Ingress:**SSE 需要 buffering 關閉**(nginx annotation `nginx.ingress.kubernetes.io/proxy-buffering: "off"`、長 read timeout)
 - Postgres:values 可切換 — 內建(dependency chart)或外部 DB(連線字串)
-- 健康:`/api/health` 作 liveness、`/api/ready` 作 readiness
+- 健康:`/api/health` 作 liveness、`/api/ready` 作 readiness;另有 `startupProbe`(`/api/health`,5 s × 60 次),容器啟動時的 alembic migration 最長可跑 5 分鐘,期間 liveness 不介入(修正波 F24,R3-29)
 
 ### 8.3 設定
 
@@ -259,6 +262,7 @@ GraphRAG 的 `input.type` 是單一型別 + `input.file_pattern`(regex),一個 r
 - 已作廢的 refresh token 在作廢後 30 秒內再次出示、且其接替者尚未被使用時,視為良性重送(多分頁同時 refresh),回傳同一個接替者;超出此寬限或接替者已被使用,才視為重放並撤銷該使用者所有 refresh token(修正波 F6,R2-05)
 - refresh token 存 DB(hash),支援登出與 admin 停用帳號時即刻撤銷
 - 密碼重設:MVP 由 admin 重設(不做郵件流程,與非目標一致)
+- SSE 路由(job 日誌、查詢串流)因 EventSource 無法帶 header,以 `?token=<access token>` 驗證(最長 15 分鐘有效)。**決策 D5(修正波 F24,R2-25)**:保留此機制,但 token 不得進存取日誌——web 的 nginx 以自訂 `log_format` 把含 `token=` 的 query string 記為 `?[redacted]`;api 的 uvicorn 存取日誌以 logging filter 遮蔽 `token=` 的值。已知殘留:nginx 連不上上游時的 error log 行仍含完整請求行(error log 格式不可設定),見 backlog F24-01
 
 ## 9. 代碼組織(Clean Architecture 精神)
 
@@ -297,6 +301,7 @@ backend/
 - `.env` 秘密永不回明文;per-key 更新避免誤覆寫
 - 查詢逾時/LLM 錯誤:結構化錯誤 + 日誌摘錄
 - graphrag CLI 缺失/過舊:readiness 反映,前端於啟動任務時前置檢查並提示
+- **營運日誌(修正波 F24,決策 D7,R3-11)**:api 行程啟動時設定一次 logging——root logger 為 INFO,每行帶時間與等級(`%(asctime)s %(levelname)s %(name)s: %(message)s`),不新增 `LOG_LEVEL` 環境變數;httpx、LiteLLM 與 in-process 的 graphrag logger 壓到 WARNING。job 生命週期各記一行:enqueued(含發起者 id)、claimed(worker)、started、spawned(pid)、cancel requested、finished(status、exit code、耗時),reconcile 收斂的每個 job 與總數為 WARNING;每日保留清理記錄刪除的日誌數、起始快照數與 `update_output` 目錄數;bootstrap admin 建立亦記一行
 
 **保留與配額**(PVC 會被無限成長的日誌與 cache 撐爆,爆掉時通常是索引寫到一半失敗):
 
