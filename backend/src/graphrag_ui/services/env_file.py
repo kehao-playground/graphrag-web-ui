@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from graphrag_ui.adapters.models import Project
 from graphrag_ui.domain.env_keys import is_reserved_env_key
 from graphrag_ui.services.audit import audit
+from graphrag_ui.services.errors import CodedServiceError
 from graphrag_ui.services.project_lock import input_mutation
 from graphrag_ui.services.projects import ws_path
 
@@ -20,14 +21,18 @@ from graphrag_ui.services.projects import ws_path
 _KEY_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 
 
-class EnvValidationError(ValueError):
-    """Key/value-level .env rejection — routes map to 400 (spec §4.2).
+class EnvValidationError(CodedServiceError, ValueError):
+    """Key/value-level .env rejection — maps to 400 (spec §4.2).
     Subclasses ValueError (historical contract)."""
 
     def __init__(self, code: str, detail: str, params: dict[str, str] | None = None) -> None:
-        super().__init__(detail)
-        self.code = code
-        self.params = params
+        super().__init__(detail, code=code, params=params)
+
+
+class EnvKeyNotFoundError(CodedServiceError, LookupError):
+    """DELETE of a key the project's .env does not hold — maps to 404."""
+
+    code = "env_key_not_found"
 
 
 # graphrag init writes `<API_KEY>`-style stand-ins; such a value (or an
@@ -142,11 +147,11 @@ def _assert_not_referenced(project: Project, key: str) -> None:
 
 
 def _remove_lines(project: Project, key: str) -> list[str]:
-    """Lines minus the key's line; missing key → KeyError (route maps 404)."""
+    """Lines minus the key's line; missing key → EnvKeyNotFoundError."""
     lines = _read_lines(project)
     out = [line for line in lines if not ("=" in line and _key_of(line) == key)]
     if len(out) == len(lines):
-        raise KeyError(key)
+        raise EnvKeyNotFoundError(key)
     return out
 
 

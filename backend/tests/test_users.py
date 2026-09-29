@@ -206,14 +206,14 @@ async def test_cannot_deactivate_last_active_admin(client):
 
 
 async def test_get_user_unknown_id_raises_user_not_found(db_session):
-    """Direct service: unknown id → UserNotFound (the route maps it to 404)."""
+    """Direct service: unknown id → UserNotFoundError (the route maps it to 404)."""
     import uuid
 
     import pytest
 
-    from graphrag_ui.services.users import UserNotFound, get_user
+    from graphrag_ui.services.users import UserNotFoundError, get_user
 
-    with pytest.raises(UserNotFound):
+    with pytest.raises(UserNotFoundError):
         await get_user(db_session, uuid.uuid4())
 
 

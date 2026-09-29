@@ -16,23 +16,29 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from graphrag_ui.adapters.models import Project, Question, QuestionSet, TestResult
 from graphrag_ui.domain.questions import MAX_QUESTIONS_PER_SET
 from graphrag_ui.services.audit import audit
+from graphrag_ui.services.errors import CodedServiceError
 from graphrag_ui.services.project_lock import lock_project
 
 
-class QuestionSetNotFound(RuntimeError):
+class QuestionSetNotFoundError(CodedServiceError, LookupError):
     """No live question set with this id in the project."""
 
+    code = "question_set_not_found"
 
-class QuestionNotFound(RuntimeError):
+
+class QuestionNotFoundError(CodedServiceError, LookupError):
     """No live question with this id in the project's live sets."""
 
+    code = "question_not_found"
 
-class QuestionSetTooLarge(RuntimeError):
+
+class QuestionSetTooLargeError(CodedServiceError, RuntimeError):
     """The set already holds MAX_QUESTIONS_PER_SET live questions."""
 
+    code = "question_set_too_large"
+
     def __init__(self) -> None:
-        super().__init__("question set is full")
-        self.params = {"max_questions": MAX_QUESTIONS_PER_SET}
+        super().__init__("question set is full", params={"max_questions": MAX_QUESTIONS_PER_SET})
 
 
 async def _commit_edit(session: AsyncSession) -> None:
@@ -59,7 +65,7 @@ async def _set_or_raise(session: AsyncSession, project_id: uuid.UUID, set_id: uu
         )
     ).scalar_one_or_none()
     if qs is None:
-        raise QuestionSetNotFound(f"no live question set {set_id} in project {project_id}")
+        raise QuestionSetNotFoundError(f"no live question set {set_id} in project {project_id}")
     return qs
 
 
@@ -81,7 +87,7 @@ async def _question_or_raise(
         )
     ).scalar_one_or_none()
     if q is None:
-        raise QuestionNotFound(f"no live question {question_id} in project {project_id}")
+        raise QuestionNotFoundError(f"no live question {question_id} in project {project_id}")
     return q
 
 
@@ -180,7 +186,7 @@ async def add_question(
         )
     ).scalar_one()
     if live >= MAX_QUESTIONS_PER_SET:
-        raise QuestionSetTooLarge
+        raise QuestionSetTooLargeError
     # Max over ALL rows of the set, archived forks included: a fresh
     # question must sort after every row that ever held a slot.
     position = (
@@ -282,7 +288,7 @@ async def live_questions(
 
     Scoped to the project: a set id from another project is not found, so
     neither the listing route nor a run's manifest can read across projects.
-    Raises QuestionSetNotFound for an unknown or archived set: enqueueing a
+    Raises QuestionSetNotFoundError for an unknown or archived set: enqueueing a
     run against a set that is gone is a caller error, not an empty run."""
     qs = (
         await session.execute(
@@ -294,7 +300,7 @@ async def live_questions(
         )
     ).scalar_one_or_none()
     if qs is None:
-        raise QuestionSetNotFound(f"no live question set {set_id} in project {project_id}")
+        raise QuestionSetNotFoundError(f"no live question set {set_id} in project {project_id}")
     return list(
         (
             await session.execute(

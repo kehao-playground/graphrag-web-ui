@@ -13,15 +13,8 @@ from graphrag_ui.api.deps import (
 from graphrag_ui.api.errors import ApiError
 from graphrag_ui.api.schemas import UserBriefOut, UserOut, user_out
 from graphrag_ui.domain.permissions import Atom
-from graphrag_ui.services.roles import (
-    LastUserManagerError,
-    RoleNotFound,
-    RoleScopeMismatchError,
-    roles_for_user,
-)
+from graphrag_ui.services.roles import roles_for_user
 from graphrag_ui.services.users import (
-    SelfRoleChangeError,
-    UserNotFound,
     create_user,
     get_user,
     list_users_by_email,
@@ -73,52 +66,26 @@ def register_users_routes(app):
             raise ApiError(
                 status.HTTP_409_CONFLICT, "email_registered", "email already registered"
             ) from None
-        except RoleNotFound:
-            raise ApiError(status.HTTP_404_NOT_FOUND, "role_not_found", "role not found") from None
-        except RoleScopeMismatchError as e:
-            raise ApiError(status.HTTP_400_BAD_REQUEST, "role_scope_mismatch", str(e)) from None
         return user_out(user, await roles_for_user(db, user.id))
 
     @router.patch("/{user_id}", response_model=UserOut)
     async def patch_user(user_id: uuid.UUID, body: UserUpdateIn, admin: ManageUsers, db: DbSession):
-        try:
-            user = await patch_user_guarded(
-                db,
-                admin.id,
-                admin.global_perms,
-                user_id,
-                display_name=body.display_name,
-                role_ids=body.roles,
-                is_active=body.is_active,
-            )
-        except UserNotFound:
-            raise ApiError(status.HTTP_404_NOT_FOUND, "user_not_found", "user not found") from None
-        except SelfRoleChangeError:
-            raise ApiError(
-                status.HTTP_400_BAD_REQUEST,
-                "user_self_change_forbidden",
-                "cannot change your own role or active status",
-            ) from None
-        except LastUserManagerError:
-            raise ApiError(
-                status.HTTP_400_BAD_REQUEST,
-                "last_user_manager_protected",
-                "cannot remove the last active user manager",
-            ) from None
-        except RoleNotFound:
-            raise ApiError(status.HTTP_404_NOT_FOUND, "role_not_found", "role not found") from None
-        except RoleScopeMismatchError as e:
-            raise ApiError(status.HTTP_400_BAD_REQUEST, "role_scope_mismatch", str(e)) from None
+        user = await patch_user_guarded(
+            db,
+            admin.id,
+            admin.global_perms,
+            user_id,
+            display_name=body.display_name,
+            role_ids=body.roles,
+            is_active=body.is_active,
+        )
         return user_out(user, await roles_for_user(db, user.id))
 
     @router.post("/{user_id}/reset-password", status_code=status.HTTP_204_NO_CONTENT)
     async def post_reset_password(
         user_id: uuid.UUID, body: ResetPasswordIn, admin: ManageUsers, db: DbSession
     ):
-        try:
-            user = await get_user(db, user_id)
-        except UserNotFound:
-            raise ApiError(status.HTTP_404_NOT_FOUND, "user_not_found", "user not found") from None
+        user = await get_user(db, user_id)
         await reset_password(db, user, body.new_password, actor_id=admin.id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 

@@ -162,16 +162,17 @@ async def test_invalid_key_is_400_without_leaking_value(client, app):
     assert not _env_path(pid).exists()  # rejected before touching disk
 
 
-async def test_patch_oversized_value_is_400_and_leaves_disk_unchanged(client, app):
-    """A value past the 64 KiB cap is rejected with a fixed message — the
-    value must appear nowhere in the response, and never reach the disk."""
+async def test_patch_oversized_value_is_422_and_leaves_disk_unchanged(client, app):
+    """A value past the 64 KiB cap fails body validation — the value must
+    appear nowhere in the response, and never reach the disk."""
     alice = await _alice(client, app)
     pid = await _make_project(client, alice)
     value = "v" * (64 * 1024 + 1)
 
     r = await _set(client, alice, pid, "GRAPHRAG_API_KEY", value)
-    assert r.status_code == 400, r.text
-    assert r.json()["detail"] == "value too large"
+    assert r.status_code == 422, r.text[:300]
+    assert r.json()["code"] == "validation_failed"
+    assert r.json()["detail"][0]["msg"] == "Value error, value too large"
     assert value not in r.text  # error payload never echoes the value
     assert not _env_path(pid).exists()  # rejected before touching disk
 

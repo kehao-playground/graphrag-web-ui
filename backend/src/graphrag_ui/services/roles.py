@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from graphrag_ui.adapters.models import ProjectMember, Role, User, UserRole
 from graphrag_ui.domain.permissions import GLOBAL_ATOMS, PROJECT_ATOMS, Atom
 from graphrag_ui.services.audit import audit
+from graphrag_ui.services.errors import CodedServiceError
 
 # The grantable atom catalog per scope (domain.permissions, spec §4.1).
 # projects:create is a baseline, never grantable — excluded here.
@@ -23,32 +24,46 @@ _ATOMS_BY_SCOPE: dict[str, frozenset[str]] = {
 }
 
 
-class RoleNotFound(LookupError):
+class RoleNotFoundError(CodedServiceError, LookupError):
     """No role exists for the requested id."""
 
+    code = "role_not_found"
 
-class RoleIsSystemError(ValueError):
+
+class RoleIsSystemError(CodedServiceError, ValueError):
     """The target is a seeded built-in role and is immutable."""
 
+    code = "role_is_system"
 
-class RoleInUseError(ValueError):
+
+class RoleInUseError(CodedServiceError, ValueError):
     """The role is still granted to users or assigned to members."""
 
+    code = "role_in_use"
 
-class RoleScopeMismatchError(ValueError):
+
+class RoleScopeMismatchError(CodedServiceError, ValueError):
     """The role's scope does not fit the requested operation."""
 
+    code = "role_scope_mismatch"
 
-class RoleNameTakenError(ValueError):
+
+class RoleNameTakenError(CodedServiceError, ValueError):
     """Another role in the same scope already uses this name."""
 
+    code = "role_name_taken"
 
-class RolePermissionsInvalidError(ValueError):
+
+class RolePermissionsInvalidError(CodedServiceError, ValueError):
     """The permission set is not a subset of the scope's atom catalog."""
 
+    code = "role_permissions_invalid"
 
-class LastUserManagerError(ValueError):
+
+class LastUserManagerError(CodedServiceError, ValueError):
     """The change would leave zero active holders of users:manage."""
+
+    code = "last_user_manager_protected"
 
 
 async def list_roles(session: AsyncSession, scope: str | None = None) -> list[Role]:
@@ -61,7 +76,7 @@ async def list_roles(session: AsyncSession, scope: str | None = None) -> list[Ro
 async def get_role(session: AsyncSession, role_id: uuid.UUID) -> Role:
     role = await session.get(Role, role_id)
     if role is None:
-        raise RoleNotFound(str(role_id))
+        raise RoleNotFoundError(str(role_id))
     return role
 
 

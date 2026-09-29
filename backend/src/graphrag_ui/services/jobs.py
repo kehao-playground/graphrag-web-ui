@@ -14,14 +14,16 @@ from graphrag_ui.adapters import jobs_repo
 from graphrag_ui.adapters.models import Job, Project, User
 from graphrag_ui.config import get_settings
 from graphrag_ui.domain.jobs import build_argv
-from graphrag_ui.services.errors import JobConflictError
+from graphrag_ui.services.errors import CodedServiceError, JobConflictError
 from graphrag_ui.services.project_lock import active_job, lock_project
 from graphrag_ui.services.projects import ws_path
 from graphrag_ui.services.settings import check_workspace_settings
 
 
-class DiskWatermarkError(RuntimeError):
+class DiskWatermarkError(CodedServiceError, RuntimeError):
     """Free space on the workspaces volume is below the watermark."""
+
+    code = "disk_watermark"
 
 
 async def enqueue(

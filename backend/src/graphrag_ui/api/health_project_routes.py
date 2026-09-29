@@ -7,7 +7,7 @@ without it the list would issue one request per project.
 
 Route order is contractual (same hazard as explore's /artifacts/graph):
 this module must register BEFORE projects_routes, or GET
-/api/projects/health binds to /api/projects/{project_id} and dies on the
+/api/projects/health binds to /api/projects/{pid} and dies on the
 uuid parse of "health". Permission: project:view for the single project;
 the batch applies the project list's visibility rule per id and silently
 drops the rest — a 403 would confirm a hidden project exists."""
@@ -19,12 +19,9 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel
 
-from graphrag_ui.api.deps import CurrentUser, DbSession, get_current_user
+from graphrag_ui.api.deps import CurrentUser, DbSession, ProjectView, get_current_user
 from graphrag_ui.api.errors import ApiError
-from graphrag_ui.api.projects_routes import _forbidden, _project_or_404
-from graphrag_ui.domain.permissions import Atom, can
 from graphrag_ui.services.health import batch_health, project_health
-from graphrag_ui.services.projects import get_member_perms
 
 # The batch ceiling (spec 7.5): one overview round trip, not an unbounded
 # fan-out; a client asking for more is a bug and gets a 422, not a timeout.
@@ -139,15 +136,7 @@ def register_health_project_routes(app):
         return {"projects": await batch_health(db, user.user, user.global_perms, parsed)}
 
     @router.get("/{pid}/health", response_model=HealthOut)
-    async def one(pid: uuid.UUID, db: DbSession, user: CurrentUser):
-        project = await _project_or_404(db, pid)
-        if not can(
-            user.global_perms,
-            user.is_active,
-            Atom.project_view,
-            await get_member_perms(db, pid, user.id),
-        ):
-            raise _forbidden()
+    async def one(project: ProjectView, db: DbSession):
         return await project_health(db, project)
 
     app.include_router(router)

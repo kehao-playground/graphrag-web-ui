@@ -1,3 +1,4 @@
+import functools
 import hmac
 import uuid
 from dataclasses import dataclass
@@ -11,11 +12,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.adapters.db import get_session_factory
-from graphrag_ui.adapters.models import Role, User, UserRole
+from graphrag_ui.adapters.models import Project, Role, User, UserRole
 from graphrag_ui.api.errors import ApiError
 from graphrag_ui.config import get_settings
-from graphrag_ui.domain.permissions import Atom
+from graphrag_ui.domain.permissions import Atom, can
 from graphrag_ui.services.auth import get_or_provision_user
+from graphrag_ui.services.projects import get_member_perms
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -242,3 +244,73 @@ async def sse_user_from_request(
 
 
 SseUser = Annotated[Principal, Depends(sse_user_from_request)]
+
+
+def forbidden() -> ApiError:
+    # 403 message is fixed (spec): never leak the reason
+    return ApiError(status.HTTP_403_FORBIDDEN, "forbidden", "forbidden")
+
+
+async def project_or_404(db: AsyncSession, project_id: uuid.UUID) -> Project:
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise ApiError(status.HTTP_404_NOT_FOUND, "project_not_found", "project not found")
+    return project
+
+
+@dataclass(frozen=True)
+class ProjectAccess:
+    """A project the caller may act on, with the member atoms the check
+    used (None = not a member) so a route that also reports permissions
+    does not query them again."""
+
+    project: Project
+    member_perms: frozenset[str] | None
+
+
+@functools.cache
+def require_project_access(atom: Atom, *, sse: bool = False):
+    """Path-`pid` dependency: 404 for an unknown project, then 403 unless
+    the caller holds `atom` on it (R1-10). `sse=True` resolves the caller
+    through the ?token= path (SseUser) instead of the Bearer header.
+    Cached so each (atom, sse) is one callable, i.e. one FastAPI
+    dependency-cache entry per request.
+
+    rid-addressed routes (jobs, test runs, results) do not use this: they
+    resolve permission through the row's own project and must 404 rather
+    than 403 on an unreadable row."""
+    user_dep = sse_user_from_request if sse else get_current_user
+
+    async def _dep(
+        pid: uuid.UUID,
+        db: DbSession,
+        user: Annotated[Principal, Depends(user_dep)],
+    ) -> ProjectAccess:
+        project = await project_or_404(db, pid)
+        member_perms = await get_member_perms(db, pid, user.id)
+        if not can(user.global_perms, atom, member_perms):
+            raise forbidden()
+        return ProjectAccess(project=project, member_perms=member_perms)
+
+    return _dep
+
+
+@functools.cache
+def require_project(atom: Atom, *, sse: bool = False):
+    """require_project_access, handing the route just the Project."""
+
+    async def _dep(
+        access: Annotated[ProjectAccess, Depends(require_project_access(atom, sse=sse))],
+    ) -> Project:
+        return access.project
+
+    return _dep
+
+
+ProjectView = Annotated[Project, Depends(require_project(Atom.project_view))]
+ProjectEditContent = Annotated[Project, Depends(require_project(Atom.project_edit_content))]
+ProjectRunJobs = Annotated[Project, Depends(require_project(Atom.project_run_jobs))]
+ProjectEditSettings = Annotated[Project, Depends(require_project(Atom.project_edit_settings))]
+ProjectManage = Annotated[Project, Depends(require_project(Atom.project_manage))]
+SseProjectView = Annotated[Project, Depends(require_project(Atom.project_view, sse=True))]
+ProjectViewAccess = Annotated[ProjectAccess, Depends(require_project_access(Atom.project_view))]

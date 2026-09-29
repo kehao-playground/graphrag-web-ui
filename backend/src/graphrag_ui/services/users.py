@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from graphrag_ui.adapters.models import Role, User, UserRole
 from graphrag_ui.services.audit import audit
 from graphrag_ui.services.auth import hash_password, normalize_email, revoke_all_for_user
+from graphrag_ui.services.errors import CodedServiceError
 from graphrag_ui.services.roles import (
     LastUserManagerError,
     load_roles,
@@ -16,18 +17,22 @@ from graphrag_ui.services.roles import (
 )
 
 
-class UserNotFound(LookupError):
+class UserNotFoundError(CodedServiceError, LookupError):
     """No user exists for the requested id."""
 
+    code = "user_not_found"
 
-class SelfRoleChangeError(ValueError):
+
+class SelfRoleChangeError(CodedServiceError, ValueError):
     """A users:manage holder tried to change their own roles or active status."""
+
+    code = "user_self_change_forbidden"
 
 
 async def get_user(session: AsyncSession, user_id: uuid.UUID) -> User:
     user = await session.get(User, user_id)
     if user is None:
-        raise UserNotFound(str(user_id))
+        raise UserNotFoundError(str(user_id))
     return user
 
 

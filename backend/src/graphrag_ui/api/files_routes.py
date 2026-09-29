@@ -13,22 +13,16 @@ from fastapi import APIRouter, Depends, Request, Response, UploadFile, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
-from graphrag_ui.api.deps import CurrentUser, DbSession, get_current_user
-from graphrag_ui.api.errors import ApiError
-from graphrag_ui.api.projects_routes import _forbidden, _project_or_404
-from graphrag_ui.config import get_settings
-from graphrag_ui.domain.permissions import Atom, can
-from graphrag_ui.services import files as files_service
-from graphrag_ui.services.errors import ProjectIndexingError
-from graphrag_ui.services.files import (
-    PASSAGE_MAX_BYTES,
-    FileServiceError,
-    FileTooLargeError,
-    LocatorMismatch,
-    QuotaExceededError,
-    max_file_bytes,
+from graphrag_ui.api.deps import (
+    CurrentUser,
+    DbSession,
+    ProjectEditContent,
+    ProjectView,
+    get_current_user,
 )
-from graphrag_ui.services.projects import get_member_perms
+from graphrag_ui.config import get_settings
+from graphrag_ui.services import files as files_service
+from graphrag_ui.services.files import PASSAGE_MAX_BYTES, max_file_bytes
 
 
 class FileOut(BaseModel):
@@ -183,46 +177,24 @@ def _register_upload_size_guard(app):
 def register_files_routes(app):
     # Same conventions as projects_routes: router built inside the function
     # (create_app() is called repeatedly in tests), auth on the router itself.
+    # Service errors (bad name 400, missing file 404, size/quota 413, frozen
+    # project 409) render through the app-level table in api/errors.py.
     _register_upload_size_guard(app)
     router = APIRouter(prefix="/api/projects", dependencies=[Depends(get_current_user)])
 
     @router.post("/{pid}/files", response_model=FileOut, status_code=status.HTTP_201_CREATED)
     async def upload_file(
-        pid: uuid.UUID, request: Request, file: UploadFile, db: DbSession, user: CurrentUser
+        project: ProjectEditContent, file: UploadFile, db: DbSession, user: CurrentUser
     ):
-        project = await _project_or_404(db, pid)
-        if not can(
-            user.global_perms,
-            user.is_active,
-            Atom.project_edit_content,
-            await get_member_perms(db, pid, user.id),
-        ):
-            raise _forbidden()
-        try:
-            # the UploadFile streams through save_file in fixed chunks;
-            # nothing larger than one chunk is ever held in memory
-            name, size = await files_service.save_file(
-                db, project, file.filename or "", file, actor_id=user.id
-            )
-        except FileServiceError as e:
-            raise ApiError(status.HTTP_400_BAD_REQUEST, e.code, str(e), e.params) from None
-        except (FileTooLargeError, QuotaExceededError) as e:
-            # 413 for both single-file cap and project quota (spec §9 error handling)
-            raise ApiError(status.HTTP_413_CONTENT_TOO_LARGE, e.code, str(e), e.params) from None
-        except ProjectIndexingError as e:
-            raise ApiError(status.HTTP_409_CONFLICT, e.code, str(e), e.params) from None
+        # the UploadFile streams through save_file in fixed chunks;
+        # nothing larger than one chunk is ever held in memory
+        name, size = await files_service.save_file(
+            db, project, file.filename or "", file, actor_id=user.id
+        )
         return FileOut(name=name, size=size)
 
     @router.get("/{pid}/files", response_model=FileListOut)
-    async def list_files(pid: uuid.UUID, db: DbSession, user: CurrentUser):
-        project = await _project_or_404(db, pid)
-        if not can(
-            user.global_perms,
-            user.is_active,
-            Atom.project_view,
-            await get_member_perms(db, pid, user.id),
-        ):
-            raise _forbidden()
+    async def list_files(project: ProjectView, db: DbSession):
         listing = await files_service.list_files(db, project)
         return FileListOut(
             files=[FileEntryOut(**f) for f in listing["files"]],
@@ -234,152 +206,55 @@ def register_files_routes(app):
         )
 
     @router.delete("/{pid}/files/{filename}", status_code=status.HTTP_204_NO_CONTENT)
-    async def delete_file(pid: uuid.UUID, filename: str, db: DbSession, user: CurrentUser):
-        project = await _project_or_404(db, pid)
-        if not can(
-            user.global_perms,
-            user.is_active,
-            Atom.project_edit_content,
-            await get_member_perms(db, pid, user.id),
-        ):
-            raise _forbidden()
-        try:
-            await files_service.delete_file(db, project, filename, actor_id=user.id)
-        except FileServiceError as e:
-            raise ApiError(status.HTTP_400_BAD_REQUEST, e.code, str(e), e.params) from None
-        except FileNotFoundError:
-            raise ApiError(status.HTTP_404_NOT_FOUND, "file_not_found", "file not found") from None
-        except ProjectIndexingError as e:
-            raise ApiError(status.HTTP_409_CONFLICT, e.code, str(e), e.params) from None
+    async def delete_file(
+        project: ProjectEditContent, filename: str, db: DbSession, user: CurrentUser
+    ):
+        await files_service.delete_file(db, project, filename, actor_id=user.id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @router.post("/{pid}/files/{filename}/tags", status_code=status.HTTP_204_NO_CONTENT)
     async def add_tags(
-        pid: uuid.UUID, filename: str, body: TagsIn, db: DbSession, user: CurrentUser
+        project: ProjectEditContent, filename: str, body: TagsIn, db: DbSession, user: CurrentUser
     ):
         # Tags are metadata, not input (spec 8): no 409 while an index runs.
-        project = await _project_or_404(db, pid)
-        if not can(
-            user.global_perms,
-            user.is_active,
-            Atom.project_edit_content,
-            await get_member_perms(db, pid, user.id),
-        ):
-            raise _forbidden()
-        try:
-            await files_service.add_tags(db, project, filename, body.tags, actor_id=user.id)
-        except FileServiceError as e:
-            raise ApiError(status.HTTP_400_BAD_REQUEST, e.code, str(e), e.params) from None
-        except FileNotFoundError:
-            raise ApiError(status.HTTP_404_NOT_FOUND, "file_not_found", "file not found") from None
+        await files_service.add_tags(db, project, filename, body.tags, actor_id=user.id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @router.delete("/{pid}/files/{filename}/tags", status_code=status.HTTP_204_NO_CONTENT)
     async def remove_tags(
-        pid: uuid.UUID, filename: str, body: TagsIn, db: DbSession, user: CurrentUser
+        project: ProjectEditContent, filename: str, body: TagsIn, db: DbSession, user: CurrentUser
     ):
-        project = await _project_or_404(db, pid)
-        if not can(
-            user.global_perms,
-            user.is_active,
-            Atom.project_edit_content,
-            await get_member_perms(db, pid, user.id),
-        ):
-            raise _forbidden()
-        try:
-            await files_service.remove_tags(db, project, filename, body.tags, actor_id=user.id)
-        except FileServiceError as e:
-            raise ApiError(status.HTTP_400_BAD_REQUEST, e.code, str(e), e.params) from None
-        except FileNotFoundError:
-            raise ApiError(status.HTTP_404_NOT_FOUND, "file_not_found", "file not found") from None
+        await files_service.remove_tags(db, project, filename, body.tags, actor_id=user.id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @router.get("/{pid}/tags", response_model=TagCatalogOut)
-    async def list_tags(pid: uuid.UUID, db: DbSession, user: CurrentUser):
-        project = await _project_or_404(db, pid)
-        if not can(
-            user.global_perms,
-            user.is_active,
-            Atom.project_view,
-            await get_member_perms(db, pid, user.id),
-        ):
-            raise _forbidden()
+    async def list_tags(project: ProjectView, db: DbSession):
         return TagCatalogOut(tags=[TagOut(**t) for t in await files_service.list_tags(db, project)])
 
     @router.post("/{pid}/files:bulk-delete", response_model=BulkDeleteOut)
     async def bulk_delete_files(
-        pid: uuid.UUID, body: BulkDeleteIn, db: DbSession, user: CurrentUser
+        project: ProjectEditContent, body: BulkDeleteIn, db: DbSession, user: CurrentUser
     ):
         # Bulk delete IS input: same lock and same 409 as a single delete.
-        project = await _project_or_404(db, pid)
-        if not can(
-            user.global_perms,
-            user.is_active,
-            Atom.project_edit_content,
-            await get_member_perms(db, pid, user.id),
-        ):
-            raise _forbidden()
-        try:
-            result = await files_service.bulk_delete(db, project, body.names, actor_id=user.id)
-        except FileServiceError as e:
-            raise ApiError(status.HTTP_400_BAD_REQUEST, e.code, str(e), e.params) from None
-        except FileNotFoundError:
-            raise ApiError(status.HTTP_404_NOT_FOUND, "file_not_found", "file not found") from None
-        except ProjectIndexingError as e:
-            raise ApiError(status.HTTP_409_CONFLICT, e.code, str(e), e.params) from None
+        result = await files_service.bulk_delete(db, project, body.names, actor_id=user.id)
         return BulkDeleteOut(**result)
 
     @router.get("/{pid}/files/{filename}/preview", response_model=PreviewOut)
-    async def get_preview(pid: uuid.UUID, filename: str, db: DbSession, user: CurrentUser):
-        project = await _project_or_404(db, pid)
-        if not can(
-            user.global_perms,
-            user.is_active,
-            Atom.project_view,
-            await get_member_perms(db, pid, user.id),
-        ):
-            raise _forbidden()
-        try:
-            return PreviewOut(**await files_service.preview_file(project, filename))
-        except FileServiceError as e:
-            raise ApiError(status.HTTP_400_BAD_REQUEST, e.code, str(e), e.params) from None
-        except FileNotFoundError:
-            raise ApiError(status.HTTP_404_NOT_FOUND, "file_not_found", "file not found") from None
+    async def get_preview(project: ProjectView, filename: str):
+        return PreviewOut(**await files_service.preview_file(project, filename))
 
     @router.post("/{pid}/files/{filename}/preview", response_model=PreviewOut)
-    async def post_preview(
-        pid: uuid.UUID, filename: str, body: PreviewIn, db: DbSession, user: CurrentUser
-    ):
-        project = await _project_or_404(db, pid)
-        if not can(
-            user.global_perms,
-            user.is_active,
-            Atom.project_view,
-            await get_member_perms(db, pid, user.id),
-        ):
-            raise _forbidden()
-        try:
-            if body.result_id is not None:
-                # Historic locator: resolve_stored_passage has already
-                # bound the result to THIS project and the entry's stored
-                # source_name to THIS filename (spec 7.4).
-                assert body.entry_id is not None, "the validator pairs entry_id with result_id"
-                around: str | None = await files_service.resolve_stored_passage(
-                    db, project.id, body.result_id, body.entry_id, filename
-                )
-            else:
-                around = body.passage
-            return PreviewOut(**await files_service.preview_file(project, filename, around=around))
-        except LocatorMismatch:
-            # One fixed message for all three bindings — distinguishing
-            # them would leak which one failed (never a 403, which would
-            # confirm the row exists).
-            raise ApiError(
-                status.HTTP_404_NOT_FOUND, "citation_not_found", "citation not found"
-            ) from None
-        except FileServiceError as e:
-            raise ApiError(status.HTTP_400_BAD_REQUEST, e.code, str(e), e.params) from None
-        except FileNotFoundError:
-            raise ApiError(status.HTTP_404_NOT_FOUND, "file_not_found", "file not found") from None
+    async def post_preview(project: ProjectView, filename: str, body: PreviewIn, db: DbSession):
+        if body.result_id is not None:
+            # Historic locator: resolve_stored_passage has already bound the
+            # result to THIS project and the entry's stored source_name to
+            # THIS filename (spec 7.4); any failed binding is one fixed 404.
+            assert body.entry_id is not None, "the validator pairs entry_id with result_id"
+            around: str | None = await files_service.resolve_stored_passage(
+                db, project.id, body.result_id, body.entry_id, filename
+            )
+        else:
+            around = body.passage
+        return PreviewOut(**await files_service.preview_file(project, filename, around=around))
 
     app.include_router(router)

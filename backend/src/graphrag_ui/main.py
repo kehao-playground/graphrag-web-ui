@@ -5,6 +5,7 @@ import shutil
 from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.routing import Match
 
@@ -14,7 +15,12 @@ from graphrag_ui.api.auth_routes import register_auth_routes
 from graphrag_ui.api.deps import MUST_CHANGE_ALLOWED_PATHS, resolve_access_user
 from graphrag_ui.api.dry_run_routes import register_dry_run_routes
 from graphrag_ui.api.env_routes import register_env_routes
-from graphrag_ui.api.errors import ApiError, api_error_handler
+from graphrag_ui.api.errors import (
+    ApiError,
+    api_error_handler,
+    coded_error_handler,
+    validation_error_handler,
+)
 from graphrag_ui.api.explore_routes import register_explore_routes
 from graphrag_ui.api.files_routes import register_files_routes
 from graphrag_ui.api.health_project_routes import register_health_project_routes
@@ -29,6 +35,7 @@ from graphrag_ui.api.test_runs_routes import register_test_runs_routes
 from graphrag_ui.api.users_routes import register_users_routes
 from graphrag_ui.config import get_settings
 from graphrag_ui.services.auth import bootstrap_admin
+from graphrag_ui.services.errors import CodedServiceError
 
 
 def _graphrag_version() -> str:
@@ -138,10 +145,12 @@ def create_app() -> FastAPI:
     # Starlette types every handler against bare Exception; a handler
     # narrowed to its own exception class cannot satisfy that signature.
     app.add_exception_handler(ApiError, api_error_handler)  # type: ignore[arg-type]
+    app.add_exception_handler(CodedServiceError, coded_error_handler)  # type: ignore[arg-type]
+    app.add_exception_handler(RequestValidationError, validation_error_handler)  # type: ignore[arg-type]
     register_health_routes(app)
     # BEFORE projects_routes (contractual, same hazard as explore's
     # /artifacts/graph): /api/projects/health must not fall through to
-    # /api/projects/{project_id}, whose uuid parse of "health" is a 422.
+    # /api/projects/{pid}, whose uuid parse of "health" is a 422.
     register_health_project_routes(app)
     register_auth_routes(app)
     register_users_routes(app)

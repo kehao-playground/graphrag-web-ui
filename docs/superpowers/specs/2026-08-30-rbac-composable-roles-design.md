@@ -258,6 +258,10 @@ revision docstring states the loss.
   external imports (layer rule). Implication rules of §4.1 live here.
   `Action` enum is replaced by the atom enum (values identical to atom
   strings); route files migrate mechanically (§4.3).
+  *Amended by fix wave F13:* the `is_active` parameter is gone —
+  `can(global_perms, action, member_perms=None)`. A disabled account never
+  gets past `get_current_user` / `resolve_proxy_user`, so the auth
+  boundary is the one activeness check.
 - **Principal shape.** `get_current_user` / `sse_user_from_request` stop
   returning the bare `User` ORM row and return a frozen dataclass
   `Principal(user: User, global_perms: frozenset[str])` defined in
@@ -270,7 +274,9 @@ revision docstring states the loss.
   alongside the user fetch. `require_admin` becomes
   `require_atom("users:manage")`.
 - **Service signatures that read `users.role` today change with it**:
-  `services.projects.create_project` (baseline check on the creator),
+  `services.projects.create_project` (baseline check on the creator —
+  dropped in F13: `projects:create` is every active user's baseline, so
+  the check could not fail once activeness moved to the auth boundary),
   `services.projects.list_projects` (branches on `projects:view_any`
   instead of `user.role != "admin"`), and
   `services.users.patch_user_guarded` (self-guard + last-user-manager)
@@ -280,7 +286,13 @@ revision docstring states the loss.
 - Project routes: `get_project_role(db, pid, user.id)` becomes
   `get_member_perms(db, pid, user.id)` returning the member role's
   atom set (`None` when not a member); `can()` applies the
-  `act_any`/`view_any` implications.
+  `act_any`/`view_any` implications. Since F13 every `{pid}` route
+  declares the check as a dependency — `project: ProjectView` (or
+  `ProjectEditContent`, `ProjectRunJobs`, `ProjectEditSettings`,
+  `ProjectManage`) from `api/deps.require_project(atom)`: 404
+  `project_not_found`, then 403 `forbidden`. The rid-addressed routes
+  (jobs, test runs, results) keep explicit checks through the row's own
+  project.
 
 ### 6.2 Last-user-manager protection (generalized from last-admin)
 

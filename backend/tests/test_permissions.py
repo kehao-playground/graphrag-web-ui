@@ -25,25 +25,20 @@ PROJECT_ATOMS = {a for a in Atom if a not in GLOBAL}
 
 
 def test_create_project_is_baseline_for_every_active_user():
-    assert can(EMPTY, True, Atom.projects_create) is True
-    assert can(EMPTY, True, Atom.projects_create, None) is True
-
-
-def test_disabled_account_short_circuits_everything():
-    for a in Atom:
-        assert can(MANAGER | OPS, False, a, OWNER) is False
+    assert can(EMPTY, Atom.projects_create) is True
+    assert can(EMPTY, Atom.projects_create, None) is True
 
 
 def test_global_atoms_check_global_membership_only():
-    assert can(MANAGER, True, Atom.users_manage) is True
-    assert can(OPS, True, Atom.users_manage) is False
+    assert can(MANAGER, Atom.users_manage) is True
+    assert can(OPS, Atom.users_manage) is False
 
 
 def test_scope_isolation():
     # project atoms never satisfy a global check (spec §9)
-    assert can(OWNER, True, Atom.users_manage) is False
+    assert can(OWNER, Atom.users_manage) is False
     # global perms never imply project atoms except via implications
-    assert can(MANAGER, True, Atom.project_view, None) is False
+    assert can(MANAGER, Atom.project_view, None) is False
 
 
 @pytest.mark.parametrize(
@@ -67,20 +62,20 @@ def test_scope_isolation():
     ],
 )
 def test_project_matrix(member_perms, action, expected):
-    assert can(EMPTY, True, action, member_perms) is expected
+    assert can(EMPTY, action, member_perms) is expected
 
 
 def test_act_any_implies_every_project_atom():
     for a in PROJECT_ATOMS:
-        assert can(OPS, True, a, None) is True
+        assert can(OPS, a, None) is True
 
 
 def test_view_any_implies_view_only():
-    assert can(AUDITOR, True, Atom.project_view, None) is True
+    assert can(AUDITOR, Atom.project_view, None) is True
     # member_perms=None on purpose: view_any alone grants nothing beyond
     # project:view. (Passing MAINTAINER here would assert False against a
     # member who legitimately holds edit_content.)
-    assert can(AUDITOR, True, Atom.project_edit_content, None) is False
+    assert can(AUDITOR, Atom.project_edit_content, None) is False
 
 
 def test_effective_project_perms_for_my_permissions():
@@ -92,7 +87,7 @@ def test_effective_project_perms_for_my_permissions():
 def test_act_any_implies_view_any():
     # spec §4.1 second half: a global role holding only act_any must
     # still pass the view_any check (list_projects branches on it)
-    assert can(frozenset({"projects:act_any"}), True, Atom.projects_view_any) is True
+    assert can(frozenset({"projects:act_any"}), Atom.projects_view_any) is True
 
 
 def test_sees_all_projects():

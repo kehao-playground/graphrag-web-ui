@@ -17,6 +17,7 @@ from graphrag_ui.adapters.models import Project, SettingsVersion
 from graphrag_ui.adapters.workspace_env import read_workspace_env, substitute_placeholders
 from graphrag_ui.domain.settings_confinement import confinement_violations, input_pin_violations
 from graphrag_ui.services.audit import audit
+from graphrag_ui.services.errors import CodedServiceError
 from graphrag_ui.services.project_lock import input_mutation
 from graphrag_ui.services.projects import ws_path
 
@@ -39,14 +40,12 @@ class SettingsConflictError(Exception):
         super().__init__("settings hash mismatch")
 
 
-class SettingsValidationError(ValueError):
-    """Content-level settings rejection — routes map to 400 (spec §4.2).
+class SettingsValidationError(CodedServiceError, ValueError):
+    """Content-level settings rejection — maps to 400 (spec §4.2).
     Subclasses ValueError (historical contract)."""
 
     def __init__(self, code: str, detail: str, params: dict[str, str] | None = None) -> None:
-        super().__init__(detail)
-        self.code = code
-        self.params = params
+        super().__init__(detail, code=code, params=params)
 
 
 def _hash_bytes(data: bytes) -> str:

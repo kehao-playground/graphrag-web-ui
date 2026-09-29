@@ -6,6 +6,7 @@ export default {
     not_indexed: "尚未建立索引,請先執行索引任務",
     user_not_found: "使用者不存在",
     forbidden: "無權限",
+    validation_failed: "請求內容有欄位缺漏或格式不正確",
     // auth
     auth_too_many_attempts: "嘗試次數過多",
     auth_invalid_credentials: "帳號或密碼錯誤",
@@ -64,9 +65,6 @@ export default {
     settings_input_locked: "輸入格式在建立專案時即已固定：{{field}}",
     version_not_found: "版本不存在",
     // env
-    env_invalid_body: "無效的請求內容",
-    env_key_value_required: "需要提供 key 與 value",
-    env_value_too_large: "value 過大",
     env_invalid_key: "無效的 key:{{key}}",
     env_reserved_key: "保留的 key：{{key}}（程序與代理設定不能逐專案設定）",
     env_value_single_line: "value 必須是單行",

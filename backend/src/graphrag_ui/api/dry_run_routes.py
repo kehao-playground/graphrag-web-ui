@@ -5,17 +5,14 @@ failures (CLI missing) become 5xx. No audit rows.
 """
 
 import asyncio
-import uuid
 
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel
 
 from graphrag_ui.adapters.workspace import WorkspaceInitError, dry_run
-from graphrag_ui.api.deps import CurrentUser, DbSession, get_current_user
+from graphrag_ui.api.deps import ProjectEditSettings, get_current_user
 from graphrag_ui.api.errors import ApiError
-from graphrag_ui.api.projects_routes import _forbidden, _project_or_404
-from graphrag_ui.domain.permissions import Atom, can
-from graphrag_ui.services.projects import get_member_perms, ws_path
+from graphrag_ui.services.projects import ws_path
 from graphrag_ui.services.settings import SettingsValidationError, check_workspace_settings
 
 
@@ -30,19 +27,12 @@ def register_dry_run_routes(app):
     router = APIRouter(prefix="/api/projects", dependencies=[Depends(get_current_user)])
 
     @router.post("/{pid}/dry-run", response_model=DryRunOut)
-    async def run_dry_run(pid: uuid.UUID, db: DbSession, user: CurrentUser):
-        project = await _project_or_404(db, pid)
+    async def run_dry_run(project: ProjectEditSettings):
         # dry-run validates settings drafts (spec §4.3) — settings-grade
-        if not can(
-            user.global_perms,
-            user.is_active,
-            Atom.project_edit_settings,
-            await get_member_perms(db, pid, user.id),
-        ):
-            raise _forbidden()
         try:
             # R2-03: an escaping settings.yaml is a validation failure like
-            # any other — reported as data, and the CLI is never forked on it.
+            # any other — reported as data, and the CLI is never forked on it
+            # (so this route keeps its own except instead of the 400 table).
             await asyncio.to_thread(check_workspace_settings, project)
         except SettingsValidationError as e:
             return DryRunOut(ok=False, output=str(e))

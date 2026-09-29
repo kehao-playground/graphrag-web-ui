@@ -372,6 +372,24 @@
         "title": "DryRunOut",
         "type": "object"
       },
+      "EnvKeyIn": {
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "value"
+        ],
+        "title": "EnvKeyIn",
+        "type": "object"
+      },
       "EnvKeyOut": {
         "properties": {
           "is_placeholder": {
@@ -3302,6 +3320,140 @@
         "summary": "Batch"
       }
     },
+    "/api/projects/{pid}": {
+      "delete": {
+        "operationId": "delete_one_api_projects__pid__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete One"
+      },
+      "get": {
+        "operationId": "get_one_api_projects__pid__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get One"
+      },
+      "patch": {
+        "operationId": "patch_one_api_projects__pid__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectUpdateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Patch One"
+      }
+    },
     "/api/projects/{pid}/artifacts/graph": {
       "get": {
         "operationId": "get_graph_api_projects__pid__artifacts_graph_get",
@@ -3367,20 +3519,20 @@
         "parameters": [
           {
             "in": "path",
-            "name": "pid",
+            "name": "table",
             "required": true,
             "schema": {
-              "format": "uuid",
-              "title": "Pid",
+              "title": "Table",
               "type": "string"
             }
           },
           {
             "in": "path",
-            "name": "table",
+            "name": "pid",
             "required": true,
             "schema": {
-              "title": "Table",
+              "format": "uuid",
+              "title": "Pid",
               "type": "string"
             }
           },
@@ -3490,16 +3642,6 @@
         "parameters": [
           {
             "in": "path",
-            "name": "pid",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Pid",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
             "name": "table",
             "required": true,
             "schema": {
@@ -3514,6 +3656,16 @@
             "schema": {
               "title": "Hrid",
               "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
+              "type": "string"
             }
           }
         ],
@@ -3648,6 +3800,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnvKeyIn"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "204": {
             "description": "Successful Response"
@@ -3677,20 +3839,20 @@
         "parameters": [
           {
             "in": "path",
-            "name": "pid",
+            "name": "key",
             "required": true,
             "schema": {
-              "format": "uuid",
-              "title": "Pid",
+              "title": "Key",
               "type": "string"
             }
           },
           {
             "in": "path",
-            "name": "key",
+            "name": "pid",
             "required": true,
             "schema": {
-              "title": "Key",
+              "format": "uuid",
+              "title": "Pid",
               "type": "string"
             }
           }
@@ -3822,20 +3984,20 @@
         "parameters": [
           {
             "in": "path",
-            "name": "pid",
+            "name": "filename",
             "required": true,
             "schema": {
-              "format": "uuid",
-              "title": "Pid",
+              "title": "Filename",
               "type": "string"
             }
           },
           {
             "in": "path",
-            "name": "filename",
+            "name": "pid",
             "required": true,
             "schema": {
-              "title": "Filename",
+              "format": "uuid",
+              "title": "Pid",
               "type": "string"
             }
           }
@@ -3869,20 +4031,20 @@
         "parameters": [
           {
             "in": "path",
-            "name": "pid",
+            "name": "filename",
             "required": true,
             "schema": {
-              "format": "uuid",
-              "title": "Pid",
+              "title": "Filename",
               "type": "string"
             }
           },
           {
             "in": "path",
-            "name": "filename",
+            "name": "pid",
             "required": true,
             "schema": {
-              "title": "Filename",
+              "format": "uuid",
+              "title": "Pid",
               "type": "string"
             }
           }
@@ -3921,20 +4083,20 @@
         "parameters": [
           {
             "in": "path",
-            "name": "pid",
+            "name": "filename",
             "required": true,
             "schema": {
-              "format": "uuid",
-              "title": "Pid",
+              "title": "Filename",
               "type": "string"
             }
           },
           {
             "in": "path",
-            "name": "filename",
+            "name": "pid",
             "required": true,
             "schema": {
-              "title": "Filename",
+              "format": "uuid",
+              "title": "Pid",
               "type": "string"
             }
           }
@@ -3985,20 +4147,20 @@
         "parameters": [
           {
             "in": "path",
-            "name": "pid",
+            "name": "filename",
             "required": true,
             "schema": {
-              "format": "uuid",
-              "title": "Pid",
+              "title": "Filename",
               "type": "string"
             }
           },
           {
             "in": "path",
-            "name": "filename",
+            "name": "pid",
             "required": true,
             "schema": {
-              "title": "Filename",
+              "format": "uuid",
+              "title": "Pid",
               "type": "string"
             }
           }
@@ -4040,20 +4202,20 @@
         "parameters": [
           {
             "in": "path",
-            "name": "pid",
+            "name": "filename",
             "required": true,
             "schema": {
-              "format": "uuid",
-              "title": "Pid",
+              "title": "Filename",
               "type": "string"
             }
           },
           {
             "in": "path",
-            "name": "filename",
+            "name": "pid",
             "required": true,
             "schema": {
-              "title": "Filename",
+              "format": "uuid",
+              "title": "Pid",
               "type": "string"
             }
           }
@@ -4362,6 +4524,166 @@
         "summary": "Preflight"
       }
     },
+    "/api/projects/{pid}/members": {
+      "get": {
+        "operationId": "members_api_projects__pid__members_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MemberOut"
+                  },
+                  "title": "Response Members Api Projects  Pid  Members Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Members"
+      }
+    },
+    "/api/projects/{pid}/members/{user_id}": {
+      "delete": {
+        "operationId": "delete_member_api_projects__pid__members__user_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Member"
+      },
+      "put": {
+        "operationId": "put_member_api_projects__pid__members__user_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemberIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Put Member"
+      }
+    },
     "/api/projects/{pid}/query": {
       "post": {
         "operationId": "post_query_api_projects__pid__query_post",
@@ -4619,21 +4941,21 @@
         "parameters": [
           {
             "in": "path",
-            "name": "pid",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Pid",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
             "name": "sid",
             "required": true,
             "schema": {
               "format": "uuid",
               "title": "Sid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
               "type": "string"
             }
           }
@@ -4665,21 +4987,21 @@
         "parameters": [
           {
             "in": "path",
-            "name": "pid",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Pid",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
             "name": "sid",
             "required": true,
             "schema": {
               "format": "uuid",
               "title": "Sid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
               "type": "string"
             }
           }
@@ -4730,21 +5052,21 @@
         "parameters": [
           {
             "in": "path",
-            "name": "pid",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Pid",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
             "name": "sid",
             "required": true,
             "schema": {
               "format": "uuid",
               "title": "Sid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
               "type": "string"
             }
           }
@@ -4783,21 +5105,21 @@
         "parameters": [
           {
             "in": "path",
-            "name": "pid",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Pid",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
             "name": "sid",
             "required": true,
             "schema": {
               "format": "uuid",
               "title": "Sid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
               "type": "string"
             }
           }
@@ -4848,16 +5170,6 @@
         "parameters": [
           {
             "in": "path",
-            "name": "pid",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Pid",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
             "name": "sid",
             "required": true,
             "schema": {
@@ -4873,6 +5185,16 @@
             "schema": {
               "format": "uuid",
               "title": "Qid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
               "type": "string"
             }
           }
@@ -4904,16 +5226,6 @@
         "parameters": [
           {
             "in": "path",
-            "name": "pid",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Pid",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
             "name": "sid",
             "required": true,
             "schema": {
@@ -4929,6 +5241,16 @@
             "schema": {
               "format": "uuid",
               "title": "Qid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
               "type": "string"
             }
           }
@@ -5126,21 +5448,21 @@
         "parameters": [
           {
             "in": "path",
+            "name": "vid",
+            "required": true,
+            "schema": {
+              "title": "Vid",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
             "name": "pid",
             "required": true,
             "schema": {
               "format": "uuid",
               "title": "Pid",
               "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "vid",
-            "required": true,
-            "schema": {
-              "title": "Vid",
-              "type": "integer"
             }
           }
         ],
@@ -5326,300 +5648,6 @@
           }
         ],
         "summary": "Start Run"
-      }
-    },
-    "/api/projects/{project_id}": {
-      "delete": {
-        "operationId": "delete_one_api_projects__project_id__delete",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Project Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Delete One"
-      },
-      "get": {
-        "operationId": "get_one_api_projects__project_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Project Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProjectOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Get One"
-      },
-      "patch": {
-        "operationId": "patch_one_api_projects__project_id__patch",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Project Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ProjectUpdateIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProjectOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Patch One"
-      }
-    },
-    "/api/projects/{project_id}/members": {
-      "get": {
-        "operationId": "members_api_projects__project_id__members_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Project Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/MemberOut"
-                  },
-                  "title": "Response Members Api Projects  Project Id  Members Get",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Members"
-      }
-    },
-    "/api/projects/{project_id}/members/{user_id}": {
-      "delete": {
-        "operationId": "delete_member_api_projects__project_id__members__user_id__delete",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Project Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "user_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "User Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Delete Member"
-      },
-      "put": {
-        "operationId": "put_member_api_projects__project_id__members__user_id__put",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Project Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "user_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "User Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/MemberIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MemberOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Put Member"
       }
     },
     "/api/ready": {

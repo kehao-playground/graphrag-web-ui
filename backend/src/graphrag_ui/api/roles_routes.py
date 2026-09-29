@@ -4,7 +4,8 @@ GET /api/roles is open to every authenticated active user — the member
 picker and the admin pages need the catalog, and role names leak nothing
 sensitive. /api/admin/roles is the users:manage-gated CRUD surface
 (require_atom(Atom.users_manage); the historical admin_only error code is
-kept, spec §7).
+kept, spec §7). Service errors (role_not_found, role_name_taken,
+role_is_system, ...) render through the app-level table in api/errors.py.
 """
 
 import uuid
@@ -24,13 +25,6 @@ from graphrag_ui.api.errors import ApiError
 from graphrag_ui.api.schemas import RoleOut
 from graphrag_ui.domain.permissions import Atom
 from graphrag_ui.services.roles import (
-    LastUserManagerError,
-    RoleInUseError,
-    RoleIsSystemError,
-    RoleNameTakenError,
-    RoleNotFound,
-    RolePermissionsInvalidError,
-    RoleScopeMismatchError,
     create_role,
     delete_role,
     get_role,
@@ -59,19 +53,13 @@ class RoleUpdateIn(BaseModel):
     permissions: list[str]
 
 
-_BAD_REQUEST: dict[type[Exception], tuple[str, str | None]] = {
-    RoleIsSystemError: ("role_is_system", "built-in roles are immutable"),
-    RoleScopeMismatchError: ("role_scope_mismatch", None),
-    RolePermissionsInvalidError: ("role_permissions_invalid", None),
-    LastUserManagerError: ("last_user_manager_protected", None),
-}
-
-
-def _api_error(exc: Exception, fallback_detail: str) -> ApiError:
-    code, detail = _BAD_REQUEST.get(type(exc), (None, None))
-    if code is None:
-        raise exc  # unmapped — let the 500 handler have it, never swallow
-    return ApiError(status.HTTP_400_BAD_REQUEST, code, detail or fallback_detail)
+def _name_taken() -> ApiError:
+    # A concurrent duplicate slipped past the service's check-then-write;
+    # the unique index is the backstop, so it surfaces as the same 409 the
+    # service's RoleNameTakenError renders (api/errors.py), not a 500.
+    return ApiError(
+        status.HTTP_409_CONFLICT, "role_name_taken", "a role with that name already exists"
+    )
 
 
 def register_roles_routes(app):
@@ -116,30 +104,14 @@ def register_roles_routes(app):
                 permissions=body.permissions,
                 actor_id=admin.id,
             )
-        except RoleNameTakenError as e:
-            raise ApiError(
-                status.HTTP_409_CONFLICT, "role_name_taken", "a role with that name already exists"
-            ) from e
         except IntegrityError as e:
-            # A concurrent duplicate slipped past the service's
-            # check-then-insert; the unique index is the backstop, so it
-            # surfaces here instead of as a 500.
-            raise ApiError(
-                status.HTTP_409_CONFLICT, "role_name_taken", "a role with that name already exists"
-            ) from e
-        except (
-            RoleIsSystemError,
-            RoleScopeMismatchError,
-            RolePermissionsInvalidError,
-            LastUserManagerError,
-        ) as e:
-            raise _api_error(e, "role rejected") from None
+            raise _name_taken() from e
         return RoleOut.model_validate(role)
 
     @admin_router.patch("/{role_id}", response_model=RoleOut)
     async def patch_one(role_id: uuid.UUID, body: RoleUpdateIn, admin: ManageUsers, db: DbSession):
+        role = await get_role(db, role_id)
         try:
-            role = await get_role(db, role_id)
             role = await update_role(
                 db,
                 role,
@@ -148,40 +120,14 @@ def register_roles_routes(app):
                 permissions=body.permissions,
                 actor_id=admin.id,
             )
-        except RoleNotFound as e:
-            raise ApiError(status.HTTP_404_NOT_FOUND, "role_not_found", "role not found") from e
-        except RoleNameTakenError as e:
-            raise ApiError(
-                status.HTTP_409_CONFLICT, "role_name_taken", "a role with that name already exists"
-            ) from e
         except IntegrityError as e:
-            # Concurrent rename slipped past the service's check-then-update;
-            # the unique index is the backstop (same contract as POST).
-            raise ApiError(
-                status.HTTP_409_CONFLICT, "role_name_taken", "a role with that name already exists"
-            ) from e
-        except (
-            RoleIsSystemError,
-            RoleScopeMismatchError,
-            RolePermissionsInvalidError,
-            LastUserManagerError,
-        ) as e:
-            raise _api_error(e, "role rejected") from None
+            raise _name_taken() from e
         return RoleOut.model_validate(role)
 
     @admin_router.delete("/{role_id}", status_code=status.HTTP_204_NO_CONTENT)
     async def delete_one(role_id: uuid.UUID, admin: ManageUsers, db: DbSession):
-        try:
-            role = await get_role(db, role_id)
-            await delete_role(db, role, actor_id=admin.id)
-        except RoleNotFound as e:
-            raise ApiError(status.HTTP_404_NOT_FOUND, "role_not_found", "role not found") from e
-        except RoleIsSystemError as e:
-            raise _api_error(e, "role rejected") from None
-        except RoleInUseError as e:
-            raise ApiError(
-                status.HTTP_409_CONFLICT, "role_in_use", "role is still granted; unassign it first"
-            ) from e
+        role = await get_role(db, role_id)
+        await delete_role(db, role, actor_id=admin.id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     app.include_router(admin_router)

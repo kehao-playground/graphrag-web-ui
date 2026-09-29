@@ -215,7 +215,7 @@ async def test_usage_counts_and_roles_for_user(db_session):
 
 async def test_load_roles_and_global_scope_validation(db_session):
     await _user(db_session)
-    with pytest.raises(svc.RoleNotFound):
+    with pytest.raises(svc.RoleNotFoundError):
         await svc.load_roles(db_session, [uuid.uuid4()])
     with pytest.raises(svc.RoleScopeMismatchError):
         svc.validate_global_roles(  # plain function — never awaited
