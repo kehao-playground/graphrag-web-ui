@@ -131,7 +131,7 @@ test("launch: modal shows 上次執行 summary, confirm POSTs {type:index, metho
   // Wait for the preflight fetch so the modal deterministically shows last_run.
   await waitFor(() => expect(apiMock).toHaveBeenCalledWith("/api/projects/p1/jobs/preflight", expect.anything()));
   await user.click(await screen.findByRole("button", { name: "開始索引" }));
-  expect(await screen.findByText("上次執行:約 120 秒、3 份文件")).toBeInTheDocument();
+  expect(await screen.findByText("上次執行：約 120 秒、3 份文件")).toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: /^開\s?始$/ }));
   await waitFor(() =>
     expect(apiMock).toHaveBeenCalledWith("/api/projects/p1/jobs", expect.objectContaining({
@@ -225,7 +225,7 @@ test("statuses render translated, unknown ones raw", async () => {
     job({ id: "c", status: "failed", display_status: "exploded" }),
   ];
   mount(true);
-  expect(await screen.findByText("失敗(中斷)")).toBeInTheDocument();
+  expect(await screen.findByText("失敗（中斷）")).toBeInTheDocument();
   expect(screen.getByText("成功")).toBeInTheDocument();
   expect(screen.getByText("exploded")).toBeInTheDocument();
 });
@@ -236,7 +236,7 @@ test("an active job shows a notice and disables Start", async () => {
     ...PREFLIGHT, active_job: job({ id: "t1", type: "test_run", status: "running" }),
   }), { status: 200 });
   mount(true);
-  expect(await screen.findByText(/測試執行作業正在執行/)).toBeInTheDocument();
+  expect(await screen.findByText(/測試執行正在進行/)).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "開始索引" })).toBeDisabled();
 });
 

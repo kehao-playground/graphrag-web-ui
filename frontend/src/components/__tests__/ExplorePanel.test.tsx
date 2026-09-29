@@ -222,7 +222,7 @@ test("page-size menu offers 10/20/50/100 — no debugging size 1 (R4-12)", async
 test("stale=true shows the indexing alert at panel top", async () => {
   listEnvelope = { rows: ROWS, total: 3, stale: true };
   mount();
-  expect(await screen.findByText("索引進行中,結果可能不完整")).toBeInTheDocument();
+  expect(await screen.findByText("索引進行中，結果可能不完整")).toBeInTheDocument();
 });
 
 test("row click opens the detail drawer and fetches the full row", async () => {
@@ -232,6 +232,22 @@ test("row click opens the detail drawer and fetches the full row", async () => {
   await user.click(screen.getByText("Ada Lovelace"));
   expect(await screen.findByText("first programmer")).toBeInTheDocument();
   expect(fetchMock).toHaveBeenCalledWith("/api/projects/p1/artifacts/entities/2", expect.anything());
+});
+
+test("hash ids in the detail show as a count or a toggle, not raw (R4-34)", async () => {
+  mount();
+  const user = userEvent.setup();
+  await user.click(await screen.findByText("Ada Lovelace"));
+  await screen.findByText("first programmer");
+  // text_unit_ids shows its count, the internal id a "show" toggle; both
+  // expand to the raw values, which stay out of sight until then.
+  const count = screen.getByText("1 個 ID");
+  const show = screen.getByText("顯示");
+  expect(count.closest("details")).not.toHaveAttribute("open");
+  expect(show.closest("details")).not.toHaveAttribute("open");
+  await user.click(count);
+  expect(count.closest("details")).toHaveAttribute("open");
+  expect(within(count.closest("details")!).getByText(/tu-1/)).toBeInTheDocument();
 });
 
 test("table switch with the drawer open closes it and skips the new table's detail", async () => {
@@ -260,7 +276,7 @@ test("409 not_indexed renders the catalogued sentence with a link to Jobs, not a
   errorResponse = new Response(
     JSON.stringify({ detail: "not indexed yet — run an indexing job first", code: "not_indexed" }), { status: 409 });
   mount();
-  expect(await screen.findByText("尚未建立索引,請先執行索引任務")).toBeInTheDocument();
+  expect(await screen.findByText("尚未建立索引，請先執行索引任務")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "前往任務" })).toHaveAttribute("href", "/projects/p1/jobs");
   expect(document.querySelector(".ant-table")).toBeNull();
   // shown in place, not also toasted
@@ -272,7 +288,7 @@ test("graph mode on an un-indexed project shows the same empty state (R4-15)", a
     JSON.stringify({ detail: "not indexed yet", code: "not_indexed" }), { status: 409 });
   mount();
   const user = userEvent.setup();
-  await screen.findByText("尚未建立索引,請先執行索引任務");
+  await screen.findByText("尚未建立索引，請先執行索引任務");
   // a Response body reads once: the graph request needs its own
   errorResponse = new Response(
     JSON.stringify({ detail: "not indexed yet", code: "not_indexed" }), { status: 409 });

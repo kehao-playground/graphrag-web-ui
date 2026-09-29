@@ -58,9 +58,9 @@ export default function TagsModal({ projectId, target, catalog, onClose }: {
       if (failed.length === 0) {
         message.success(target?.kind === "row"
           ? t("files.tagsUpdatedOne", { name: target.name })
-          : t("files.tagsUpdated", { n: fileCount }));
+          : t("files.tagsUpdated", { count: fileCount }));
       } else {
-        message.warning(t("files.tagsPartial", { n: failed.length, names: failed.join(", ") }));
+        message.warning(t("files.tagsPartial", { count: failed.length, names: failed.join(", ") }));
       }
       onClose();
     },
@@ -93,11 +93,11 @@ export default function TagsModal({ projectId, target, catalog, onClose }: {
         <Button key="cancel" onClick={onClose}>{t("common.cancel")}</Button>,
         <Button key="remove" disabled={tags.length === 0 || tooLong} loading={apply.isPending}
           onClick={() => applyBulk("DELETE")}>
-          {t("files.tagsRemoveFrom", { n: fileCount })}
+          {t("files.tagsRemoveFrom", { count: fileCount })}
         </Button>,
         <Button key="add" type="primary" disabled={tags.length === 0 || tooLong} loading={apply.isPending}
           onClick={() => applyBulk("POST")}>
-          {t("files.tagsAddTo", { n: fileCount })}
+          {t("files.tagsAddTo", { count: fileCount })}
         </Button>,
       ]
     : [
@@ -112,7 +112,7 @@ export default function TagsModal({ projectId, target, catalog, onClose }: {
       open={target !== null}
       title={target?.kind === "row"
         ? t("files.editTagsTitle", { name: target.name })
-        : t("files.tagSelectedTitle", { n: fileCount })}
+        : t("files.tagSelectedTitle", { count: fileCount })}
       onCancel={onClose}
       footer={footer}
       destroyOnHidden

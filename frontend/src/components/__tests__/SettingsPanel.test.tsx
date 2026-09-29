@@ -135,13 +135,13 @@ test("a settings_conflict 409 opens the conflict modal showing server content", 
 
 test("a project_indexing 409 is a toast, not the conflict modal, and keeps the draft (R4-01)", async () => {
   putResponse = () => new Response(
-    JSON.stringify({ detail: "project is indexing", code: "project_indexing" }), { status: 409 });
+    JSON.stringify({ detail: "project is indexing", code: "project_indexing", params: { job_type: "index" } }), { status: 409 });
   mount();
   const user = userEvent.setup();
   const edited = await editYaml();
   await user.click(saveButton());
-  expect(await screen.findByText("索引作業執行中,文件與設定異動已暫停")).toBeInTheDocument();
-  expect(screen.queryByText("設定已被他人修改 (衝突)")).not.toBeInTheDocument();
+  expect(await screen.findByText("索引任務正在進行，文件與設定異動已暫停")).toBeInTheDocument();
+  expect(screen.queryByText("設定已被他人修改")).not.toBeInTheDocument();
   expect(screen.getByRole("textbox", { name: /yaml/i })).toHaveValue(edited);
 });
 
@@ -149,7 +149,7 @@ test("a running index shows the frozen notice and disables every write (R4-01)",
   activeJob = { id: "j1", type: "index" };
   envKeys = [{ key: "GRAPHRAG_API_KEY", masked: "sk****", is_placeholder: false }];
   mount();
-  expect(await screen.findByText(/索引作業執行中/)).toBeInTheDocument();
+  expect(await screen.findByText(/索引任務進行中/)).toBeInTheDocument();
   await editYaml();
   expect(saveButton()).toBeDisabled();
   expect(screen.getByRole("button", { name: /^設\s?定$/ })).toBeDisabled();
@@ -266,7 +266,7 @@ test("the init placeholder key is called out, not shown as configured (R4-23)", 
   expect(await screen.findByText(/GRAPHRAG_API_KEY 尚未設定/)).toBeInTheDocument();
   // translated headers, and the key section sits above the YAML editor
   const header = screen.getByRole("columnheader", { name: "名稱" });
-  expect(screen.getByRole("columnheader", { name: "值（遮罩）" })).toBeInTheDocument();
+  expect(screen.getByRole("columnheader", { name: "值（部分隱藏）" })).toBeInTheDocument();
   const ta = await loadedYaml();
   expect(header.compareDocumentPosition(ta) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });

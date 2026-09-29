@@ -30,7 +30,7 @@ const apiMock = vi.fn(async (path: string) => {
 stubFetch(apiMock);
 // Three visible projects: p2 is the one with pending documents (2 new + 1
 // modified); the others are clean so the health column stays quiet for them.
-// zh-TW: that pending count renders as 3 待索引.
+// zh-TW: that pending count renders as 3 份待索引.
 const PROJECTS_BODY = [
   { id: "p1", name: "Research Corpus", slug: "research-corpus", description: null,
     input_file_type: "text", owner_id: "u1", created_at: "2026-08-19T00:00:00Z" },
@@ -101,7 +101,7 @@ test("renders project list with owner resolved by owner_id", async () => {
 test("project list shows index health from one batch request", async () => {
   renderProjects();
   await screen.findByText("客服知識庫");
-  expect(await screen.findByText("3 待索引")).toBeInTheDocument();
+  expect(await screen.findByText("3 份待索引")).toBeInTheDocument();
   expect(healthRequests).toEqual([
     "/api/projects/health?ids=p1,p2,p3",
   ]);

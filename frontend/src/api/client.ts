@@ -6,6 +6,7 @@ import { i18n } from "../i18n";
 import zhTW from "../i18n/locales/zh-TW";
 import type { ErrorCode } from "../i18n";
 import type { ParseKeys } from "i18next";
+import { jobTypeLabel } from "../components/labels";
 
 export async function api(path: string, init: RequestInit = {}, retried = false): Promise<Response> {
   const proxy = useAuth.getState().authMode === "proxy";
@@ -68,15 +69,17 @@ export function messageOfBody(
 ): string {
   const code = body.code;
   if (typeof code === "string" && isErrorCode(code)) {
-    const params = body.params;
+    const params = typeof body.params === "object" && body.params !== null
+      ? { ...(body.params as Record<string, string | number>) } : null;
+    // A job type travels as its wire id ("index"); the sentence names it
+    // in the reader's language (project_indexing, R3-33).
+    if (params && typeof params.job_type === "string") {
+      params.job_type = jobTypeLabel(params.job_type, i18n.t);
+    }
     // `replace` keeps server-provided params out of the options object
     // itself, so a param named e.g. "count" or "ns" can never collide
     // with i18next's own option names.
-    return i18n.t(`errors.${code}`, {
-      ...vars,
-      ...(typeof params === "object" && params !== null
-           ? { replace: params as Record<string, string | number> } : {}),
-    });
+    return i18n.t(`errors.${code}`, { ...vars, ...(params ? { replace: params } : {}) });
   }
   if (typeof body.detail === "string") return body.detail; // verbatim
   return i18n.t(fallbackKey, vars);

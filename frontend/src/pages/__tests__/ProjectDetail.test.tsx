@@ -168,7 +168,7 @@ beforeEach(() => {
 
 test("a deep link lands on the right pane", async () => {
   renderApp({ route: "/projects/p1/tests" })
-  expect(await screen.findByRole("heading", { name: "檢索測試工作台" })).toBeInTheDocument()
+  expect(await screen.findByRole("heading", { name: "檢索測試" })).toBeInTheDocument()
   expect(screen.queryByRole("heading", { name: "文件" })).not.toBeInTheDocument()
 })
 
@@ -246,7 +246,7 @@ test("owner row stays labeled and locked; add flow submits the picked role_id", 
   fireEvent.click(await within(document.querySelector(".ant-select-dropdown")! as HTMLElement).findByText("維護者"))
   const userSelect = screen.getByText("選擇使用者").closest(".ant-select")!
   fireEvent.mouseDown(userSelect.querySelector('input[role="combobox"]')!)
-  fireEvent.click(await screen.findByText("Carol(carol@test.local)"))
+  fireEvent.click(await screen.findByText("Carol（carol@test.local）"))
   fireEvent.click(within(addBar).getByRole("button", { name: /新\s*增/ }))
 
   await waitFor(() => expect(api).toHaveBeenCalledWith(
@@ -295,7 +295,7 @@ test("adding a member confirms with a toast (R4-16)", async () => {
   const addBar = await screen.findByTitle("新增成員")
   const userSelect = within(addBar).getByText("選擇使用者").closest(".ant-select")!
   fireEvent.mouseDown(userSelect.querySelector('input[role="combobox"]')!)
-  fireEvent.click(await screen.findByText("Carol(carol@test.local)"))
+  fireEvent.click(await screen.findByText("Carol（carol@test.local）"))
   fireEvent.click(within(addBar).getByRole("button", { name: /新\s*增/ }))
   await waitFor(() => expect(api).toHaveBeenCalledWith(
     "/api/projects/p1/members/u3",

@@ -211,7 +211,7 @@ test("bulk delete confirms with count and total size", async () => {
   // Deleting 30 documents is not the same act as deleting one.
   // antd renders the confirm title twice in the DOM (title div + an
   // internal span), so "at least one visible copy" is the honest pin.
-  expect((await screen.findAllByText(/2 個檔案/)).length).toBeGreaterThan(0);
+  expect((await screen.findAllByText(/2 份文件/)).length).toBeGreaterThan(0);
   expect(screen.getAllByText(/1.5 KiB/).length).toBeGreaterThan(0);
 });
 
@@ -223,10 +223,10 @@ test("a partial bulk delete reports the server's count and names the failures", 
   await userEvent.click(screen.getByRole("button", { name: "刪除所選" }));
   // The confirm's danger button (antd spaces two-character CJK labels, and
   // the rows carry delete buttons of their own, so the name cannot pin it).
-  await screen.findAllByText(/2 個檔案/);
+  await screen.findAllByText(/2 份文件/);
   await userEvent.click(document.querySelector<HTMLElement>(".ant-modal-confirm-btns .ant-btn-dangerous")!);
-  expect(await screen.findByText("已刪除 1 個檔案")).toBeInTheDocument();
-  expect(await screen.findByText(/1 個檔案無法刪除：draft.md/)).toBeInTheDocument();
+  expect(await screen.findByText("已刪除 1 份文件")).toBeInTheDocument();
+  expect(await screen.findByText(/1 份文件無法刪除：draft.md/)).toBeInTheDocument();
 });
 
 test("a removed row offers no selection and no actions", async () => {
@@ -257,7 +257,7 @@ test("a failed preflight stays quiet: no toast, the listing still renders", asyn
 
 test("uploader and delete are disabled with a reason while indexing", async () => {
   renderPanel({ activeJob: { id: "j1", type: "index" } });
-  expect(await screen.findByText(/索引作業執行中，暫停文件異動/)).toBeInTheDocument();
+  expect(await screen.findByText(/索引任務進行中，暫停文件異動/)).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "刪除所選" })).toBeDisabled();
 });
 
@@ -272,11 +272,11 @@ test("tag selected adds the chosen tags to every selected file", async () => {
   await userEvent.click(await screen.findByRole("checkbox", { name: /notes.txt/ }));
   await userEvent.click(screen.getByRole("checkbox", { name: /draft.md/ }));
   await userEvent.click(screen.getByRole("button", { name: "標記所選…" }));
-  const dialog = await findModal("標記 2 個檔案");
+  const dialog = await findModal("標記 2 份文件");
   await userEvent.type(within(dialog).getByRole("combobox"), "hr{enter}");
   const reads = listReads();
-  await userEvent.click(within(dialog).getByRole("button", { name: "加入 2 個檔案" }));
-  expect(await screen.findByText("已更新 2 個檔案的標籤")).toBeInTheDocument();
+  await userEvent.click(within(dialog).getByRole("button", { name: "加入 2 份文件" }));
+  expect(await screen.findByText("已更新 2 份文件的標籤")).toBeInTheDocument();
   expect(tagCalls()).toEqual(expect.arrayContaining([
     { method: "POST", name: "notes.txt", tags: ["hr"] },
     { method: "POST", name: "draft.md", tags: ["hr"] },
@@ -292,10 +292,10 @@ test("tag selected can remove tags, and names the files that failed", async () =
   await userEvent.click(await screen.findByRole("checkbox", { name: /notes.txt/ }));
   await userEvent.click(screen.getByRole("checkbox", { name: /draft.md/ }));
   await userEvent.click(screen.getByRole("button", { name: "標記所選…" }));
-  const dialog = await findModal("標記 2 個檔案");
+  const dialog = await findModal("標記 2 份文件");
   await userEvent.type(within(dialog).getByRole("combobox"), "policy{enter}");
-  await userEvent.click(within(dialog).getByRole("button", { name: "從 2 個檔案移除" }));
-  expect(await screen.findByText(/1 個檔案的標籤未能更新：draft.md/)).toBeInTheDocument();
+  await userEvent.click(within(dialog).getByRole("button", { name: "從 2 份文件移除" }));
+  expect(await screen.findByText(/1 份文件的標籤未能更新：draft.md/)).toBeInTheDocument();
   expect(tagCalls().every((c) => c.method === "DELETE")).toBe(true);
 });
 
@@ -319,7 +319,7 @@ test("editing a row's tags sends only the difference", async () => {
 test("tagging stays available while indexing (tags are not input)", async () => {
   renderPanel({ activeJob: { id: "j1", type: "index" } });
   const row = (await screen.findByText("notes.txt")).closest("tr")!;
-  await screen.findByText(/索引作業執行中/);
+  await screen.findByText(/索引任務進行中/);
   expect(within(row).getByRole("button", { name: "編輯標籤" })).toBeEnabled();
 });
 
@@ -329,7 +329,7 @@ test("a bulk upload ends in one summary toast and one listing refresh", async ()
   await screen.findByText("notes.txt");
   const reads = listReads();
   await userEvent.upload(uploadInput(), [txt("a.txt"), txt("b.txt"), txt("bad.txt")]);
-  expect(await screen.findByText(/已上傳 2 個檔案，1 個失敗：bad.txt/)).toBeInTheDocument();
+  expect(await screen.findByText(/已上傳 2 \/ 3 份文件，失敗：bad.txt/)).toBeInTheDocument();
   // Only the summary: no per-file success toast.
   expect(screen.queryByText("已上傳 a.txt")).not.toBeInTheDocument();
   await waitFor(() => expect(listReads()).toBe(reads + 1));
@@ -354,7 +354,7 @@ test("an oversized file in a drop is named once in the summary", async () => {
   renderPanel({ body: { ...FILES_BODY, max_file_bytes: 1024 } });
   await screen.findByText("notes.txt");
   await userEvent.upload(uploadInput(), [txt("a.txt"), txt("big.txt", 2048)]);
-  expect(await screen.findByText("已上傳 1 個檔案，1 個失敗：big.txt（超過每個檔案 1.0 KiB 的上限）")).toBeInTheDocument();
+  expect(await screen.findByText("已上傳 1 / 2 份文件，失敗：big.txt（超過每個檔案 1.0 KiB 的上限）")).toBeInTheDocument();
   expect(uploadPosts()).toBe(1);
 });
 
@@ -365,7 +365,7 @@ test("deleting a selected row drops it from the selection", async () => {
   const row = screen.getByText("notes.txt").closest("tr")!;
   await userEvent.click(within(row).getByRole("button", { name: /刪\s*除/ }));
   await userEvent.click(document.querySelector<HTMLElement>(".ant-popconfirm .ant-btn-dangerous")!);
-  await screen.findByText("檔案已刪除");
+  await screen.findByText("文件已刪除");
   await waitFor(() => expect(screen.getByRole("button", { name: "刪除所選" })).toBeDisabled());
   expect(screen.getByRole("button", { name: "標記所選…" })).toBeDisabled();
 });

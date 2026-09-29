@@ -103,7 +103,7 @@ test("the launch dialog states question count and method before committing", asy
   // fixture); the method is the raw identifier the run will record.
   // zh-TW: 客服常問 20 題 is the fixture set's selected name the regex must
   // not match.
-  expect(await screen.findByText(/將執行 20 題/)).toBeInTheDocument();
+  expect(await screen.findByText(/執行 20 題/)).toBeInTheDocument();
   expect(screen.getByText(/local/)).toBeInTheDocument();
   // Committing POSTs the selected set + method to /test-runs.
   await userEvent.click(screen.getByRole("button", { name: "開始執行" }));
@@ -117,7 +117,7 @@ test("the launch dialog states question count and method before committing", asy
 test("a job conflict names which job is running", async () => {
   renderWorkbench({ activeJob: { id: "j1", type: "index" } });
   // Not a dead button, and not a message implying only indexing can block.
-  expect(await screen.findByText(/索引作業執行中/)).toBeInTheDocument();
+  expect(await screen.findByText(/索引任務正在進行/)).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "重跑整組" })).toBeDisabled();
 });
 
@@ -200,18 +200,18 @@ test("rating the last result of a run closes the drawer", async () => {
 
 test("editing a question that has runs warns before forking", async () => {
   renderWorkbench();
-  await userEvent.click(await screen.findByText("題目 (20)"));
+  await userEvent.click(await screen.findByText("題目（20）"));
   // q-1's lineage L1 was asked by runs → editing forks it (spec §5.3).
-  await userEvent.click(await screen.findByRole("button", { name: "編輯題目:題目 2" }));
+  await userEvent.click(await screen.findByRole("button", { name: "編輯題目：題目 2" }));
   expect(await screen.findByText(/會建立新版本，過去的執行仍保留原本的題目文字/))
     .toBeInTheDocument();
 });
 
 test("editing a never-run question opens the editor without the fork warning", async () => {
   renderWorkbench();
-  await userEvent.click(await screen.findByText("題目 (20)"));
+  await userEvent.click(await screen.findByText("題目（20）"));
   // q-0's lineage L0 was never asked → in-place edit, no fork to warn about.
-  await userEvent.click(screen.getByRole("button", { name: "編輯題目:題目 1" }));
+  await userEvent.click(screen.getByRole("button", { name: "編輯題目：題目 1" }));
   expect(screen.queryByText(/會建立新版本/)).not.toBeInTheDocument();
   const editor = await screen.findByRole("textbox", { name: "編輯題目" });
   expect(editor).toHaveValue("題目 1");
@@ -304,8 +304,8 @@ test("archiving a set confirms that its runs stay", async () => {
 
 test("archiving a question that has runs says its answers are kept", async () => {
   renderWorkbench();
-  await userEvent.click(await screen.findByText("題目 (20)"));
-  await userEvent.click(await screen.findByRole("button", { name: "封存題目:題目 2" }));
+  await userEvent.click(await screen.findByText("題目（20）"));
+  await userEvent.click(await screen.findByRole("button", { name: "封存題目：題目 2" }));
   expect(await screen.findByText(/過去的執行仍保留此題的答案/)).toBeInTheDocument();
   await userEvent.click(screen.getByRole("button", { name: /^封\s?存$/ }));
   await waitFor(() =>
@@ -314,7 +314,7 @@ test("archiving a question that has runs says its answers are kept", async () =>
 
 test("a question can be added from the questions list", async () => {
   renderWorkbench();
-  await userEvent.click(await screen.findByText("題目 (20)"));
+  await userEvent.click(await screen.findByText("題目（20）"));
   await userEvent.type(await screen.findByPlaceholderText("輸入要加入此題組的題目"), "運費怎麼算?");
   await userEvent.click(screen.getByRole("button", { name: "新增題目" }));
   await waitFor(() =>
@@ -326,11 +326,11 @@ test("a question can be added from the questions list", async () => {
 test("without project:edit_content the set and question actions are absent", async () => {
   renderWorkbench({ canEdit: false });
   await screen.findByText("客服常問 20 題");
-  await userEvent.click(await screen.findByText("題目 (20)"));
+  await userEvent.click(await screen.findByText("題目（20）"));
   await screen.findByText("1. 題目 1");
   for (const name of ["新增題組", "重新命名題組", "封存題組", "新增題目"]) {
     expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
   }
-  expect(screen.queryByRole("button", { name: /^編輯題目:/ })).not.toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: /^封存題目:/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /^編輯題目：/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /^封存題目：/ })).not.toBeInTheDocument();
 });

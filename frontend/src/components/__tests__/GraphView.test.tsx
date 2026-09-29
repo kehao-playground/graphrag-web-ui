@@ -145,7 +145,7 @@ test("stale=true renders the indexing alert above the graph", async () => {
   fetchMock.mockImplementationOnce(
     async () => new Response(JSON.stringify({ ...GRAPH, stale: true }), { status: 200 }));
   mount();
-  expect(await screen.findByText("索引進行中,結果可能不完整")).toBeInTheDocument();
+  expect(await screen.findByText("索引進行中，結果可能不完整")).toBeInTheDocument();
 });
 
 test("truncated=true tells the reader the graph was capped", async () => {
@@ -264,7 +264,7 @@ test("a legend names the communities on screen with their colours (R4-39)", asyn
   await screen.findByTestId("sigma");
   const legend = screen.getByRole("list", { name: "社群圖例" });
   const items = within(legend).getAllByRole("listitem").map((li) => li.textContent);
-  expect(items).toEqual(["社群 0(1)", "社群 1(1)"]);
+  expect(items).toEqual(["社群 0（1）", "社群 1（1）"]);
 });
 
 test("the legend folds communities past the top eight into 'other'", async () => {
@@ -280,7 +280,7 @@ test("the legend folds communities past the top eight into 'other'", async () =>
   await screen.findByTestId("sigma");
   const items = within(screen.getByRole("list", { name: "社群圖例" })).getAllByRole("listitem");
   expect(items).toHaveLength(9);
-  expect(items[8].textContent).toBe("其他社群(2)");
+  expect(items[8].textContent).toBe("其他社群（2）");
 });
 
 test("clicking a node hands its human-readable id to onOpenNode (R4-39)", async () => {
@@ -308,7 +308,7 @@ test("not_indexed renders the catalogued sentence with a link to Jobs (R4-15)", 
   fetchMock.mockImplementationOnce(async () =>
     new Response(JSON.stringify({ detail: "not indexed", code: "not_indexed" }), { status: 409 }));
   mount();
-  expect(await screen.findByText("尚未建立索引,請先執行索引任務")).toBeInTheDocument();
+  expect(await screen.findByText("尚未建立索引，請先執行索引任務")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "前往任務" })).toHaveAttribute("href", "/projects/p1/jobs");
   expect(screen.queryByTestId("sigma")).not.toBeInTheDocument();
 });
