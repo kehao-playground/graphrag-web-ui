@@ -352,11 +352,8 @@ const enUS = {
     bulkDeletePartial: "Could not delete {{n}} files: {{names}}",
     frozenNotice: "Indexing in progress — document changes are paused",
     previewLoadFailed: "Failed to load preview ({{status}})",
-    previewMatch: "Match",
-    previewMatchHit: "Yes",
-    previewMiss: "No",
-    previewOffset: "Window offset",
-    previewTotal: "Total size (bytes)",
+    previewPassage: "Showing the cited passage · {{size}} document",
+    previewPassageMissing: "The cited passage is no longer in this document — showing its beginning · {{size}} document",
     state: {
       new: "New", modified: "Modified", removed: "Removed",
       indexed: "Indexed", skipped: "Skipped",
@@ -428,6 +425,19 @@ const enUS = {
     // disabled rather than left to 404.
     sourceRemoved: "This document was removed",
     timings: "frames {{frames}}ms · search {{search}}ms · citations {{citations}}ms · total {{total}}ms",
+    sourcesHeading: "Sources",
+    sourceNumber: "Source #{{id}}",
+    showMore: "Show more",
+    showLess: "Show less",
+    openPassage: "Show in document",
+    openInExplore: "Open in Explore (new tab)",
+    // Under the method select: what each method does and how long it takes.
+    hintLocal: "Answers from the entities and passages closest to the question — usually seconds.",
+    hintGlobal: "Summarizes community reports across the whole corpus — usually tens of seconds.",
+    hintDrift: "Starts global, then runs many local searches — usually 1–3 minutes.",
+    hintBasic: "Plain vector search over text chunks — usually seconds.",
+    elapsed: "{{seconds}} s elapsed",
+    cancelled: "Query cancelled",
   },
   workbench: {
     modeMatrix: "Rating matrix",

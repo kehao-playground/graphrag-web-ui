@@ -41,7 +41,8 @@ class QueryIn(BaseModel):
 
 
 def _query_error_http(exc: Exception) -> ApiError:
-    """Single error mapping for both query paths (POST + SSE pre-stream)."""
+    """Single error mapping for both query paths (POST raises it; the stream
+    sends it as its only error frame)."""
     if isinstance(exc, QueryRateLimitedError):
         return ApiError(
             status.HTTP_429_TOO_MANY_REQUESTS,
@@ -66,6 +67,15 @@ def _format_event(kind: str, payload) -> str:
     message plus the machine code in {"detail", "code"} (spec §4.3)."""
     data = {"detail": payload, "code": "query_interrupted"} if kind == "error" else payload
     return f"event: {kind}\ndata: {json.dumps(data)}\n\n"
+
+
+def _refusal_frame(err: ApiError) -> str:
+    """A pre-stream refusal as the stream's only frame: the HTTP error body
+    ({detail, code, params?}) under `event: error` (i18n spec §4.3)."""
+    data: dict[str, object] = {"detail": err.detail, "code": err.code}
+    if err.params:
+        data["params"] = err.params
+    return f"event: error\ndata: {json.dumps(data)}\n\n"
 
 
 def register_query_routes(app):
@@ -97,14 +107,25 @@ def register_query_routes(app):
         # error; details are fixed messages only.
 
         # Prime the generator so pre-stream failures (rate limit, config,
-        # frames, adapter) raise HERE as plain JSON HTTP errors — the 200 +
-        # text/event-stream response must not have started yet.
+        # frames, adapter) surface HERE. They answer as a stream whose only
+        # frame is `event: error` {detail, code}: EventSource never exposes
+        # an HTTP error body, so a JSON 429/409 would reach the SPA as a bare
+        # transport error (R3-05). Auth/validation stay plain HTTP errors.
         agen = stream_query(project, user.user, method, query, response_type)
         try:
             first = await anext(agen, None)
         except (QueryRateLimitedError, WorkspaceNotIndexedError, QueryError) as exc:
             await agen.aclose()
-            raise _query_error_http(exc) from None
+            frame = _refusal_frame(_query_error_http(exc))
+
+            async def refused():
+                yield frame
+
+            return StreamingResponse(
+                refused(),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            )
 
         async def sse():
             try:

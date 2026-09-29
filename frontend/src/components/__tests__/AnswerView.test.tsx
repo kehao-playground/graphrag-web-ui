@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, vi } from "vitest";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -58,6 +58,8 @@ function renderAnswer(opts: {
   citations?: Citation[];
   origin?: { resultId: string } | null;
   removedNames?: string[];
+  answer?: string;
+  streaming?: boolean;
 } = {}) {
   filesBody = {
     files: ALL_NAMES
@@ -73,9 +75,10 @@ function renderAnswer(opts: {
       <MemoryRouter>
         <AnswerView
           projectId="p1"
-          answer="答案內容"
+          answer={opts.answer ?? "答案內容"}
           citations={opts.citations ?? []}
           timings={null}
+          streaming={opts.streaming}
           origin={opts.origin}
         />
       </MemoryRouter>
@@ -126,11 +129,65 @@ test("a null source_name renders unlinked, with the answer still shown", async (
   expect(screen.queryByRole("button", { name: /file-/ })).not.toBeInTheDocument();
 });
 
-test("non-Sources labels are never linked", async () => {
+test("non-Sources labels never link a document; entities link their Explore row", async () => {
   renderAnswer({ citations: [ENTITIES_CITATION] });
   await expandCitations();
-  expect(await screen.findByText(/^Entities #1/)).toBeInTheDocument();
+  expect(await screen.findByText("Entities")).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /file-/ })).not.toBeInTheDocument();
+  const link = screen.getByRole("link", { name: "an entity entry" });
+  expect(link).toHaveAttribute("href", "/projects/p1/explore?table=entities&row=1");
+  expect(link).toHaveAttribute("target", "_blank");
+});
+
+test("a document cited by several groups is listed once", async () => {
+  renderAnswer({
+    citations: [SOURCES_WITH_NAME, ENTITIES_CITATION, { ...SOURCES_WITH_NAME }],
+  });
+  await expandCitations();
+  expect(await screen.findAllByRole("button", { name: "file-a" })).toHaveLength(1);
+  expect(screen.getAllByText("the cited passage")).toHaveLength(1);
+});
+
+test("a long passage shows one line and expands on click", async () => {
+  const long = "x".repeat(300);
+  renderAnswer({
+    citations: [{ label: "Sources", ids: [7], entries: [{ id: 7, text: long, source_name: "file-a" }] }],
+  });
+  const user = await expandCitations();
+  expect(screen.queryByText(long)).not.toBeInTheDocument();
+  expect(screen.getByText(`${"x".repeat(120)}…`)).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "顯示更多" }));
+  expect(screen.getByText(long)).toBeInTheDocument();
+});
+
+test("the answer renders Markdown, and a [Data] marker opens its citation", async () => {
+  const scroll = vi.fn();
+  Element.prototype.scrollIntoView = scroll;
+  renderAnswer({
+    answer: "## 摘要\n\n**重點** [Data: Sources (7)]",
+    citations: [SOURCES_WITH_NAME],
+  });
+  expect(screen.getByRole("heading", { name: "摘要" })).toBeInTheDocument();
+  expect(screen.getByText("重點").tagName).toBe("STRONG");
+  expect(screen.queryByText("the cited passage")).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "7" }));
+  expect(await screen.findByText("the cited passage")).toBeInTheDocument();
+  await waitFor(() => expect(scroll).toHaveBeenCalled());
+  expect(scroll.mock.contexts[0]).toHaveTextContent("the cited passage");
+});
+
+test("the answer box is height-bounded only while streaming", () => {
+  const { container, rerender } = renderAnswer({ streaming: true });
+  const box = () => container.querySelector("[data-answer]") as HTMLElement;
+  expect(box().style.maxHeight).toBe("40vh");
+  rerender(
+    <QueryClientProvider client={createQueryClient()}>
+      <MemoryRouter>
+        <AnswerView projectId="p1" answer="答案內容" citations={[]} timings={null} />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+  expect(box().style.maxHeight).toBe("");
 });
 
 test("a deleted source renders disabled and does not call preview", async () => {

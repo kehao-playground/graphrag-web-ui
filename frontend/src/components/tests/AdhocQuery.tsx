@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { Button, Input, Modal, Select, Space, message } from "antd";
+import { Button, Input, Modal, Select, Space, Typography, message } from "antd";
 import type { Citation, QueryMethod, QuestionSet, QueryTimings } from "../../api/types";
 import { apiJson, messageOfBody, sendOk, sseUrl } from "../../api/client";
 import { questionSets } from "../../api/queries";
@@ -30,6 +30,9 @@ export default function AdhocQuery({ projectId, canUse, canEdit }: {
   const [citations, setCitations] = useState<Citation[]>([]);
   const [timings, setTimings] = useState<QueryTimings | null>(null);
   const [streaming, setStreaming] = useState(false);
+  // Wall-clock start of the running query, for the elapsed counter (R4-11).
+  const [startedAt, setStartedAt] = useState(0);
+  const [now, setNow] = useState(0);
   const [saveOpen, setSaveOpen] = useState(false);
   const [saveSet, setSaveSet] = useState<string>();
   const [newSetName, setNewSetName] = useState("");
@@ -39,6 +42,20 @@ export default function AdhocQuery({ projectId, canUse, canEdit }: {
   // auto-reconnect would replay the query and double-charge the rate limit.
   useEffect(() => () => esRef.current?.close(), []);
 
+  useEffect(() => {
+    if (!streaming) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [streaming]);
+
+  // Closing the EventSource ends the request; the server stops the search
+  // when the client goes away. The partial answer stays on screen.
+  const cancel = () => {
+    esRef.current?.close();
+    setStreaming(false);
+    message.info(t("query.cancelled"));
+  };
+
   const run = () => {
     const q = query.trim();
     if (!canUse || streaming || !q) return;
@@ -46,6 +63,9 @@ export default function AdhocQuery({ projectId, canUse, canEdit }: {
     setCitations([]);
     setTimings(null);
     setStreaming(true);
+    const t0 = Date.now();
+    setStartedAt(t0);
+    setNow(t0);
     const es = new EventSource(sseUrl(`/api/projects/${projectId}/query/stream`, {
       method, query: q, response_type: RESPONSE_TYPE,
     }));
@@ -64,9 +84,11 @@ export default function AdhocQuery({ projectId, canUse, canEdit }: {
       es.close();
     });
     // One listener covers both failure shapes: an SSE `event: error` frame
-    // carries data {"detail", "code"?}, while a transport failure (network drop or a
-    // pre-stream 4xx JSON response — EventSource never exposes that body)
-    // fires an error with no data. Both close: no auto-reconnect for query.
+    // carries data {"detail", "code"?} — a mid-stream interruption, or a
+    // refusal (rate limit, not indexed) sent as the stream's only frame —
+    // while a transport failure (network drop, or an auth/validation 4xx
+    // whose body EventSource never exposes) fires an error with no data.
+    // Both close: no auto-reconnect for query.
     es.addEventListener("error", (e) => {
       const raw = (e as MessageEvent).data;
       let body: Record<string, unknown> = {};
@@ -116,6 +138,12 @@ export default function AdhocQuery({ projectId, canUse, canEdit }: {
   });
 
   const busy = streaming;
+  const methodHint: Record<QueryMethod, string> = {
+    local: t("query.hintLocal"),
+    global: t("query.hintGlobal"),
+    drift: t("query.hintDrift"),
+    basic: t("query.hintBasic"),
+  };
   const canSave = canEdit && !busy && query.trim().length > 0;
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
@@ -127,6 +155,7 @@ export default function AdhocQuery({ projectId, canUse, canEdit }: {
           style={{ width: 160 }}
           disabled={busy}
         />
+        <Typography.Text type="secondary">{methodHint[method]}</Typography.Text>
         <Input.TextArea
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -137,9 +166,19 @@ export default function AdhocQuery({ projectId, canUse, canEdit }: {
           rows={3}
           disabled={busy}
         />
-        <Button type="primary" onClick={run} disabled={!canUse || busy || !query.trim()}>
-          {t("workbench.adhocRun")}
-        </Button>
+        <Space>
+          <Button type="primary" onClick={run} disabled={!canUse || busy || !query.trim()}>
+            {t("workbench.adhocRun")}
+          </Button>
+          {busy && (
+            <>
+              <Button onClick={cancel}>{t("common.cancel")}</Button>
+              <Typography.Text type="secondary">
+                {t("query.elapsed", { seconds: Math.max(0, Math.floor((now - startedAt) / 1000)) })}
+              </Typography.Text>
+            </>
+          )}
+        </Space>
         {canSave && (
           <Button
             onClick={() => {
