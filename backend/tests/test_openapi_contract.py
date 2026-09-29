@@ -20,8 +20,8 @@ KNOWN_UNTYPED = {
     # kb slice 2: same 204-no-content reason as the tag routes above.
     "DELETE /api/projects/{pid}/question-sets/{sid}",
     "DELETE /api/projects/{pid}/question-sets/{sid}/questions/{qid}",
-    "DELETE /api/projects/{project_id}",
-    "DELETE /api/projects/{project_id}/members/{user_id}",
+    "DELETE /api/projects/{pid}",
+    "DELETE /api/projects/{pid}/members/{user_id}",
     "GET /api/health",
     "GET /api/jobs/{job_id}/logs",
     "GET /api/projects/{pid}/artifacts/graph",

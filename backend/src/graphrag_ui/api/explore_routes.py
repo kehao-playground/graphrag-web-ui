@@ -4,15 +4,11 @@ graph. Permission: project:view — the same block as the query routes. Route or
 /artifacts/{table}, otherwise "graph" binds to the path parameter. All
 failures map to fixed zh-TW details; adapter tails stay in server logs."""
 
-import uuid
-
 from fastapi import APIRouter, Depends, Query, status
 
 from graphrag_ui.adapters.artifacts import ArtifactsNotIndexedError
-from graphrag_ui.api.deps import CurrentUser, DbSession, get_current_user
+from graphrag_ui.api.deps import DbSession, ProjectView, get_current_user
 from graphrag_ui.api.errors import ApiError
-from graphrag_ui.api.projects_routes import _forbidden, _project_or_404
-from graphrag_ui.domain.permissions import Atom, can
 from graphrag_ui.services.explore import (
     ExploreReadError,
     UnknownTableError,
@@ -21,7 +17,6 @@ from graphrag_ui.services.explore import (
     knowledge_graph,
     list_artifacts,
 )
-from graphrag_ui.services.projects import get_member_perms
 
 _ExploreErrors = (
     UnknownTableError,
@@ -56,25 +51,12 @@ def register_explore_routes(app):
     # (create_app() is called repeatedly in tests), auth on the router itself.
     router = APIRouter(prefix="/api/projects", dependencies=[Depends(get_current_user)])
 
-    async def _allowed(db: DbSession, user: CurrentUser, pid: uuid.UUID):
-        project = await _project_or_404(db, pid)
-        if not can(
-            user.global_perms,
-            user.is_active,
-            Atom.project_view,
-            await get_member_perms(db, pid, user.id),
-        ):
-            raise _forbidden()
-        return project
-
     @router.get("/{pid}/artifacts/graph")  # MUST register before {table}
     async def get_graph(
-        pid: uuid.UUID,
+        project: ProjectView,
         db: DbSession,
-        user: CurrentUser,
         level: int | None = Query(default=None),
     ):
-        project = await _allowed(db, user, pid)
         try:
             return await knowledge_graph(db, project, level)
         except _ExploreErrors as exc:
@@ -82,17 +64,15 @@ def register_explore_routes(app):
 
     @router.get("/{pid}/artifacts/{table}")
     async def list_table(
-        pid: uuid.UUID,
+        project: ProjectView,
         table: str,
         db: DbSession,
-        user: CurrentUser,
         limit: int = Query(50, ge=1, le=200),
         offset: int = Query(0, ge=0),
         q: str | None = Query(default=None),
         type: str | None = Query(default=None),
         community: int | None = Query(default=None),
     ):
-        project = await _allowed(db, user, pid)
         try:
             return await list_artifacts(
                 db,
@@ -109,13 +89,11 @@ def register_explore_routes(app):
 
     @router.get("/{pid}/artifacts/{table}/{hrid}")
     async def get_row_detail(
-        pid: uuid.UUID,
+        project: ProjectView,
         table: str,
         hrid: int,
         db: DbSession,
-        user: CurrentUser,
     ):
-        project = await _allowed(db, user, pid)
         try:
             data = await artifact_detail(db, project, table, hrid)
         except _ExploreErrors as exc:

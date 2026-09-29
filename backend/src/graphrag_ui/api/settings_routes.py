@@ -7,21 +7,20 @@ The 409 body carries the exact keys
 flow (task 7) depends on them.
 """
 
-import uuid
-
 from fastapi import APIRouter, Depends, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from graphrag_ui.api.deps import CurrentUser, DbSession, get_current_user
+from graphrag_ui.api.deps import (
+    CurrentUser,
+    DbSession,
+    ProjectEditSettings,
+    ProjectView,
+    get_current_user,
+)
 from graphrag_ui.api.errors import ApiError
-from graphrag_ui.api.projects_routes import _forbidden, _project_or_404
-from graphrag_ui.domain.permissions import Atom, can
-from graphrag_ui.services.errors import ProjectIndexingError
-from graphrag_ui.services.projects import get_member_perms
 from graphrag_ui.services.settings import (
     SettingsConflictError,
-    SettingsValidationError,
     get_version,
     list_versions,
     read_settings,
@@ -60,33 +59,20 @@ def register_settings_routes(app):
     router = APIRouter(prefix="/api/projects", dependencies=[Depends(get_current_user)])
 
     @router.get("/{pid}/settings", response_model=SettingsOut)
-    async def get_settings(pid: uuid.UUID, db: DbSession, user: CurrentUser):
-        project = await _project_or_404(db, pid)
-        if not can(
-            user.global_perms,
-            user.is_active,
-            Atom.project_view,
-            await get_member_perms(db, pid, user.id),
-        ):
-            raise _forbidden()
+    async def get_settings(project: ProjectView):
         content, content_hash = read_settings(project)
         return SettingsOut(content=content, content_hash=content_hash)
 
     @router.put("/{pid}/settings", response_model=SettingsWriteOut)
-    async def put_settings(pid: uuid.UUID, body: SettingsWriteIn, db: DbSession, user: CurrentUser):
-        project = await _project_or_404(db, pid)
-        if not can(
-            user.global_perms,
-            user.is_active,
-            Atom.project_edit_settings,
-            await get_member_perms(db, pid, user.id),
-        ):
-            raise _forbidden()
+    async def put_settings(
+        project: ProjectEditSettings, body: SettingsWriteIn, db: DbSession, user: CurrentUser
+    ):
         try:
             new_hash = await write_settings(db, project, body.content, body.expected_hash, user.id)
         except SettingsConflictError as e:
-            # flat JSON body — nesting under {"detail": {...}} would break the
-            # frontend's expected keys
+            # The one route-specific shape (400/409 service errors render
+            # through the app-level table). Flat JSON body — nesting under
+            # {"detail": {...}} would break the frontend's expected keys
             return JSONResponse(
                 status_code=status.HTTP_409_CONFLICT,
                 content={
@@ -96,22 +82,10 @@ def register_settings_routes(app):
                     "current_hash": e.current_hash,
                 },
             )
-        except SettingsValidationError as e:
-            raise ApiError(status.HTTP_400_BAD_REQUEST, e.code, str(e), e.params) from None
-        except ProjectIndexingError as e:
-            raise ApiError(status.HTTP_409_CONFLICT, e.code, str(e), e.params) from None
         return SettingsWriteOut(content_hash=new_hash)
 
     @router.get("/{pid}/settings/versions", response_model=list[VersionOut])
-    async def list_settings_versions(pid: uuid.UUID, db: DbSession, user: CurrentUser):
-        project = await _project_or_404(db, pid)
-        if not can(
-            user.global_perms,
-            user.is_active,
-            Atom.project_view,
-            await get_member_perms(db, pid, user.id),
-        ):
-            raise _forbidden()
+    async def list_settings_versions(project: ProjectView, db: DbSession):
         return [
             VersionOut(
                 id=v.id,
@@ -123,15 +97,7 @@ def register_settings_routes(app):
         ]
 
     @router.get("/{pid}/settings/versions/{vid}", response_model=VersionDetailOut)
-    async def get_settings_version(pid: uuid.UUID, vid: int, db: DbSession, user: CurrentUser):
-        project = await _project_or_404(db, pid)
-        if not can(
-            user.global_perms,
-            user.is_active,
-            Atom.project_view,
-            await get_member_perms(db, pid, user.id),
-        ):
-            raise _forbidden()
+    async def get_settings_version(project: ProjectView, vid: int, db: DbSession):
         v = await get_version(db, project, vid)
         if v is None:
             raise ApiError(status.HTTP_404_NOT_FOUND, "version_not_found", "version not found")

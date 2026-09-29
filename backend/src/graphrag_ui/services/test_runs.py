@@ -39,6 +39,7 @@ from graphrag_ui.adapters.models import (
 from graphrag_ui.services import query as query_service
 from graphrag_ui.services.audit import audit
 from graphrag_ui.services.citations import read_generation
+from graphrag_ui.services.errors import CodedServiceError
 from graphrag_ui.services.jobs import JobConflictError
 from graphrag_ui.services.project_lock import lock_project
 from graphrag_ui.services.query import _execute_query, _prepare_query
@@ -54,8 +55,10 @@ _ERROR_TAIL_CHARS = 500
 _INDEX_JOB_TYPES = ("index", "update")
 
 
-class EmptyQuestionSetError(RuntimeError):
+class EmptyQuestionSetError(CodedServiceError, RuntimeError):
     """The set has no live questions — a run of nothing is a caller error."""
+
+    code = "question_set_empty"
 
 
 async def _commit_manifest(session: AsyncSession) -> None:

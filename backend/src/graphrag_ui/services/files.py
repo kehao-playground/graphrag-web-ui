@@ -28,6 +28,7 @@ from graphrag_ui.adapters.models import (
 from graphrag_ui.config import get_settings
 from graphrag_ui.domain.files import AttributableTitles, IngestCheck, index_state
 from graphrag_ui.services.audit import audit
+from graphrag_ui.services.errors import CodedServiceError
 from graphrag_ui.services.project_lock import input_mutation, lock_project
 from graphrag_ui.services.projects import ws_path
 
@@ -40,39 +41,49 @@ ALLOWED_EXTENSIONS: dict[str, set[str]] = {
 }
 
 
-class FileServiceError(Exception):
-    """Invalid filename/extension — routes map to 400 (ApiError carries
-    e.code/e.params so the client can localize)."""
+class FileServiceError(CodedServiceError):
+    """Invalid filename/extension — maps to 400 (code/params let the client
+    localize)."""
 
     def __init__(self, code: str, detail: str, params: dict[str, str] | None = None) -> None:
-        super().__init__(detail)
-        self.code = code
-        self.params = params
+        super().__init__(detail, code=code, params=params)
 
 
-class FileTooLargeError(Exception):
-    """Single file above upload_max_file_mb — routes map to 413."""
+class FileTooLargeError(CodedServiceError):
+    """Single file above upload_max_file_mb — maps to 413."""
+
+    code = "file_too_large"
 
     def __init__(self, max_mb: int) -> None:
-        super().__init__(f"file exceeds the {max_mb} MiB upload limit")
-        self.code = "file_too_large"
-        self.params = {"max_mb": max_mb}
+        super().__init__(f"file exceeds the {max_mb} MiB upload limit", params={"max_mb": max_mb})
 
 
-class QuotaExceededError(Exception):
-    """input/+output/ usage above project_quota_mb — routes map to 413."""
+class QuotaExceededError(CodedServiceError):
+    """input/+output/ usage above project_quota_mb — maps to 413."""
+
+    code = "quota_exceeded"
 
     def __init__(self, quota_mb: int) -> None:
-        super().__init__(f"project storage quota of {quota_mb} MiB exceeded")
-        self.code = "quota_exceeded"
-        self.params = {"quota_mb": quota_mb}
+        super().__init__(
+            f"project storage quota of {quota_mb} MiB exceeded", params={"quota_mb": quota_mb}
+        )
 
 
-class LocatorMismatch(Exception):
+class InputFileNotFoundError(CodedServiceError, LookupError):
+    """No file of that name under input/ (a `removed` row has none either)
+    — maps to 404. A service contract, not an OSError: a stray
+    FileNotFoundError from anywhere else stays a 500 (R1-27)."""
+
+    code = "file_not_found"
+
+
+class LocatorMismatchError(CodedServiceError):
     """A {result_id, entry_id} locator failed one of its three bindings
     (spec 7.4). Carries no detail on purpose: unknown and mismatched must
-    stay indistinguishable, so the route maps every failure to one fixed
-    404 — never a 403, which would confirm the row exists."""
+    stay indistinguishable, so every failure maps to one fixed 404 — never
+    a 403, which would confirm the row exists."""
+
+    code = "citation_not_found"
 
 
 _MIB = 1024 * 1024
@@ -204,7 +215,7 @@ async def preview_file(project: Project, name: str, *, around: str | None = None
     target = ws_path(project.id) / "input" / name
     if not target.is_file():
         # A `removed` row has no file behind it; there is nothing to preview.
-        raise FileNotFoundError(name)
+        raise InputFileNotFoundError(name)
     needle = around.encode("utf-8") if around is not None else None
     return await asyncio.to_thread(_preview_core, target, needle)
 
@@ -218,7 +229,7 @@ async def resolve_stored_passage(
 ) -> str:
     """The stored passage a historic locator points at (spec 7.4).
 
-    Three bindings, any mismatch -> LocatorMismatch: the result's run must
+    Three bindings, any mismatch -> LocatorMismatchError: the result's run must
     belong to `project_id`, `entry_id` must name an entry of a Sources
     citation on that result, and that entry's stored source_name must equal
     `name` (the confused-deputy stop: without it, a real result_id paired
@@ -242,8 +253,8 @@ async def resolve_stored_passage(
                     # source_name, no text) is as unopenable as no match.
                     if entry.get("source_name") == name and entry.get("text"):
                         return str(entry["text"])
-                    raise LocatorMismatch
-    raise LocatorMismatch
+                    raise LocatorMismatchError
+    raise LocatorMismatchError
 
 
 def quota_bytes() -> int:
@@ -538,7 +549,7 @@ async def delete_file(
     """Remove input/<name> AND audit it, one transaction (spec A1); returns
     the removed file's size. The project_files row goes with the file.
 
-    FileNotFoundError is raised before any audit row; ProjectIndexingError
+    InputFileNotFoundError is raised before any audit row; ProjectIndexingError
     (spec 5.2b) is raised inside the project lock, before any row or unlink.
     Residual (spec A1, accepted): a commit failure after the unlink loses
     the audit row.
@@ -546,7 +557,7 @@ async def delete_file(
     name = _safe_name(project.input_file_type, filename)
     target = ws_path(project.id) / "input" / name
     if not target.is_file():
-        raise FileNotFoundError(name)
+        raise InputFileNotFoundError(name)
     size = target.stat().st_size
     async with input_mutation(session, project.id) as m:
         await audit(
@@ -580,7 +591,7 @@ async def add_tags(
     name = _safe_name(project.input_file_type, name)
     target = ws_path(project.id) / "input" / name
     if not target.is_file():
-        raise FileNotFoundError(name)
+        raise InputFileNotFoundError(name)
     # A file nobody listed yet has no project_files row; tags attach to the
     # row, so discover it inline (the same shape _discover_untracked would
     # produce on the next listing). The hash is the unbounded walk listing
@@ -654,7 +665,7 @@ async def remove_tags(
     name = _safe_name(project.input_file_type, name)
     target = ws_path(project.id) / "input" / name
     if not target.is_file():
-        raise FileNotFoundError(name)
+        raise InputFileNotFoundError(name)
     unique_tags = sorted(dict.fromkeys(tags))
     async with input_mutation(session, project.id, freeze=False):
         # Deleting through subselects keeps it one statement shaped the same
@@ -723,7 +734,7 @@ async def bulk_delete(
     for name in unique_names:
         target = ws_path(project.id) / "input" / name
         if not target.is_file():
-            raise FileNotFoundError(name)
+            raise InputFileNotFoundError(name)
         targets[name] = target
     deleted, total, failed = 0, 0, []
     async with input_mutation(session, project.id) as m:

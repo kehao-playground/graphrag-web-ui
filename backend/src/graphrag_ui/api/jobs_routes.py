@@ -8,14 +8,23 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Header, Query, status
 from fastapi.responses import StreamingResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.adapters.db import get_session_factory
 from graphrag_ui.adapters.index_runner import log_path_for
 from graphrag_ui.adapters.job_logs import tail_log
 from graphrag_ui.adapters.models import Job
-from graphrag_ui.api.deps import CurrentUser, DbSession, SseUser, get_current_user
+from graphrag_ui.api.deps import (
+    CurrentUser,
+    DbSession,
+    Principal,
+    ProjectRunJobs,
+    ProjectView,
+    SseUser,
+    forbidden,
+    get_current_user,
+)
 from graphrag_ui.api.errors import ApiError
-from graphrag_ui.api.projects_routes import _forbidden, _project_or_404
 from graphrag_ui.api.schemas import (
     JobCreateIn,
     JobOut,
@@ -24,9 +33,7 @@ from graphrag_ui.api.schemas import (
 from graphrag_ui.domain.jobs import TERMINAL_STATUSES, display_status
 from graphrag_ui.domain.permissions import Atom, can
 from graphrag_ui.services import jobs as jobs_service
-from graphrag_ui.services.jobs import DiskWatermarkError, JobConflictError
 from graphrag_ui.services.projects import get_member_perms, ws_path
-from graphrag_ui.services.settings import SettingsValidationError
 
 
 def job_out(j: Job) -> dict:
@@ -51,14 +58,14 @@ def job_out(j: Job) -> dict:
     }
 
 
-async def _job_or_404(db: DbSession, job_id: uuid.UUID) -> Job:
+async def _job_or_404(db: AsyncSession, job_id: uuid.UUID) -> Job:
     job = await jobs_service.get(db, job_id)
     if job is None:
         raise ApiError(status.HTTP_404_NOT_FOUND, "job_not_found", "job not found")
     return job
 
 
-async def _job_perms(db: DbSession, user: CurrentUser, job: Job) -> frozenset[str] | None:
+async def _job_perms(db: AsyncSession, user: Principal, job: Job) -> frozenset[str] | None:
     return await get_member_perms(db, job.project_id, user.id)
 
 
@@ -71,36 +78,18 @@ def register_jobs_routes(app):
     sse_router = APIRouter(prefix="/api")
 
     @router.post("/projects/{pid}/jobs", response_model=JobOut, status_code=201)
-    async def start_job(pid: uuid.UUID, body: JobCreateIn, db: DbSession, user: CurrentUser):
-        project = await _project_or_404(db, pid)
-        if not can(
-            user.global_perms,
-            user.is_active,
-            Atom.project_run_jobs,
-            await get_member_perms(db, pid, user.id),
-        ):
-            raise _forbidden()
-        try:
-            job = await jobs_service.enqueue(db, project, body.type, body.method, user.user)
-        except JobConflictError:
-            raise ApiError(
-                status.HTTP_409_CONFLICT,
-                "job_conflict",
-                "this project already has a job in progress",
-            ) from None
-        except DiskWatermarkError:
-            raise ApiError(
-                status.HTTP_409_CONFLICT, "disk_watermark", "not enough free disk space"
-            ) from None
-        except SettingsValidationError as e:  # settings.yaml on disk escapes the workspace
-            raise ApiError(status.HTTP_400_BAD_REQUEST, e.code, str(e), e.params) from None
+    async def start_job(
+        project: ProjectRunJobs, body: JobCreateIn, db: DbSession, user: CurrentUser
+    ):
+        # 409 job_conflict / disk_watermark and 400 for a settings.yaml that
+        # escapes the workspace render through the app-level table.
+        job = await jobs_service.enqueue(db, project, body.type, body.method, user.user)
         return job_out(job)
 
     @router.get("/projects/{pid}/jobs", response_model=list[JobOut])
     async def list_jobs(
-        pid: uuid.UUID,
+        project: ProjectView,
         db: DbSession,
-        user: CurrentUser,
         # Static Literal spelling of domain.jobs.JOB_TYPES (same posture
         # as JobCreateIn): validates, feeds the OpenAPI enum, and an
         # unknown type is a 422 rather than a silently empty list.
@@ -110,26 +99,12 @@ def register_jobs_routes(app):
     ):
         # Server-side exclusion so the jobs page can drop test_run rows
         # (spec 8).
-        await _project_or_404(db, pid)
-        if not can(
-            user.global_perms,
-            user.is_active,
-            Atom.project_view,
-            await get_member_perms(db, pid, user.id),
-        ):
-            raise _forbidden()
-        return [job_out(j) for j in await jobs_service.list_for_project(db, pid, job_types=type)]
+        return [
+            job_out(j) for j in await jobs_service.list_for_project(db, project.id, job_types=type)
+        ]
 
     @router.get("/projects/{pid}/jobs/preflight", response_model=PreflightOut)
-    async def preflight(pid: uuid.UUID, db: DbSession, user: CurrentUser):
-        project = await _project_or_404(db, pid)
-        if not can(
-            user.global_perms,
-            user.is_active,
-            Atom.project_view,
-            await get_member_perms(db, pid, user.id),
-        ):
-            raise _forbidden()
+    async def preflight(project: ProjectView, db: DbSession):
         body = await jobs_service.preflight(db, project)
         body["active_job"] = job_out(body["active_job"]) if body["active_job"] else None
         body["graphrag"] = app.state.graphrag_version
@@ -138,22 +113,15 @@ def register_jobs_routes(app):
     @router.get("/jobs/{job_id}", response_model=JobOut)
     async def get_job(job_id: uuid.UUID, db: DbSession, user: CurrentUser):
         job = await _job_or_404(db, job_id)
-        if not can(
-            user.global_perms, user.is_active, Atom.project_view, await _job_perms(db, user, job)
-        ):
-            raise _forbidden()
+        if not can(user.global_perms, Atom.project_view, await _job_perms(db, user, job)):
+            raise forbidden()
         return job_out(job)
 
     @router.post("/jobs/{job_id}/cancel", status_code=202)
     async def cancel_job(job_id: uuid.UUID, db: DbSession, user: CurrentUser):
         job = await _job_or_404(db, job_id)
-        if not can(
-            user.global_perms,
-            user.is_active,
-            Atom.project_run_jobs,
-            await _job_perms(db, user, job),
-        ):
-            raise _forbidden()
+        if not can(user.global_perms, Atom.project_run_jobs, await _job_perms(db, user, job)):
+            raise forbidden()
         if not await jobs_service.cancel(db, job):
             raise ApiError(status.HTTP_409_CONFLICT, "job_already_finished", "job already finished")
         return {"detail": "cancellation requested"}
@@ -167,10 +135,8 @@ def register_jobs_routes(app):
         offset: int = -1,
     ):
         job = await _job_or_404(db, job_id)
-        if not can(
-            user.global_perms, user.is_active, Atom.project_view, await _job_perms(db, user, job)
-        ):
-            raise _forbidden()
+        if not can(user.global_perms, Atom.project_view, await _job_perms(db, user, job)):
+            raise forbidden()
         # ?offset= (tests) wins over the Last-Event-ID header; -1 = not given.
         try:
             start = offset if offset >= 0 else int(last_event_id or 0)

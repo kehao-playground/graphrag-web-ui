@@ -13,18 +13,23 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel, ConfigDict, field_validator
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from graphrag_ui.api.deps import CurrentUser, DbSession, get_current_user
+from graphrag_ui.api.deps import (
+    CurrentUser,
+    DbSession,
+    Principal,
+    ProjectRunJobs,
+    ProjectView,
+    forbidden,
+    get_current_user,
+)
 from graphrag_ui.api.errors import ApiError
-from graphrag_ui.api.projects_routes import _forbidden, _project_or_404
 from graphrag_ui.api.query_routes import Method
 from graphrag_ui.domain.permissions import Atom, can
 from graphrag_ui.domain.test_runs import MATRIX_DEFAULT_RUNS
 from graphrag_ui.services import test_runs as test_runs_service
-from graphrag_ui.services.jobs import JobConflictError
 from graphrag_ui.services.projects import get_member_perms
-from graphrag_ui.services.questions import QuestionSetNotFound
-from graphrag_ui.services.test_runs import EmptyQuestionSetError
 
 
 class RunIn(BaseModel):
@@ -118,15 +123,12 @@ class ResultListOut(BaseModel):
     results: list[ResultOut]
 
 
-async def _readable_run_or_404(db: DbSession, user: CurrentUser, run_id: uuid.UUID):
+async def _readable_run_or_404(db: AsyncSession, user: Principal, run_id: uuid.UUID):
     # Unknown and unreadable are indistinguishable on purpose (spec 8):
     # the route is rid-addressed, so a 403 would confirm the run exists.
     run = await test_runs_service.get_run(db, run_id)
     if run is not None and can(
-        user.global_perms,
-        user.is_active,
-        Atom.project_view,
-        await get_member_perms(db, run.project_id, user.id),
+        user.global_perms, Atom.project_view, await get_member_perms(db, run.project_id, user.id)
     ):
         return run
     raise ApiError(status.HTTP_404_NOT_FOUND, "test_run_not_found", "test run not found")
@@ -139,20 +141,11 @@ def register_test_runs_routes(app):
 
     @router.get("/projects/{pid}/test-runs", response_model=MatrixOut)
     async def get_matrix(
-        pid: uuid.UUID,
+        project: ProjectView,
         db: DbSession,
-        user: CurrentUser,
         runs: Annotated[int, Query(ge=1)] = MATRIX_DEFAULT_RUNS,
     ):
-        await _project_or_404(db, pid)
-        if not can(
-            user.global_perms,
-            user.is_active,
-            Atom.project_view,
-            await get_member_perms(db, pid, user.id),
-        ):
-            raise _forbidden()
-        window, matrix_rows = await test_runs_service.run_matrix(db, pid, runs)
+        window, matrix_rows = await test_runs_service.run_matrix(db, project.id, runs)
         return MatrixOut(
             runs=[RunOut.model_validate(r) for r in window],
             rows=[
@@ -176,37 +169,12 @@ def register_test_runs_routes(app):
         )
 
     @router.post("/projects/{pid}/test-runs", response_model=RunOut, status_code=201)
-    async def start_run(pid: uuid.UUID, body: RunIn, db: DbSession, user: CurrentUser):
-        project = await _project_or_404(db, pid)
-        if not can(
-            user.global_perms,
-            user.is_active,
-            Atom.project_run_jobs,
-            await get_member_perms(db, pid, user.id),
-        ):
-            raise _forbidden()
-        try:
-            run = await test_runs_service.enqueue_run(
-                db, project, body.set_id, body.method, user.user
-            )
-        except EmptyQuestionSetError:
-            raise ApiError(
-                status.HTTP_400_BAD_REQUEST,
-                "question_set_empty",
-                "question set has no questions",
-            ) from None
-        except QuestionSetNotFound:
-            raise ApiError(
-                status.HTTP_404_NOT_FOUND, "question_set_not_found", "question set not found"
-            ) from None
-        except JobConflictError:
-            # jobs_one_active_per_project has no type predicate: an index,
-            # an update or another test run holds the project (spec 5.4).
-            raise ApiError(
-                status.HTTP_409_CONFLICT,
-                "job_conflict",
-                "this project already has a job in progress",
-            ) from None
+    async def start_run(project: ProjectRunJobs, body: RunIn, db: DbSession, user: CurrentUser):
+        # 400 question_set_empty, 404 question_set_not_found and 409
+        # job_conflict render through the app-level table. The conflict has
+        # no type predicate: an index, an update or another test run holds
+        # the project (spec 5.4).
+        run = await test_runs_service.enqueue_run(db, project, body.set_id, body.method, user.user)
         return RunOut.model_validate(run)
 
     @router.get("/test-runs/{rid}/results", response_model=ResultListOut)
@@ -239,13 +207,13 @@ def register_test_runs_routes(app):
         if ctx is not None:
             result, project_id = ctx
             perms = await get_member_perms(db, project_id, user.id)
-            if can(user.global_perms, user.is_active, Atom.project_edit_content, perms):
+            if can(user.global_perms, Atom.project_edit_content, perms):
                 rating = await test_runs_service.rate_result(
                     db, result, body.score, body.note, user.user
                 )
                 return RatingOut.model_validate(rating)
-            if can(user.global_perms, user.is_active, Atom.project_view, perms):
-                raise _forbidden()
+            if can(user.global_perms, Atom.project_view, perms):
+                raise forbidden()
         raise ApiError(status.HTTP_404_NOT_FOUND, "test_result_not_found", "test result not found")
 
     app.include_router(router)

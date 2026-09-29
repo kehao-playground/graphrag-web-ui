@@ -12,13 +12,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from graphrag_ui.adapters.models import Project, ProjectMember, Role, User
 from graphrag_ui.adapters.workspace import WorkspaceInitError, WorkspaceInitializer
 from graphrag_ui.config import get_settings
-from graphrag_ui.domain.permissions import Atom, can, sees_all_projects
+from graphrag_ui.domain.permissions import sees_all_projects
 from graphrag_ui.domain.role_catalog import ROLE_ID_OWNER
 from graphrag_ui.domain.workspaces import workspace_path
 from graphrag_ui.services.audit import audit
-from graphrag_ui.services.errors import JobConflictError
+from graphrag_ui.services.errors import CodedServiceError, JobConflictError
 from graphrag_ui.services.project_lock import active_job, lock_project
-from graphrag_ui.services.roles import RoleNotFound, RoleScopeMismatchError
+from graphrag_ui.services.roles import RoleNotFoundError, RoleScopeMismatchError
 
 logger = logging.getLogger(__name__)
 
@@ -54,11 +54,10 @@ async def create_project(
     description: str | None,
     input_file_type: str,
     creator: User,
-    creator_perms: frozenset[str],
     initializer: WorkspaceInitializer,
 ) -> Project:
-    if not can(creator_perms, creator.is_active, Atom.projects_create):
-        raise PermissionError("forbidden")
+    # No permission check: projects:create is every active user's baseline
+    # (spec §4.1), and activeness is settled at the auth boundary (R1-88).
     project = Project(
         name=name,
         slug=await _unique_slug(session, name),
@@ -191,10 +190,18 @@ async def delete_project(
         )
 
 
-class MemberOwnerProtectedError(ValueError):
+class MemberOwnerProtectedError(CodedServiceError, ValueError):
     """set_member/remove_member targeting the project owner (spec §4.2:
     member_owner_protected). Subclasses ValueError because that is the
     historical contract of these services."""
+
+    code = "member_owner_protected"
+
+
+class MemberNotFoundError(CodedServiceError, LookupError):
+    """remove_member for a user who is not a member of the project."""
+
+    code = "member_not_found"
 
 
 async def set_member(
@@ -212,7 +219,7 @@ async def set_member(
         )
     role = await session.get(Role, role_id)
     if role is None:
-        raise RoleNotFound(str(role_id))
+        raise RoleNotFoundError(str(role_id))
     if role.scope != "project":
         raise RoleScopeMismatchError(f"role {role.name!r} is not project-scoped")
     payload = {"user_id": str(user_id), "role_id": str(role_id), "role_name": role.name}
@@ -239,7 +246,7 @@ async def remove_member(
         raise MemberOwnerProtectedError("cannot demote or remove the project owner")
     member = await session.get(ProjectMember, {"project_id": project.id, "user_id": user_id})
     if member is None:
-        raise LookupError("member not found")
+        raise MemberNotFoundError("member not found")
     await session.delete(member)
     await audit(
         session,

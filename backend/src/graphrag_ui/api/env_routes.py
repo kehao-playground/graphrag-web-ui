@@ -3,28 +3,22 @@
 Permissions: writes are project:edit_settings (API keys are settings-
 grade), listing is project:view. Audit actions: env.key_set / env.key_deleted with
 payload {key} only. Values are secrets — no response body, error payloads
-included, may ever contain a plaintext value. That is why PATCH parses the
-body manually instead of via a pydantic model: FastAPI's 422 echoes the
-raw input, which would return the submitted secret to the client.
+included, may ever contain a plaintext value. The app-level 422 handler
+(api/errors.py) strips each error's `input`, so PATCH can use a plain
+pydantic body; env_file's own messages never contain the value either.
 """
 
-import uuid
+from fastapi import APIRouter, Depends, Response, status
+from pydantic import BaseModel, field_validator
 
-from fastapi import APIRouter, Depends, Request, Response, status
-from pydantic import BaseModel
-
-from graphrag_ui.api.deps import CurrentUser, DbSession, get_current_user
-from graphrag_ui.api.errors import ApiError
-from graphrag_ui.api.projects_routes import _forbidden, _project_or_404
-from graphrag_ui.domain.permissions import Atom, can
-from graphrag_ui.services.env_file import (
-    EnvValidationError,
-    delete_env_key,
-    list_env,
-    set_env_key,
+from graphrag_ui.api.deps import (
+    CurrentUser,
+    DbSession,
+    ProjectEditSettings,
+    ProjectView,
+    get_current_user,
 )
-from graphrag_ui.services.errors import ProjectIndexingError
-from graphrag_ui.services.projects import get_member_perms
+from graphrag_ui.services.env_file import delete_env_key, list_env, set_env_key
 
 
 class EnvKeyOut(BaseModel):
@@ -41,28 +35,21 @@ class EnvOut(BaseModel):
 
 # Cap on a PATCHed value: .env holds API keys and connection strings, and a
 # value is also bounded below by the single-line rule — 64 KiB is far beyond
-# any legitimate secret. Enforced inside the manual-parse path so the error
-# stays a fixed message that never echoes the value.
+# any legitimate secret.
 _MAX_VALUE_BYTES = 64 * 1024
 
 
-async def _secret_body(request: Request) -> dict:
-    """{"key": str, "value": str} with fixed-message errors only."""
-    try:
-        body = await request.json()
-    except ValueError:
-        raise ApiError(status.HTTP_400_BAD_REQUEST, "env_invalid_body", "invalid body") from None
-    if (
-        not isinstance(body, dict)
-        or not isinstance(body.get("key"), str)
-        or not isinstance(body.get("value"), str)
-    ):
-        raise ApiError(
-            status.HTTP_400_BAD_REQUEST, "env_key_value_required", "key and value are required"
-        )
-    if len(body["value"].encode()) > _MAX_VALUE_BYTES:
-        raise ApiError(status.HTTP_400_BAD_REQUEST, "env_value_too_large", "value too large")
-    return body
+class EnvKeyIn(BaseModel):
+    key: str
+    value: str
+
+    @field_validator("value")
+    @classmethod
+    def _bounded(cls, v: str) -> str:
+        # The bound is on BYTES: pydantic's max_length counts characters.
+        if len(v.encode()) > _MAX_VALUE_BYTES:
+            raise ValueError("value too large")
+        return v
 
 
 def register_env_routes(app):
@@ -71,58 +58,20 @@ def register_env_routes(app):
     router = APIRouter(prefix="/api/projects", dependencies=[Depends(get_current_user)])
 
     @router.get("/{pid}/env", response_model=EnvOut)
-    async def get_env(pid: uuid.UUID, db: DbSession, user: CurrentUser):
-        project = await _project_or_404(db, pid)
-        if not can(
-            user.global_perms,
-            user.is_active,
-            Atom.project_view,
-            await get_member_perms(db, pid, user.id),
-        ):
-            raise _forbidden()
+    async def get_env(project: ProjectView):
         return EnvOut(keys=[EnvKeyOut(**e) for e in list_env(project)])
 
     @router.patch("/{pid}/env", status_code=status.HTTP_204_NO_CONTENT)
-    async def patch_env(pid: uuid.UUID, request: Request, db: DbSession, user: CurrentUser):
-        project = await _project_or_404(db, pid)
-        if not can(
-            user.global_perms,
-            user.is_active,
-            Atom.project_edit_settings,
-            await get_member_perms(db, pid, user.id),
-        ):
-            raise _forbidden()
-        body = await _secret_body(request)
-        try:
-            await set_env_key(db, project, body["key"], body["value"], actor_id=user.id)
-        except EnvValidationError as e:
-            # str(e) may echo the (non-secret) key but never the value —
-            # env_file's messages are fixed to keep it that way
-            raise ApiError(status.HTTP_400_BAD_REQUEST, e.code, str(e), e.params) from None
-        except ProjectIndexingError as e:
-            raise ApiError(status.HTTP_409_CONFLICT, e.code, str(e), e.params) from None
+    async def patch_env(
+        project: ProjectEditSettings, body: EnvKeyIn, db: DbSession, user: CurrentUser
+    ):
+        await set_env_key(db, project, body.key, body.value, actor_id=user.id)
 
     @router.delete("/{pid}/env/{key}", status_code=status.HTTP_204_NO_CONTENT)
-    async def delete_env(pid: uuid.UUID, key: str, db: DbSession, user: CurrentUser):
-        project = await _project_or_404(db, pid)
-        if not can(
-            user.global_perms,
-            user.is_active,
-            Atom.project_edit_settings,
-            await get_member_perms(db, pid, user.id),
-        ):
-            raise _forbidden()
-        try:
-            await delete_env_key(db, project, key, actor_id=user.id)
-        except KeyError:
-            raise ApiError(
-                status.HTTP_404_NOT_FOUND, "env_key_not_found", "key not found"
-            ) from None
-        except EnvValidationError as e:
-            # env_key_referenced: settings.yaml still needs the key
-            raise ApiError(status.HTTP_400_BAD_REQUEST, e.code, str(e), e.params) from None
-        except ProjectIndexingError as e:
-            raise ApiError(status.HTTP_409_CONFLICT, e.code, str(e), e.params) from None
+    async def delete_env(project: ProjectEditSettings, key: str, db: DbSession, user: CurrentUser):
+        # 404 env_key_not_found, 400 env_key_referenced (settings.yaml still
+        # needs the key) and 409 project_indexing come from the service.
+        await delete_env_key(db, project, key, actor_id=user.id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     app.include_router(router)

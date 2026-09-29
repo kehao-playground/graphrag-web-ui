@@ -4,7 +4,6 @@ project:view. All failures map to fixed zh-TW details — internals
 stay in server logs (no-leak posture)."""
 
 import json
-import uuid
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query, status
@@ -12,11 +11,14 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from graphrag_ui.adapters.frame_cache import WorkspaceNotIndexedError
-from graphrag_ui.api.deps import CurrentUser, DbSession, SseUser, get_current_user
+from graphrag_ui.api.deps import (
+    CurrentUser,
+    ProjectView,
+    SseProjectView,
+    SseUser,
+    get_current_user,
+)
 from graphrag_ui.api.errors import ApiError
-from graphrag_ui.api.projects_routes import _forbidden, _project_or_404
-from graphrag_ui.domain.permissions import Atom, can
-from graphrag_ui.services.projects import get_member_perms
 from graphrag_ui.services.query import QueryError, run_query, stream_query
 from graphrag_ui.services.rate_limit import QueryRateLimitedError
 
@@ -66,21 +68,8 @@ def register_query_routes(app):
     router = APIRouter(prefix="/api/projects", dependencies=[Depends(get_current_user)])
     sse_router = APIRouter(prefix="/api/projects")
 
-    async def _prepare_query(db: DbSession, user: CurrentUser, pid: uuid.UUID):
-        """Shared pre-check for both query paths: project-or-404 + viewer+."""
-        project = await _project_or_404(db, pid)
-        if not can(
-            user.global_perms,
-            user.is_active,
-            Atom.project_view,
-            await get_member_perms(db, pid, user.id),
-        ):
-            raise _forbidden()
-        return project
-
     @router.post("/{pid}/query")
-    async def post_query(pid: uuid.UUID, body: QueryIn, db: DbSession, user: CurrentUser):
-        project = await _prepare_query(db, user, pid)
+    async def post_query(project: ProjectView, body: QueryIn, user: CurrentUser):
         try:
             return await run_query(project, user.user, body.method, body.query, body.response_type)
         except (QueryRateLimitedError, WorkspaceNotIndexedError, QueryError) as exc:
@@ -88,8 +77,7 @@ def register_query_routes(app):
 
     @sse_router.get("/{pid}/query/stream")
     async def get_query_stream(
-        pid: uuid.UUID,
-        db: DbSession,
+        project: SseProjectView,
         user: SseUser,
         method: Annotated[Method, Query()],
         query: str = Query(min_length=1),
@@ -98,7 +86,6 @@ def register_query_routes(app):
         # NOTE: the access token may travel as ?token= (EventSource cannot
         # send headers) — never log this request or echo query params in any
         # error; details are fixed messages only.
-        project = await _prepare_query(db, user, pid)
 
         # Prime the generator so pre-stream failures (rate limit, config,
         # frames, adapter) raise HERE as plain JSON HTTP errors — the 200 +

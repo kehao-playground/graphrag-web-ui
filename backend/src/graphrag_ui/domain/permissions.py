@@ -28,15 +28,14 @@ PROJECT_ATOMS: frozenset[Atom] = frozenset({a for a in Atom if a not in GLOBAL_A
 
 def can(
     global_perms: frozenset[str],
-    is_active: bool,
     action: Atom,
     member_perms: frozenset[str] | None = None,
 ) -> bool:
     """Effective-permission check. `global_perms` is the union of the
     actor's global-role atoms; `member_perms` the member-role atoms for
-    the project in question (None = not a member)."""
-    if not is_active:
-        return False
+    the project in question (None = not a member). The actor is active by
+    construction: a disabled account never gets past the auth dependency
+    (api/deps.py), so activeness is not re-checked here (R1-88)."""
     if action is Atom.projects_create:
         return True  # baseline for every active user (spec §4.1)
     if action in GLOBAL_ATOMS:
