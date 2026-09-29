@@ -1,5 +1,5 @@
 import { test, expect } from "vitest";
-import { buildGraph } from "../graphBuilder";
+import { buildGraph, communityLegend } from "../graphBuilder";
 import type { GraphData } from "../../api/types";
 
 const DATA: GraphData = {
@@ -40,4 +40,17 @@ test("types filter keeps listed types only; empty types keeps everything", () =>
 test("filters matching nothing return an empty result safely", () => {
   expect(buildGraph(DATA, { minDegree: 10, types: [] })).toEqual({ nodes: [], edges: [] });
   expect(buildGraph(DATA, { minDegree: 0, types: ["PLACE"] })).toEqual({ nodes: [], edges: [] });
+});
+
+test("communityLegend ranks communities by size, folds the tail, lists unassigned last", () => {
+  const node = (hrid: number, community: number | null) =>
+    ({ hrid, title: `N${hrid}`, type: "PERSON", degree: 1, frequency: 1, community });
+  const nodes = [node(1, 5), node(2, 5), node(3, 2), node(4, 9), node(5, null), node(6, 7)];
+  expect(communityLegend(nodes, 2)).toEqual([
+    { kind: "community", community: 5, count: 2 },
+    { kind: "community", community: 2, count: 1 },
+    { kind: "other", count: 2 },
+    { kind: "none", count: 1 },
+  ]);
+  expect(communityLegend([])).toEqual([]);
 });

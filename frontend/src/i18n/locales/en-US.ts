@@ -612,11 +612,17 @@ const enUS = {
     truncatedWarning: "Showing the {{count}} most connected entities — the graph was capped for this response",
     modeGraph: "Graph", modeTable: "Table",
     search: "Search", searchPlaceholder: "Search keywords",
+    goToJobs: "Go to jobs",
   },
   graph: {
     minDegree: "Min degree",
     searchNodes: "Search nodes", searchNodesPlaceholder: "Search node name",
     empty: "No nodes to display",
+    legend: "Community legend",
+    legendCommunity: "Community {{community}} ({{count}})",
+    legendOther: "Other communities ({{count}})",
+    legendNone: "No community ({{count}})",
+    zoomIn: "Zoom in", zoomOut: "Zoom out", zoomReset: "Reset view",
   },
   settings: {
     loadFailed: "Unable to load settings",

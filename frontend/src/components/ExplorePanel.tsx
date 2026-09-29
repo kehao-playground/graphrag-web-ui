@@ -9,6 +9,7 @@ import {
 import type { TableProps } from "antd";
 import { artifactDetail, artifactList } from "../api/queries";
 import { i18n } from "../i18n";
+import ArtifactQueryError from "./ArtifactQueryError";
 import ErrorBoundary from "./ErrorBoundary";
 import type { ArtifactTableName } from "../api/types";
 
@@ -24,7 +25,8 @@ type Mode = "graph" | "table";
 // Localized label for any column the detail drawer can show (get_row returns
 // SELECT *, a superset of the list projections). Dynamic template key — the
 // ParseKeys cast is needed because a typed union cannot absorb `${string}`.
-const columnLabel = (k: string) => i18n.t(`explore.columns.${k}` as ParseKeys);
+// A column outside the catalog (another graphrag version) shows its own name.
+const columnLabel = (k: string) => i18n.t(`explore.columns.${k}` as ParseKeys, { defaultValue: k });
 
 // Mirror of the backend domain registry (Task 1): localized table label, the
 // list_columns projection and the filter flags the parquet schema supports.
@@ -123,7 +125,8 @@ export default function ExplorePanel({ projectId, canUse }: { projectId: string;
   const meta = TABLE_META[table];
 
   // The key is the request actually sent: filters the table does not
-  // support never reach it (or the cache key).
+  // support never reach it (or the cache key). Errors render in place
+  // (ArtifactQueryError, the drawer's Alert), so no toast on top.
   const list = useQuery({
     ...artifactList(projectId, table, {
       limit,
@@ -133,15 +136,27 @@ export default function ExplorePanel({ projectId, canUse }: { projectId: string;
       community: meta.communityFilter && community !== null ? community : undefined,
     }),
     enabled: canUse && mode === "table",
+    meta: { silent: true },
   });
 
   const detail = useQuery({
     ...artifactDetail(projectId, table, hrid ?? -1),
     enabled: canUse && hrid !== null,
+    meta: { silent: true },
   });
 
   // Any filter/table change restarts at page 1 (offset 0).
   const resetPage = () => setOffset(0);
+
+  // A graph node click opens that entity's detail — the same drawer the
+  // table uses, so the table behind it switches to entities as well.
+  const openEntity = (id: number) => {
+    if (table !== "entities") {
+      setTable("entities");
+      resetPage();
+    }
+    setHrid(id);
+  };
 
   const columns: TableProps<Row>["columns"] = meta.columns.map((c) => ({
     title: columnLabel(c),
@@ -162,7 +177,7 @@ export default function ExplorePanel({ projectId, canUse }: { projectId: string;
       {mode === "graph" ? (
         <ErrorBoundary onReset={() => setGraphView(() => loadGraphView())}>
           <Suspense fallback={<Spin style={{ display: "block", marginTop: 64 }} />}>
-            <GraphView projectId={projectId} canUse={canUse} />
+            <GraphView projectId={projectId} canUse={canUse} onOpenNode={openEntity} />
           </Suspense>
         </ErrorBoundary>
       ) : (
@@ -207,6 +222,7 @@ export default function ExplorePanel({ projectId, canUse }: { projectId: string;
               />
             )}
           </Space>
+          {list.error ? <ArtifactQueryError error={list.error} projectId={projectId} /> : (
           <Table
             rowKey="human_readable_id"
             size="small"
@@ -218,7 +234,7 @@ export default function ExplorePanel({ projectId, canUse }: { projectId: string;
               pageSize: limit,
               total: list.data?.total ?? 0,
               showSizeChanger: true,
-              pageSizeOptions: [1, 10, 50, 100],
+              pageSizeOptions: [10, 20, 50, 100],
               onChange: (page, pageSize) => {
                 setOffset((page - 1) * pageSize);
                 setLimit(pageSize);
@@ -229,6 +245,7 @@ export default function ExplorePanel({ projectId, canUse }: { projectId: string;
               style: { cursor: "pointer" },
             })}
           />
+          )}
         </>
       )}
       <Drawer
@@ -237,7 +254,9 @@ export default function ExplorePanel({ projectId, canUse }: { projectId: string;
         open={hrid !== null}
         onClose={closeDetail}
       >
-        {detail.data ? (
+        {detail.error ? (
+          <Alert type="error" showIcon message={detail.error.message} />
+        ) : detail.data ? (
           <Descriptions column={1} size="small" bordered>
             {Object.entries(detail.data.row).map(([k, v]) => (
               <Descriptions.Item key={k} label={columnLabel(k)}>{renderValue(v)}</Descriptions.Item>

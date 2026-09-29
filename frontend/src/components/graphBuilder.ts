@@ -21,3 +21,26 @@ export function buildGraph(data: GraphData, { minDegree, types }: BuildGraphOpti
   const edges = data.edges.filter((e) => titles.has(e.source) && titles.has(e.target));
   return { nodes, edges };
 }
+
+export type LegendEntry =
+  | { kind: "community"; community: number; count: number }
+  | { kind: "other"; count: number }
+  | { kind: "none"; count: number };
+
+// Legend for the nodes on screen: the `top` largest communities by node count
+// (ties by community id), the rest folded into one "other" entry, then the
+// nodes outside any community at this level.
+export function communityLegend(nodes: GraphNode[], top = 8): LegendEntry[] {
+  const counts = new Map<number, number>();
+  let none = 0;
+  for (const n of nodes) {
+    if (n.community === null) none += 1;
+    else counts.set(n.community, (counts.get(n.community) ?? 0) + 1);
+  }
+  const ranked = [...counts].sort((a, b) => b[1] - a[1] || a[0] - b[0]);
+  const entries: LegendEntry[] = ranked.slice(0, top).map(([community, count]) => ({ kind: "community", community, count }));
+  const rest = ranked.slice(top).reduce((sum, [, count]) => sum + count, 0);
+  if (rest > 0) entries.push({ kind: "other", count: rest });
+  if (none > 0) entries.push({ kind: "none", count: none });
+  return entries;
+}
