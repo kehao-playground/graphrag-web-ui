@@ -23,11 +23,11 @@ from fastapi.responses import JSONResponse
 
 from graphrag_ui.services.env_file import EnvKeyNotFoundError, EnvValidationError
 from graphrag_ui.services.errors import CodedServiceError, JobConflictError, ProjectIndexingError
+from graphrag_ui.services.file_preview import LocatorMismatchError
 from graphrag_ui.services.files import (
     FileServiceError,
     FileTooLargeError,
     InputFileNotFoundError,
-    LocatorMismatchError,
     QuotaExceededError,
 )
 from graphrag_ui.services.jobs import DiskWatermarkError

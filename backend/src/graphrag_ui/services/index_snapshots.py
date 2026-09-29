@@ -31,7 +31,7 @@ from graphrag_ui.adapters.models import (
     ProjectFile,
 )
 from graphrag_ui.domain.artifacts import recover_filenames, title_column_configured
-from graphrag_ui.services.files import cached_scans, scan_input
+from graphrag_ui.services.input_scan import cached_scans, scan_input
 from graphrag_ui.services.project_lock import FREEZING_JOB_TYPES
 from graphrag_ui.services.projects import ws_path
 
@@ -110,9 +110,10 @@ def _scan_start_state(
     the title_column verdict. One to_thread hop — hashing input/ is exactly
     the unbounded-walk shape spec A4 keeps off the loop.
 
-    input/ is read by files.scan_input, the listing's own walk (R1-96): the
-    snapshot and the listing must agree on what an input file is — a
-    promoted .tmp-* upload would haunt the union listing as `removed`.
+    input/ is read by input_scan.scan_input, the listing's own walk
+    (R1-96): the snapshot and the listing must agree on what an input file
+    is — a promoted .tmp-* upload would haunt the union listing as
+    `removed`.
     Every input is optional: workspaces whose job seeded no files (tests,
     freshly created projects) still capture an empty, recovery-tagged row.
     """

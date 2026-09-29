@@ -1,12 +1,12 @@
 """Knowledge-base health aggregates (spec 7.5): the overview's per-project
 state, plus the compact subset the project list needs in one round trip.
 
-Both reuse files.file_listings rather than reimplementing the enumeration —
-one source of truth for what `removed` and `skipped` mean — and report
-ingest_check WITH has_baseline because their combination carries a fault
-neither shows alone: `unavailable_not_indexed` under an existing baseline
-means the output once existed and no longer does. regressions is counted
-here, server-side, because the overview must state it without downloading
+Both reuse file_listing.file_listings rather than reimplementing the
+enumeration — one source of truth for what `removed` and `skipped` mean —
+and report ingest_check WITH has_baseline because their combination
+carries a fault neither shows alone: `unavailable_not_indexed` under an
+existing baseline means the output once existed and no longer does.
+regressions is counted here, server-side, because the overview must state it without downloading
 every result of the latest run.
 
 The batch reads each table once for all its projects (R1-71): the project
@@ -32,7 +32,7 @@ from graphrag_ui.adapters.models import (
 from graphrag_ui.domain.test_runs import count_regressions
 from graphrag_ui.services import jobs as jobs_service
 from graphrag_ui.services.env_file import referenced_key_missing
-from graphrag_ui.services.files import file_listings
+from graphrag_ui.services.file_listing import file_listings
 from graphrag_ui.services.projects import list_projects
 
 _FILE_STATES = ("new", "modified", "indexed", "skipped", "removed")

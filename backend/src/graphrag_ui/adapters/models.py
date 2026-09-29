@@ -195,7 +195,7 @@ class ProjectFile(Base):
     size: Mapped[int] = mapped_column(BigInteger)
     # The st_mtime_ns sha256 was taken at, or NULL when it may not be
     # trusted: while (size, mtime_ns) match the file, listings reuse sha256
-    # instead of hashing again (services/files.scan_input).
+    # instead of hashing again (services/input_scan.scan_input).
     mtime_ns: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     uploaded_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=True

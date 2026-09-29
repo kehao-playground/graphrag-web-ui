@@ -272,6 +272,45 @@ async def test_bulk_delete_commits_what_it_removed_and_reports_the_rest(
     assert [p["name"] for p in deleted_audits] == ["a.md"]
 
 
+async def test_single_delete_raises_on_a_failed_unlink_and_keeps_its_rows(
+    client,
+    db_session,
+    indexed_project,  # noqa: F811  (fixture imported above)
+    monkeypatch,
+):
+    """R1-93: delete_file is bulk_delete's single-name case, but a single
+    delete has no `failed` list — the unlink error surfaces instead of a
+    silent success, with the file, its row and no audit left behind."""
+    _, pid = indexed_project
+    pid_u = uuid.UUID(pid)
+    path_type = type(ws_path(pid_u))
+
+    def unlink(self, *a, **kw):
+        raise PermissionError("denied")
+
+    project = await db_session.get(Project, pid_u)
+    monkeypatch.setattr(path_type, "unlink", unlink)
+    with pytest.raises(OSError, match="b.md"):
+        await files_service.delete_file(db_session, project, "b.md", project.owner_id)
+    monkeypatch.undo()
+
+    assert (ws_path(pid_u) / "input" / "b.md").exists()
+    assert "b.md" in set(
+        (
+            await db_session.execute(
+                select(ProjectFile.name).where(ProjectFile.project_id == pid_u)
+            )
+        ).scalars()
+    )
+    assert (
+        await db_session.scalar(
+            select(func.count())
+            .select_from(AuditLog)
+            .where(AuditLog.action == "file.deleted", AuditLog.target_id == pid)
+        )
+    ) == 0
+
+
 # --- questions (R2-21) ---
 
 

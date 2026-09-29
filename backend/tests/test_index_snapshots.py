@@ -22,9 +22,8 @@ from graphrag_ui.adapters.models import (
 )
 from graphrag_ui.adapters.workspace import FakeInitializer
 from graphrag_ui.config import get_settings
-from graphrag_ui.services import files as files_service
-from graphrag_ui.services import index_snapshots
-from graphrag_ui.services.files import list_files
+from graphrag_ui.services import index_snapshots, input_scan
+from graphrag_ui.services.file_listing import list_files
 from graphrag_ui.services.projects import ws_path
 
 
@@ -80,10 +79,10 @@ async def _states(db_session, project) -> dict[str, str]:
 
 def _stub_hash(monkeypatch) -> None:
     """Hashes the tests can name literally: sha256_file -> "hash-<content>".
-    capture_start and the listing share files.scan_input (R1-96), so one
+    capture_start and the listing share input_scan.scan_input (R1-96), so one
     stub covers both and a listing over a promoted baseline compares like
     with like."""
-    monkeypatch.setattr(files_service, "sha256_file", lambda p: f"hash-{p.read_text()}")
+    monkeypatch.setattr(input_scan, "sha256_file", lambda p: f"hash-{p.read_text()}")
 
 
 @pytest.fixture
