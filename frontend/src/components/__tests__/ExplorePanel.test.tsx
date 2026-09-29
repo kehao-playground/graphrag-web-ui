@@ -1,4 +1,4 @@
-import { render, screen, waitFor, cleanup, within } from "@testing-library/react";
+import { act, render, screen, waitFor, cleanup, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi, beforeEach, afterEach } from "vitest";
 import type { ReactNode } from "react";
@@ -14,17 +14,30 @@ import type { GraphData } from "../../api/types";
 // syncs filter results in place, so the stub graph exposes the mutation API
 // (clear/addNode/addEdge) and the stub keeps a stable identity like the real
 // sigma instance.
+// registerEvents is recorded so a test can fire sigma's clickNode.
+const sigmaEvents = vi.hoisted(() => ({ handlers: {} as Record<string, (e: { node: string }) => void> }));
 vi.mock("@react-sigma/core", () => {
   const graph = {
     clear: () => undefined,
     addNode: () => undefined,
     addEdge: () => undefined,
     getNodeAttributes: () => ({}),
+    updateEachNodeAttributes: () => undefined,
   };
-  const sigma = { getGraph: () => graph, getCamera: () => ({ animate: () => undefined }), refresh: () => undefined };
+  const sigma = {
+    getGraph: () => graph,
+    getCamera: () => ({ animate: () => undefined }),
+    getContainer: () => ({ style: {} }),
+    refresh: () => undefined,
+  };
   return {
     SigmaContainer: (props: { children?: ReactNode }) => <div data-testid="sigma">{props.children}</div>,
+    ControlsContainer: (props: { children?: ReactNode }) => <div>{props.children}</div>,
+    ZoomControl: () => null,
     useSigma: () => sigma,
+    useRegisterEvents: () => (handlers: Record<string, (e: { node: string }) => void>) => {
+      sigmaEvents.handlers = handlers;
+    },
   };
 });
 vi.mock("@react-sigma/layout-forceatlas2", () => ({
@@ -188,13 +201,22 @@ test("server pagination: page 2 requests offset = pageSize", async () => {
   mount();
   const user = userEvent.setup();
   await screen.findByText("Alan Turing");
-  // Shrink to 1/page via the size changer, then click page 2 → offset 1.
+  // Shrink to 10/page via the size changer, then click page 2 → offset 10.
   const pager = within(document.querySelector(".ant-pagination") as HTMLElement);
   await user.click(await screen.findByText("50 / page"));
-  await pickOption(user, "1 / page");
-  await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/projects/p1/artifacts/entities?limit=1&offset=0", expect.anything()));
+  await pickOption(user, "10 / page");
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/projects/p1/artifacts/entities?limit=10&offset=0", expect.anything()));
   await user.click(pager.getByText("2"));
-  await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/projects/p1/artifacts/entities?limit=1&offset=1", expect.anything()));
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/projects/p1/artifacts/entities?limit=10&offset=10", expect.anything()));
+});
+
+test("page-size menu offers 10/20/50/100 — no debugging size 1 (R4-12)", async () => {
+  mount();
+  const user = userEvent.setup();
+  await screen.findByText("Alan Turing");
+  await user.click(await screen.findByText("50 / page"));
+  const sizes = [...document.querySelectorAll(".ant-select-item-option-content")].map((el) => el.textContent);
+  expect(sizes).toEqual(["10 / page", "20 / page", "50 / page", "100 / page"]);
 });
 
 test("stale=true shows the indexing alert at panel top", async () => {
@@ -234,10 +256,67 @@ test("404 unknown table surfaces the backend detail", async () => {
   expect(await screen.findByText("unknown table")).toBeInTheDocument();
 });
 
-test("409 not indexed surfaces the backend detail", async () => {
-  errorResponse = new Response(JSON.stringify({ detail: "not indexed yet — run an indexing job first" }), { status: 409 });
+test("409 not_indexed renders the catalogued sentence with a link to Jobs, not an empty table (R4-15)", async () => {
+  errorResponse = new Response(
+    JSON.stringify({ detail: "not indexed yet — run an indexing job first", code: "not_indexed" }), { status: 409 });
   mount();
-  expect(await screen.findByText("not indexed yet — run an indexing job first")).toBeInTheDocument();
+  expect(await screen.findByText("尚未建立索引,請先執行索引任務")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "前往任務" })).toHaveAttribute("href", "/projects/p1/jobs");
+  expect(document.querySelector(".ant-table")).toBeNull();
+  // shown in place, not also toasted
+  expect(document.querySelector(".ant-message-notice")).toBeNull();
+});
+
+test("graph mode on an un-indexed project shows the same empty state (R4-15)", async () => {
+  errorResponse = new Response(
+    JSON.stringify({ detail: "not indexed yet", code: "not_indexed" }), { status: 409 });
+  mount();
+  const user = userEvent.setup();
+  await screen.findByText("尚未建立索引,請先執行索引任務");
+  // a Response body reads once: the graph request needs its own
+  errorResponse = new Response(
+    JSON.stringify({ detail: "not indexed yet", code: "not_indexed" }), { status: 409 });
+  await user.click(screen.getByText("圖譜"));
+  await waitFor(() => expect(screen.getAllByRole("link", { name: "前往任務" })).toHaveLength(1));
+  expect(screen.queryByTestId("sigma")).not.toBeInTheDocument();
+});
+
+test("a failed detail fetch renders the error in the drawer instead of spinning (R1-52)", async () => {
+  mount();
+  const user = userEvent.setup();
+  await screen.findByText("Ada Lovelace");
+  errorResponse = new Response(JSON.stringify({ detail: "row gone", code: "explore_row_not_found" }), { status: 404 });
+  await user.click(screen.getByText("Ada Lovelace"));
+  const drawer = await waitFor(() => document.querySelector(".ant-drawer-body") as HTMLElement);
+  expect(await within(drawer).findByText("找不到該筆資料")).toBeInTheDocument();
+  expect(drawer.querySelector(".ant-spin")).toBeNull();
+});
+
+test("detail columns outside the i18n catalog render their raw name (R1-51, R2-33)", async () => {
+  const detailFetch = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation(async (input: RequestInfo | URL) =>
+    String(input).split("?")[0] === "/api/projects/p1/artifacts/entities/2"
+      ? new Response(JSON.stringify({ row: { ...DETAIL_ROW, x_custom: "v" }, stale: false }), { status: 200 })
+      : detailFetch(input));
+  try {
+    mount("/?table=entities&row=2");
+    expect(await screen.findByText("x_custom")).toBeInTheDocument();
+    expect(screen.queryByText(/explore\.columns\./)).not.toBeInTheDocument();
+  } finally {
+    fetchMock.mockImplementation(detailFetch);
+  }
+});
+
+test("clicking a graph node opens that entity's detail drawer (R4-39)", async () => {
+  mount();
+  const user = userEvent.setup();
+  await screen.findByText("Alan Turing");
+  await user.click(screen.getByText("圖譜"));
+  await screen.findByTestId("sigma");
+  fetchMock.mockClear();
+  act(() => sigmaEvents.handlers.clickNode({ node: "Ada Lovelace" }));
+  expect(await screen.findByText("first programmer")).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledWith("/api/projects/p1/artifacts/entities/2", expect.anything());
 });
 
 test("?table=&row= (a citation link) opens that row's detail", async () => {

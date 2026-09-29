@@ -1,14 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { Alert, Empty, Input, Select, Slider, Space, Spin } from "antd";
+import { Alert, Empty, Input, Select, Slider, Space, Spin, Typography } from "antd";
 import Graph from "graphology";
-import { SigmaContainer, useSigma } from "@react-sigma/core";
+import {
+  ControlsContainer, SigmaContainer, useRegisterEvents, useSigma, ZoomControl,
+} from "@react-sigma/core";
 import { useLayoutForceAtlas2 } from "@react-sigma/layout-forceatlas2";
 import "@react-sigma/core/lib/style.css";
 import { artifactGraph } from "../api/queries";
 import type { GraphData, GraphEdge } from "../api/types";
-import { buildGraph } from "./graphBuilder";
+import ArtifactQueryError from "./ArtifactQueryError";
+import { buildGraph, communityLegend } from "./graphBuilder";
 import { communityColor } from "./palette";
 
 const EMPTY_DATA: GraphData = {
@@ -16,11 +19,17 @@ const EMPTY_DATA: GraphData = {
 };
 
 // Sigma-ready payload pushed into the long-lived graphology instance whenever
-// filters or search change (see GraphSync). Node key = title.
+// the data or the filters change (see GraphSync). Node key = title. Search is
+// not part of it: a search only re-highlights (SearchHighlight).
 interface SyncPayload {
-  nodes: { key: string; attrs: { label: string; size: number; color: string; highlighted: boolean } }[];
+  nodes: { key: string; attrs: { label: string; size: number; color: string } }[];
   edges: GraphEdge[];
 }
+
+// Sigma renderer settings, stable across renders. Labels draw only for nodes
+// at least this many pixels wide, so the overview shows the hubs' names and
+// zooming in reveals the rest instead of one overlapping blanket of text.
+const SIGMA_SETTINGS = { labelRenderedSizeThreshold: 12 };
 
 // In-place graph syncer. @react-sigma v5's SigmaContainer kills and
 // re-creates the sigma instance whenever the `graph` prop identity changes,
@@ -32,7 +41,8 @@ interface SyncPayload {
 // 100 synchronous iterations on the main thread, no web-worker import that
 // could break the Vite build) and refreshes, all in one effect. Side
 // benefit: the sigma instance — and with it the user's camera — now
-// survives filter changes.
+// survives filter changes. Nodes arrive un-highlighted; SearchHighlight,
+// rendered after this component, re-applies the search in the same commit.
 function GraphSync({ payload }: { payload: SyncPayload }) {
   const sigma = useSigma();
   const { assign } = useLayoutForceAtlas2({ iterations: 100, settings: { barnesHutOptimize: true } });
@@ -46,6 +56,37 @@ function GraphSync({ payload }: { payload: SyncPayload }) {
     assign();
     sigma.refresh();
   }, [sigma, payload, assign]);
+  return null;
+}
+
+// Re-applies the search as the `highlighted` attribute — no re-import, no
+// re-layout, so the nodes keep their places while the user types (R1-86).
+function SearchHighlight({ payload, needle }: { payload: SyncPayload; needle: string }) {
+  const sigma = useSigma();
+  // payload is a dependency so a re-layout (which re-imports the nodes
+  // un-highlighted) gets the current search re-applied.
+  useEffect(() => {
+    sigma.getGraph().updateEachNodeAttributes((_key, attrs) => ({
+      ...attrs,
+      highlighted: needle !== "" && String(attrs.label).toLowerCase().includes(needle),
+    }));
+    sigma.refresh();
+  }, [sigma, payload, needle]);
+  return null;
+}
+
+// Node click opens the entity's detail (ExplorePanel's drawer); hovering a
+// node shows a pointer so the canvas reads as clickable.
+function NodeEvents({ onClick }: { onClick: (key: string) => void }) {
+  const sigma = useSigma();
+  const registerEvents = useRegisterEvents();
+  useEffect(() => {
+    registerEvents({
+      clickNode: (e) => onClick(e.node),
+      enterNode: () => { sigma.getContainer().style.cursor = "pointer"; },
+      leaveNode: () => { sigma.getContainer().style.cursor = ""; },
+    });
+  }, [registerEvents, sigma, onClick]);
   return null;
 }
 
@@ -79,7 +120,11 @@ function SearchFocus({ target }: { target: string | null }) {
   return null;
 }
 
-export default function GraphView({ projectId, canUse = true }: { projectId: string; canUse?: boolean }) {
+export default function GraphView({ projectId, canUse = true, onOpenNode }: {
+  projectId: string;
+  canUse?: boolean;
+  onOpenNode?: (hrid: number) => void;
+}) {
   const { t } = useTranslation();
   const [level, setLevel] = useState<number | undefined>(undefined);
   const [types, setTypes] = useState<string[]>([]);
@@ -98,7 +143,8 @@ export default function GraphView({ projectId, canUse = true }: { projectId: str
   if (graphRef.current === null) graphRef.current = new Graph({ multi: true });
   const sigmaGraph = graphRef.current;
 
-  const graph = useQuery({ ...artifactGraph(projectId, level), enabled: canUse });
+  // Errors render in place (ArtifactQueryError), so no toast on top.
+  const graph = useQuery({ ...artifactGraph(projectId, level), enabled: canUse, meta: { silent: true } });
 
   const typeOptions = useMemo(() => {
     const distinct = [...new Set((graph.data?.nodes ?? []).map((n) => n.type))];
@@ -106,25 +152,30 @@ export default function GraphView({ projectId, canUse = true }: { projectId: str
   }, [graph.data]);
 
   // Filter → sigma-ready payload; GraphSync pushes it into the stable graph.
-  const { payload, firstMatch } = useMemo(() => {
+  const { payload, legend } = useMemo(() => {
     const built = buildGraph(graph.data ?? EMPTY_DATA, { minDegree, types });
-    const needle = search.trim().toLowerCase();
-    let first: string | null = null;
-    const nodes = built.nodes.map((n) => {
-      const highlighted = needle !== "" && n.title.toLowerCase().includes(needle);
-      if (highlighted && first === null) first = n.title;
-      return {
-        key: n.title,
-        attrs: {
-          label: n.title,
-          size: 4 + Math.sqrt(n.degree) * 2,
-          color: communityColor(n.community),
-          highlighted,
-        },
-      };
-    });
-    return { payload: { nodes, edges: built.edges }, firstMatch: first };
-  }, [graph.data, minDegree, types, search]);
+    const nodes = built.nodes.map((n) => ({
+      key: n.title,
+      attrs: { label: n.title, size: 4 + Math.sqrt(n.degree) * 2, color: communityColor(n.community) },
+    }));
+    return { payload: { nodes, edges: built.edges }, legend: communityLegend(built.nodes) };
+  }, [graph.data, minDegree, types]);
+
+  const needle = search.trim().toLowerCase();
+  const firstMatch = useMemo(
+    () => (needle === "" ? null : payload.nodes.find((n) => n.key.toLowerCase().includes(needle))?.key ?? null),
+    [payload, needle],
+  );
+
+  // Node key = title; the drawer is addressed by human_readable_id.
+  const hridByTitle = useMemo(
+    () => new Map((graph.data?.nodes ?? []).map((n) => [n.title, n.hrid])),
+    [graph.data],
+  );
+  const openNode = useCallback((key: string) => {
+    const hrid = hridByTitle.get(key);
+    if (hrid !== undefined) onOpenNode?.(hrid);
+  }, [hridByTitle, onOpenNode]);
 
   return (
     <Space orientation="vertical" size="large" style={{ width: "100%" }}>
@@ -141,9 +192,8 @@ export default function GraphView({ projectId, canUse = true }: { projectId: str
           aria-label={t("explore.columns.level")}
           placeholder={t("explore.columns.level")}
           style={{ width: 120 }}
-          allowClear
           disabled={!canUse}
-          value={level}
+          value={level ?? graph.data?.level}
           options={(graph.data?.levels ?? []).map((v) => ({ value: v, label: String(v) }))}
           onChange={setLevel}
         />
@@ -176,15 +226,48 @@ export default function GraphView({ projectId, canUse = true }: { projectId: str
           onSearch={setSearch}
         />
       </Space>
-      {graph.isPending ? (
+      {graph.error ? (
+        <ArtifactQueryError error={graph.error} projectId={projectId} />
+      ) : graph.isPending ? (
         <Spin style={{ display: "block", marginTop: 64 }} />
       ) : payload.nodes.length === 0 ? (
         <Empty description={t("graph.empty")} />
       ) : (
-        <SigmaContainer style={{ height: 640 }} graph={sigmaGraph}>
-          <GraphSync payload={payload} />
-          <SearchFocus target={firstMatch} />
-        </SigmaContainer>
+        <>
+          <Space wrap size="middle" role="list" aria-label={t("graph.legend")}>
+            {legend.map((entry) => (
+              <span role="listitem" key={entry.kind === "community" ? entry.community : entry.kind}>
+                <span
+                  aria-hidden
+                  style={{
+                    display: "inline-block", width: 10, height: 10, borderRadius: "50%", marginRight: 6,
+                    background: entry.kind === "community" ? communityColor(entry.community)
+                      : entry.kind === "none" ? communityColor(null) : "transparent",
+                    border: entry.kind === "other" ? "1px dashed #8c8c8c" : undefined,
+                  }}
+                />
+                <Typography.Text type="secondary">
+                  {entry.kind === "community"
+                    ? t("graph.legendCommunity", { community: entry.community, count: entry.count })
+                    : entry.kind === "none"
+                      ? t("graph.legendNone", { count: entry.count })
+                      : t("graph.legendOther", { count: entry.count })}
+                </Typography.Text>
+              </span>
+            ))}
+          </Space>
+          <SigmaContainer style={{ height: 640 }} graph={sigmaGraph} settings={SIGMA_SETTINGS}>
+            <GraphSync payload={payload} />
+            <SearchHighlight payload={payload} needle={needle} />
+            <SearchFocus target={firstMatch} />
+            <NodeEvents onClick={openNode} />
+            <ControlsContainer position="bottom-right">
+              <ZoomControl
+                labels={{ zoomIn: t("graph.zoomIn"), zoomOut: t("graph.zoomOut"), reset: t("graph.zoomReset") }}
+              />
+            </ControlsContainer>
+          </SigmaContainer>
+        </>
       )}
     </Space>
   );

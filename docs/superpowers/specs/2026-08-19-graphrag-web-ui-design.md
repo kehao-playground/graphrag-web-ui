@@ -226,7 +226,7 @@ GraphRAG 的 `input.type` 是單一型別 + `input.file_pattern`(regex),一個 r
 - **日誌 viewer**:虛擬捲動 + 自動跟隨 + 暫停;斷線以 `Last-Event-ID` 續傳
 - **查詢介面**:SSE 串流逐字顯示,答案下方以可展開卡片呈現 citations(對應 §6.4 解析結果)
 - **設定編輯器**:409 衝突時顯示 diff 與「重新載入 / 覆寫」兩個明確選項
-- **Explore tab(Phase 5,2026-08-22 定案:雙模式)**:Ant Segmented 切換「圖譜 | 資料表」。圖譜 = react-sigma + graphology(WebGL,萬級節點)+ forceatlas2 佈局,依 community 著色(穩定分類色板),控制項:level 下拉、type 過濾、min_degree 滑桿(預設 ≥1 濾孤點)、節點搜尋高亮聚焦;API 不限節點數,過濾交前端。資料表 = 表名下拉(6 表)+ 共用篩選 + Ant Table 伺服器端分頁 + 行點擊 Drawer 顯示全文/列表/JSON 欄位。stale 時 Explore 頂部 Alert 提示
+- **Explore tab(Phase 5,2026-08-22 定案:雙模式)**:Ant Segmented 切換「圖譜 | 資料表」。圖譜 = react-sigma + graphology(WebGL,萬級節點)+ forceatlas2 佈局,依 community 著色(穩定分類色板),控制項:level 下拉(顯示伺服器選定的層級)、type 過濾、min_degree 滑桿(預設 ≥1 濾孤點)、節點搜尋高亮聚焦(只改高亮,不重新佈局;佈局只在資料、level、type、min_degree 變動時重跑)、社群圖例(節點數前 8 大社群 + 「其他社群」+「未分群」)、縮放/重設視角控制、標籤只畫在達到大小門檻的節點上、點擊節點開啟該實體的明細 Drawer(與資料表共用);API 不限節點數,過濾交前端。資料表 = 表名下拉(6 表)+ 共用篩選 + Ant Table 伺服器端分頁(每頁 10/20/50/100)+ 行點擊 Drawer 顯示全文/列表/JSON 欄位(明細讀取失敗時在 Drawer 內顯示錯誤;型錄外欄位顯示原始欄名)。stale 時 Explore 頂部 Alert 提示;專案尚未建立索引(`not_indexed`)時兩種模式都以空狀態顯示該句並連到任務頁(F18 修訂)
 - **目錄結構**:feature 導向(`features/projects`、`features/jobs`…),共用元件放 `shared/`
 
 ## 8. 部署

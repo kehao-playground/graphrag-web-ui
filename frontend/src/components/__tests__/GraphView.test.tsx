@@ -1,9 +1,10 @@
-import { render, screen, waitFor, cleanup, fireEvent } from "@testing-library/react";
+import { act, render, screen, waitFor, cleanup, fireEvent, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi, beforeEach, afterEach } from "vitest";
 import type { ReactNode } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { createQueryClient } from "../../api/queryClient";
+import { MemoryRouter } from "react-router-dom";
 import GraphView from "../GraphView";
 import { useAuth } from "../../stores/auth";
 import type { GraphData } from "../../api/types";
@@ -32,26 +33,39 @@ const h = vi.hoisted(() => {
   // Fixed display-space coords: the camera must receive THESE, never the
   // node's raw graph-space x/y (random FA2 seeds can never equal them).
   const getNodeDisplayData = vi.fn((): { x: number; y: number } | undefined => ({ x: 0.42, y: 0.58 }));
+  const container = { style: { cursor: "" } };
   return {
     graphs,
     refresh,
     cameraAnimate,
     assign,
     getNodeDisplayData,
+    container,
+    events: {} as Record<string, (e: { node: string }) => void>,
+    settings: [] as unknown[],
     sigma: {
       getGraph: () => graphs[graphs.length - 1],
       getNodeDisplayData,
       getCamera: () => ({ animate: cameraAnimate }),
+      getContainer: () => container,
       refresh,
     },
   };
 });
 vi.mock("@react-sigma/core", () => ({
-  SigmaContainer: (props: { graph?: unknown; children?: ReactNode }) => {
+  SigmaContainer: (props: { graph?: unknown; settings?: unknown; children?: ReactNode }) => {
     h.graphs.push(props.graph);
+    h.settings.push(props.settings);
     return <div data-testid="sigma">{props.children}</div>;
   },
+  ControlsContainer: (props: { children?: ReactNode }) => <div data-testid="controls">{props.children}</div>,
+  ZoomControl: (props: { labels?: Record<string, string> }) => (
+    <>{Object.values(props.labels ?? {}).map((l) => <button key={l} type="button">{l}</button>)}</>
+  ),
   useSigma: () => h.sigma,
+  useRegisterEvents: () => (handlers: Record<string, (e: { node: string }) => void>) => {
+    h.events = handlers;
+  },
 }));
 vi.mock("@react-sigma/layout-forceatlas2", () => ({
   useLayoutForceAtlas2: () => ({ positions: () => ({}), assign: h.assign }),
@@ -87,6 +101,8 @@ afterEach(() => {
   h.refresh.mockClear();
   h.cameraAnimate.mockClear();
   h.getNodeDisplayData.mockClear();
+  h.settings.length = 0;
+  h.events = {};
 });
 beforeEach(() => {
   fetchMock.mockClear();
@@ -94,10 +110,12 @@ beforeEach(() => {
   useAuth.setState({ accessToken: "test-token" });
 });
 
-function mount() {
+function mount(onOpenNode?: (hrid: number) => void) {
   render(
     <QueryClientProvider client={createQueryClient()}>
-      <GraphView projectId="p1" />
+      <MemoryRouter>
+        <GraphView projectId="p1" onOpenNode={onOpenNode} />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -180,7 +198,7 @@ test("min_degree Slider commits on release: keyDown previews, keyUp applies", as
   await screen.findByTestId("sigma");
   const slider = screen.getByRole("slider");
   const fetches = fetchMock.mock.calls.length;
-  const syncs = h.refresh.mock.calls.length;
+  const syncs = h.assign.mock.calls.length;
   // Drag tick. rc-slider fires onChange per keyDown but commits only on
   // keyUp; its keyboard handler reads e.which/e.keyCode, which jsdom does
   // not derive from `key` — fireEvent must pass keyCode explicitly.
@@ -190,37 +208,109 @@ test("min_degree Slider commits on release: keyDown previews, keyUp applies", as
   // no payload rebuild, no refetch, no sigma re-sync during the drag.
   expect(nodeTitles()).toEqual(["Ada Lovelace", "Alan Turing"]);
   expect(fetchMock.mock.calls.length).toBe(fetches);
-  expect(h.refresh.mock.calls.length).toBe(syncs);
+  expect(h.assign.mock.calls.length).toBe(syncs);
   // Release: onChangeComplete commits min_degree 1 → 2, dropping Ada
   // (degree 1) and re-syncing sigma's graph in place — still client-side only.
   fireEvent.keyUp(slider, { key: "ArrowRight", keyCode: 39 });
   await waitFor(() => expect(nodeTitles()).toEqual(["Alan Turing"]));
   expect(sigmaGraph()?.order).toBe(1);
   expect(fetchMock.mock.calls.length).toBe(fetches);
-  expect(h.refresh.mock.calls.length).toBe(syncs + 1);
+  expect(h.assign.mock.calls.length).toBe(syncs + 1);
 });
 
-test("search change clears sigma's graph, re-imports it highlighted and re-animates", async () => {
+test("search only re-highlights: no clear, no re-seed, no FA2 re-run (R1-86)", async () => {
   mount();
   await screen.findByTestId("sigma");
   const syncs = h.refresh.mock.calls.length;
   const layouts = h.assign.mock.calls.length;
-  const clearSpy = vi.spyOn(sigmaGraph()!, "clear");
+  const g = sigmaGraph()!;
+  const clearSpy = vi.spyOn(g, "clear");
+  const before = { ...g.getNodeAttributes("Alan Turing") };
   const user = userEvent.setup();
   await user.type(screen.getByRole("searchbox", { name: "搜尋節點" }), "alan{Enter}");
   await waitFor(() => expect(h.refresh.mock.calls.length).toBe(syncs + 1));
-  // The previous content was dropped, the filtered payload re-imported with
-  // fresh attributes, FA2 re-ran and the camera focused the first match.
-  expect(clearSpy).toHaveBeenCalled();
-  expect(h.assign.mock.calls.length).toBe(layouts + 1);
-  const g = sigmaGraph()!;
-  expect(g.order).toBe(2);
-  expect(g.getNodeAttributes("Alan Turing")).toMatchObject({ label: "Alan Turing", highlighted: true });
-  expect(g.getNodeAttributes("Ada Lovelace")).toMatchObject({ label: "Ada Lovelace", highlighted: false });
+  // The layout is untouched: same positions, no clear, FA2 not re-run.
+  expect(clearSpy).not.toHaveBeenCalled();
+  expect(h.assign.mock.calls.length).toBe(layouts);
+  expect(g.getNodeAttributes("Alan Turing")).toMatchObject({ x: before.x, y: before.y, highlighted: true });
+  expect(g.getNodeAttributes("Ada Lovelace")).toMatchObject({ highlighted: false });
   // Camera x/y live in normalized display space: the animate target must be
   // the coords from sigma.getNodeDisplayData, never the node's raw
   // graph-space x/y (which would fly the camera off-canvas).
   expect(h.cameraAnimate).toHaveBeenCalledWith({ x: 0.42, y: 0.58, ratio: 0.3 }, { duration: 500 });
+});
+
+test("a filter change keeps the current search highlighted after the re-layout", async () => {
+  mount();
+  await screen.findByTestId("sigma");
+  const user = userEvent.setup();
+  await user.type(screen.getByRole("searchbox", { name: "搜尋節點" }), "alan{Enter}");
+  await waitFor(() => expect(sigmaGraph()!.getNodeAttributes("Alan Turing").highlighted).toBe(true));
+  await user.click(screen.getByRole("combobox", { name: "類型" }));
+  await user.click(await screen.findByText("PERSON", { selector: ".ant-select-item-option-content" }));
+  await waitFor(() => expect(h.assign.mock.calls.length).toBeGreaterThan(1));
+  expect(sigmaGraph()!.getNodeAttributes("Alan Turing").highlighted).toBe(true);
+});
+
+test("the level Select shows the level the server picked (R4-39)", async () => {
+  mount();
+  await screen.findByTestId("sigma");
+  const level = screen.getByRole("combobox", { name: "層級" }).closest(".ant-select") as HTMLElement;
+  expect(level.querySelector(".ant-select-content")?.textContent ?? level.textContent).toContain("1");
+});
+
+test("a legend names the communities on screen with their colours (R4-39)", async () => {
+  mount();
+  await screen.findByTestId("sigma");
+  const legend = screen.getByRole("list", { name: "社群圖例" });
+  const items = within(legend).getAllByRole("listitem").map((li) => li.textContent);
+  expect(items).toEqual(["社群 0(1)", "社群 1(1)"]);
+});
+
+test("the legend folds communities past the top eight into 'other'", async () => {
+  const many: GraphData = {
+    ...GRAPH,
+    nodes: Array.from({ length: 10 }, (_, i) => ({
+      hrid: i, title: `N${i}`, type: "PERSON", degree: 2, frequency: 1, community: i,
+    })),
+    edges: [],
+  };
+  fetchMock.mockImplementationOnce(async () => new Response(JSON.stringify(many), { status: 200 }));
+  mount();
+  await screen.findByTestId("sigma");
+  const items = within(screen.getByRole("list", { name: "社群圖例" })).getAllByRole("listitem");
+  expect(items).toHaveLength(9);
+  expect(items[8].textContent).toBe("其他社群(2)");
+});
+
+test("clicking a node hands its human-readable id to onOpenNode (R4-39)", async () => {
+  const onOpenNode = vi.fn();
+  mount(onOpenNode);
+  await screen.findByTestId("sigma");
+  act(() => h.events.clickNode({ node: "Ada Lovelace" }));
+  expect(onOpenNode).toHaveBeenCalledWith(2);
+  act(() => h.events.enterNode({ node: "Ada Lovelace" }));
+  expect(h.container.style.cursor).toBe("pointer");
+  act(() => h.events.leaveNode({ node: "Ada Lovelace" }));
+  expect(h.container.style.cursor).toBe("");
+});
+
+test("zoom controls are labelled and labels hide below a size threshold (R4-39)", async () => {
+  mount();
+  await screen.findByTestId("sigma");
+  expect(screen.getByRole("button", { name: "放大" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "縮小" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "重設視角" })).toBeInTheDocument();
+  expect(h.settings[h.settings.length - 1]).toMatchObject({ labelRenderedSizeThreshold: expect.any(Number) });
+});
+
+test("not_indexed renders the catalogued sentence with a link to Jobs (R4-15)", async () => {
+  fetchMock.mockImplementationOnce(async () =>
+    new Response(JSON.stringify({ detail: "not indexed", code: "not_indexed" }), { status: 409 }));
+  mount();
+  expect(await screen.findByText("尚未建立索引,請先執行索引任務")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "前往任務" })).toHaveAttribute("href", "/projects/p1/jobs");
+  expect(screen.queryByTestId("sigma")).not.toBeInTheDocument();
 });
 
 test("camera animation is skipped when the match has no display data", async () => {

@@ -623,11 +623,17 @@ export default {
     truncatedWarning: "僅顯示連結數最高的 {{count}} 個實體 —— 此回應的圖已被截斷",
     modeGraph: "圖譜", modeTable: "資料表",
     search: "搜尋", searchPlaceholder: "搜尋關鍵字",
+    goToJobs: "前往任務",
   },
   graph: {
     minDegree: "最小度",
     searchNodes: "搜尋節點", searchNodesPlaceholder: "搜尋節點名稱",
     empty: "沒有可顯示的節點",
+    legend: "社群圖例",
+    legendCommunity: "社群 {{community}}({{count}})",
+    legendOther: "其他社群({{count}})",
+    legendNone: "未分群({{count}})",
+    zoomIn: "放大", zoomOut: "縮小", zoomReset: "重設視角",
   },
   settings: {
     loadFailed: "無法載入設定",
