@@ -4,9 +4,9 @@ import {
 } from "./client";
 import type { ArtifactListParams } from "./client";
 import type {
-  ArtifactTableName, AuditPage, BatchHealth, EnvOut, FilesOut, Job, Matrix, Member, Preflight,
+  ArtifactTableName, AuditPage, BatchHealth, EnvOut, FilesOut, JobPage, Matrix, Member, Preflight,
   PreviewOut, Project, ProjectHealth, QuestionList, QuestionSetList, ResultList, Role,
-  SettingsOut, SettingsVersionOut, TagCatalog, User, UserBrief,
+  SettingsOut, SettingsVersionPage, TagCatalog, User, UserBrief,
 } from "./types";
 
 // Every server read the SPA makes, defined once (R1-17): key, path and
@@ -14,13 +14,20 @@ import type {
 // never drift apart on either. Components spread a factory into useQuery
 // and add only view state (`enabled`, polling); mutations invalidate by
 // `factory(...).queryKey`. Keys nest under their owner, so invalidating a
-// prefix (e.g. projectJobs(pid)) also refreshes what hangs below it
-// (jobsPreflight(pid)).
+// prefix (e.g. projectJobsKey(pid)) also refreshes what hangs below it
+// (every page of projectJobs and jobsPreflight).
 //
 // Freshness (R1-87): the listings that hash or scan the whole input tree
 // (/health, /projects/health, /files) are fresh for 30 s and skip focus
 // refetches; mutations invalidate them explicitly. Every other key keeps
 // TanStack's refetch-on-mount default.
+
+// One page of a paged listing (decision D1): the server answers
+// {items, total} for these bounds.
+export interface Page { limit: number; offset: number }
+const pageParams = (p: Page) => new URLSearchParams({
+  limit: String(p.limit), offset: String(p.offset),
+}).toString();
 
 const EXPENSIVE = { staleTime: 30_000, refetchOnWindowFocus: false } as const;
 const QUIET = { meta: { silent: true } } as const;
@@ -156,11 +163,21 @@ export const filePreview = (pid: string, name: string, locator: Locator | null) 
 
 // ---- jobs ----------------------------------------------------------------
 
-// The jobs page's list: the launchable types only — test runs have the
-// workbench (decision D2).
-export const projectJobs = (pid: string) => queryOptions({
-  queryKey: ["projects", pid, "jobs"],
-  queryFn: () => apiJson<Job[]>(`/api/projects/${pid}/jobs?type=index&type=update`, "jobs.loadFailed"),
+// Everything job-shaped of a project hangs under this prefix: the list
+// pages and the preflight.
+export const projectJobsKey = (pid: string) => ["projects", pid, "jobs"] as const;
+
+// The prefix of every page of the jobs list, without the preflight.
+export const projectJobListKey = (pid: string) => [...projectJobsKey(pid), "list"] as const;
+
+// One page of the jobs page's list: the launchable types only — test runs
+// have the workbench (decision D2).
+export const projectJobs = (pid: string, page: Page) => queryOptions({
+  queryKey: [...projectJobListKey(pid), page],
+  queryFn: () => apiJson<JobPage>(
+    `/api/projects/${pid}/jobs?type=index&type=update&${pageParams(page)}`, "jobs.loadFailed",
+  ),
+  placeholderData: keepPreviousData,
 });
 
 // Shared by the documents, jobs and workbench panes: active_job is what
@@ -168,7 +185,7 @@ export const projectJobs = (pid: string) => queryOptions({
 // the toast): a missing preflight costs a notice, and a stale miss still
 // surfaces as the backend's 409.
 export const jobsPreflight = (pid: string) => queryOptions({
-  queryKey: ["projects", pid, "jobs", "preflight"],
+  queryKey: [...projectJobsKey(pid), "preflight"],
   queryFn: () => apiJson<Preflight>(`/api/projects/${pid}/jobs/preflight`, "jobs.loadPreflightFailed"),
   ...QUIET,
 });
@@ -180,11 +197,14 @@ export const projectSettings = (pid: string) => queryOptions({
   queryFn: () => apiJson<SettingsOut>(`/api/projects/${pid}/settings`, "settings.loadFailed"),
 });
 
-export const settingsVersions = (pid: string) => queryOptions({
-  queryKey: ["projects", pid, "versions"],
-  queryFn: () => apiJson<SettingsVersionOut[]>(
-    `/api/projects/${pid}/settings/versions`, "settings.loadVersionsFailed",
+export const settingsVersionsKey = (pid: string) => ["projects", pid, "versions"] as const;
+
+export const settingsVersions = (pid: string, page: Page) => queryOptions({
+  queryKey: [...settingsVersionsKey(pid), page],
+  queryFn: () => apiJson<SettingsVersionPage>(
+    `/api/projects/${pid}/settings/versions?${pageParams(page)}`, "settings.loadVersionsFailed",
   ),
+  placeholderData: keepPreviousData,
 });
 
 export const projectEnv = (pid: string) => queryOptions({

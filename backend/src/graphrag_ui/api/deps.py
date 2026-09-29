@@ -185,6 +185,10 @@ async def get_current_user(
 # Shared dependency types for endpoint parameters (FastAPI-conventional
 # Annotated aliases, so endpoints don't repeat a long Annotated[...] each)
 DbSession = Annotated[AsyncSession, Depends(get_db)]
+# List paging (decision D1): every paged listing takes the same bounds and
+# answers {items, total}. Callers give the defaults (limit 50, offset 0).
+PageLimit = Annotated[int, Query(ge=1, le=200)]
+PageOffset = Annotated[int, Query(ge=0)]
 CurrentUser = Annotated[Principal, Depends(get_current_user)]
 
 

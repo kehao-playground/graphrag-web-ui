@@ -137,11 +137,14 @@ CREATE UNIQUE INDEX jobs_one_active_per_project
   - `GET` 回傳 `{content, content_hash}`(hash 由磁碟上的實際檔案內容計算)
   - `PUT` 帶 `expected_hash`;與磁碟現況不符 → 409 + 回傳目前內容供前端 diff。**不使用 DB `updated_at` 做樂觀鎖**,因為檔案可能被 CLI 從旁改動(§3 的零綁定保證)
   - 寫入成功時自動存一份 `settings_versions`
+  - `GET .../settings/versions`:版本歷史,新到舊分頁回傳(修正波 F15,R3-10)
 - `/api/projects/{id}/env`:**per-key 操作**,不做整份覆寫
   - `GET` 回傳 key 清單與遮罩值(`sk-****`),永不回明文
   - `PATCH {key: value}` 設定/更新單一 key;`DELETE /env/{key}` 移除
   - 這樣避免「前端拿遮罩值整份 PUT 回來,把真 key 覆寫成 `sk-****`」
-- `/api/projects/{id}/jobs`:POST 啟動(index/update + method)、歷史列表
+- `/api/projects/{id}/jobs`:POST 啟動(index/update + method)、歷史列表(新到舊分頁,`type` 可重複篩選;修正波 F15,R3-10——原先靜默只回最新 50 筆)
+- **列表慣例(決策 D1,修正波 F15,R1-45)**:分頁列表一律回 `{items, total}`,以 `limit`(1–200,預設 50)+ `offset`(≥ 0)分頁,`total` 為符合篩選條件的總筆數(不受 limit/offset 影響)。目前採用者:jobs、settings versions。其餘列表待其前端呼叫端下次修改時遷移:回傳裸陣列者(projects、members、roles、users)改為 `{items, total}`;audit 與 artifacts 的 `{rows, total}` 為舊拼法,同樣屆時改名為 `items`
+- **錯誤回應契約(修正波 F15,R3-32)**:`openapi.json` 在每個 operation 上宣告 `4XX` → `ApiErrorOut`(`{detail, code, params?}`,i18n spec §4.1),`422` → `ValidationErrorOut`(`{detail: [{type, loc, msg}], code: "validation_failed"}`,取代 FastAPI 的 `HTTPValidationError`);有專屬形狀的狀態碼另行宣告(settings PUT 的 409 → `SettingsConflictOut`)。前端的錯誤型別由此產生,不再手寫
 - `POST /api/projects/{id}/dry-run`:同步執行 `graphrag index --dry-run`,不進隊列,直接回傳驗證結果
 - `GET /api/jobs/{id}/logs`:SSE 即時日誌(支援 `Last-Event-ID` 以位元組 offset 續傳);`POST /api/jobs/{id}/cancel`:running 寫入 `cancel_requested_at`、queued 直接轉 `cancelled`,立即回 202
 - `/api/projects/{id}/query`:method(local/global/drift/basic)+ query + 參數

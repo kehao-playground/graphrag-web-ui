@@ -4,18 +4,23 @@ import { useTranslation } from "react-i18next";
 import { useBlocker } from "react-router-dom";
 import { dump as yamlDump, load as yamlLoad } from "js-yaml";
 import {
-  Alert, Button, Collapse, Descriptions, Input, InputNumber, Modal, Popconfirm, Radio, Space, Table,
-  Tag, Typography, message,
+  Alert, Button, Collapse, Descriptions, Input, InputNumber, Modal, Pagination, Popconfirm, Radio,
+  Space, Table, Tag, Typography, message,
 } from "antd";
 import type { TableProps } from "antd";
 import type { TextAreaRef } from "antd/es/input/TextArea";
 import { ApiRequestError, apiJson, sendOk } from "../api/client";
-import { jobsPreflight, projectEnv, projectSettings, settingsVersions } from "../api/queries";
-import type { DryRunOut, EnvKeyOut, SettingsVersionDetail } from "../api/types";
+import {
+  jobsPreflight, projectEnv, projectSettings, settingsVersions, settingsVersionsKey,
+} from "../api/queries";
+import type { DryRunOut, EnvKeyOut, SettingsConflict, SettingsVersionDetail } from "../api/types";
 import { isFrozen } from "./project/frozen";
 
 const { TextArea } = Input;
 const { Text } = Typography;
+
+// Versions per page of the history; the server pages it (R3-10).
+const VERSIONS_PAGE_SIZE = 20;
 
 interface Conflict {
   currentContent: string;
@@ -111,7 +116,10 @@ export default function SettingsPanel({ projectId, canEdit }: {
   const diskHash = settings.data?.content_hash ?? "";
   const content = edit && edit.hash === diskHash ? edit.content : serverContent;
   const setContent = (c: string) => setEdit({ hash: diskHash, content: c });
-  const versions = useQuery(settingsVersions(projectId));
+  const [versionsPage, setVersionsPage] = useState(1);
+  const versions = useQuery(settingsVersions(projectId, {
+    limit: VERSIONS_PAGE_SIZE, offset: (versionsPage - 1) * VERSIONS_PAGE_SIZE,
+  }));
   const env = useQuery(projectEnv(projectId));
   const invalidateEnv = () => qc.invalidateQueries({ queryKey: projectEnv(projectId).queryKey });
 
@@ -168,9 +176,10 @@ export default function SettingsPanel({ projectId, canEdit }: {
     onMutate: () => setSaveError(null),
     onError: (e, { content: c }) => {
       if (e instanceof ApiRequestError && e.status === 409 && e.body.code === "settings_conflict") {
+        const body = e.body as SettingsConflict;
         setConflict({
-          currentContent: String(e.body.current_content ?? ""),
-          currentHash: String(e.body.current_hash ?? ""),
+          currentContent: body.current_content,
+          currentHash: body.current_hash,
           myContent: c,
         });
         return;
@@ -192,7 +201,7 @@ export default function SettingsPanel({ projectId, canEdit }: {
       setConflict(null);
       message.success(t("settings.saved"));
       await qc.invalidateQueries({ queryKey: projectSettings(projectId).queryKey });
-      await qc.invalidateQueries({ queryKey: settingsVersions(projectId).queryKey });
+      await qc.invalidateQueries({ queryKey: settingsVersionsKey(projectId) });
     },
   });
 
@@ -459,7 +468,7 @@ export default function SettingsPanel({ projectId, canEdit }: {
 
       <div>
         <Typography.Title level={5}>{t("settings.versionHistory")}</Typography.Title>
-        <Collapse items={(versions.data ?? []).map((v) => ({
+        <Collapse items={(versions.data?.items ?? []).map((v) => ({
           key: v.id,
           label: <span>{v.created_at} · <Text code>{v.content_hash.slice(0, 8)}</Text></span>,
           children: (
@@ -475,6 +484,16 @@ export default function SettingsPanel({ projectId, canEdit }: {
             </Space>
           ),
         }))} />
+        <Pagination
+          size="small"
+          style={{ marginTop: 8 }}
+          current={versionsPage}
+          pageSize={VERSIONS_PAGE_SIZE}
+          total={versions.data?.total ?? 0}
+          showSizeChanger={false}
+          hideOnSinglePage
+          onChange={setVersionsPage}
+        />
       </div>
 
       <Modal open={viewVersion !== null} title={t("settings.versionTitle", { id: viewVersion?.id })} footer={<Button onClick={() => setViewVersion(null)}>{t("settings.close")}</Button>}>

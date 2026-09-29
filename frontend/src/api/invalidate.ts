@@ -1,6 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
 import {
-  projectFiles, projectHealth, projectJobs, projectTags, testRunMatrix,
+  projectFiles, projectHealth, projectJobListKey, projectTags, testRunMatrix,
 } from "./queries";
 
 // The reads a project's writes make stale, fanned out in one place (R1-18)
@@ -25,7 +25,7 @@ export function invalidateProjectFiles(qc: QueryClient, pid: string) {
 export function invalidateProject(qc: QueryClient, pid: string) {
   return Promise.all([
     invalidateProjectFiles(qc, pid),
-    qc.invalidateQueries({ queryKey: projectJobs(pid).queryKey, exact: true }),
+    qc.invalidateQueries({ queryKey: projectJobListKey(pid) }),
     qc.invalidateQueries({ queryKey: testRunMatrix(pid).queryKey }),
     qc.invalidateQueries({ queryKey: ["projects", pid, "artifacts"] }),
   ]);

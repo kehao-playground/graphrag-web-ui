@@ -7,7 +7,7 @@ import {
 } from "antd";
 import type { TableProps } from "antd";
 import { sendOk } from "../api/client";
-import { jobsPreflight, projectHealth, projectJobs } from "../api/queries";
+import { jobsPreflight, projectHealth, projectJobs, projectJobsKey } from "../api/queries";
 import { JobStatusColor } from "../api/types";
 import type { Job } from "../api/types";
 import { i18n } from "../i18n";
@@ -35,6 +35,9 @@ function humanDuration(seconds: number): string {
 // and the cancel affordance both key off this (cancelling = cancel requested,
 // a second request would 409).
 const isActive = (j: Job) => ["queued", "running"].includes(j.status);
+
+// Rows per page of the history; the server pages it (R3-10).
+const PAGE_SIZE = 20;
 
 export default function JobsPanel({ projectId, canEdit }: { projectId: string; canEdit: boolean }) {
   const qc = useQueryClient();
@@ -68,20 +71,22 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
   // The document counts the launch confirm states (R4-25).
   const health = useQuery(projectHealth(projectId));
 
-  // Poll every 5s only while a job is queued/running/cancelling; otherwise
-  // the query is quiet (refetchInterval false).
+  // Poll every 5s only while a job on this page is queued/running/
+  // cancelling; otherwise the query is quiet (refetchInterval false). An
+  // active job is always the newest, so page 1 is the one that polls.
+  const [page, setPage] = useState(1);
   const jobs = useQuery({
-    ...projectJobs(projectId),
+    ...projectJobs(projectId, { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }),
     refetchInterval: (query) =>
-      query.state.data?.some(
+      query.state.data?.items.some(
         (j) => ["queued", "running"].includes(j.status) || j.display_status === "cancelling",
       )
         ? 5000
         : false,
   });
 
-  // Prefix invalidation: the jobs key also covers the preflight below it.
-  const invalidateJobs = () => qc.invalidateQueries({ queryKey: projectJobs(projectId).queryKey });
+  // Prefix invalidation: every page of the list and the preflight.
+  const invalidateJobs = () => qc.invalidateQueries({ queryKey: projectJobsKey(projectId) });
 
   const startJob = useMutation({
     mutationFn: () => sendOk(`/api/projects/${projectId}/jobs`, "jobs.startFailed", {
@@ -104,7 +109,8 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
 
   // Elapsed time on active rows ticks once a second, only while one runs.
   const [now, setNow] = useState(() => Date.now());
-  const ticking = (jobs.data ?? []).some((j) => j.started_at && !j.finished_at);
+  const rows = jobs.data?.items ?? [];
+  const ticking = rows.some((j) => j.started_at && !j.finished_at);
   useEffect(() => {
     if (!ticking) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -217,7 +223,7 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
 
   // The drawer names its job when the list has it; a job outside the list
   // (a test run from the overview's link) keeps the generic title.
-  const logJob = (jobs.data ?? []).find((j) => j.id === logJobId);
+  const logJob = rows.find((j) => j.id === logJobId);
   const logTitle = logJob
     ? t(logJob.started_at ? "jobs.logsTitleStarted" : "jobs.logsTitleQueued", {
       type: typeLabel(logJob.type),
@@ -266,9 +272,17 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
         rowKey="id"
         size="small"
         loading={jobs.isPending}
-        dataSource={jobs.data ?? []}
+        dataSource={rows}
         columns={columns}
-        pagination={false}
+        pagination={{
+          current: page,
+          pageSize: PAGE_SIZE,
+          // Server-side: total comes from the envelope, not the page length.
+          total: jobs.data?.total ?? 0,
+          showSizeChanger: false,
+          hideOnSinglePage: true,
+          onChange: setPage,
+        }}
         expandable={{
           rowExpandable: (j) => !!j.error,
           expandedRowRender: (j) => (

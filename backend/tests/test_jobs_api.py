@@ -5,6 +5,7 @@ bootstrap admin activation, admin-created users, owner PUT member)."""
 
 import uuid
 
+from graphrag_ui.adapters.models import Job, Project
 from graphrag_ui.adapters.workspace import FakeInitializer
 from graphrag_ui.api.projects_routes import get_initializer
 from graphrag_ui.config import get_settings
@@ -68,7 +69,8 @@ async def test_enqueue_and_list(client, app):
     assert job["status"] == "queued" and job["display_status"] == "queued"
     assert job["argv"] == ["index", "--root", str(ws_path(uuid.UUID(pid))), "--method", "fast"]
     lst = await client.get(f"/api/projects/{pid}/jobs", headers=alice)
-    assert [j["id"] for j in lst.json()] == [job["id"]]
+    assert [j["id"] for j in lst.json()["items"]] == [job["id"]]
+    assert lst.json()["total"] == 1
 
 
 async def test_second_active_job_409(client, app):
@@ -225,7 +227,7 @@ async def test_enqueue_refuses_a_workspace_whose_settings_escape(client, app):
     assert r.status_code == 400, r.text
     assert r.json()["code"] == "settings_path_escape"
     assert r.json()["params"] == {"field": "output_storage.base_dir"}
-    assert (await client.get(f"/api/projects/{pid}/jobs", headers=alice)).json() == []
+    assert (await client.get(f"/api/projects/{pid}/jobs", headers=alice)).json()["items"] == []
 
     # the indirect spelling: a confined placeholder moved by the .env
     path.write_text(original + "output_storage:\n  base_dir: ${OUT}\n")
@@ -261,3 +263,42 @@ async def test_job_out_carries_batch_progress(client, app, db_session):
     assert got["progress"] == {"done": 3, "total": 20}
     pre = (await client.get(f"/api/projects/{pid}/jobs/preflight", headers=alice)).json()
     assert pre["active_job"]["progress"] == {"done": 3, "total": 20}
+
+
+async def test_list_pages_with_total(client, app, db_session):
+    """R3-10: the history pages behind limit/offset with a total, instead of
+    silently keeping the newest 50. Rows inserted in one transaction share
+    queued_at, so the order must be total for pages to stay disjoint."""
+    _, alice, _ = await _setup_users(client, app)
+    pid = await _project(client, alice)
+    project = await db_session.get(Project, uuid.UUID(pid))
+    assert project is not None
+    db_session.add_all(
+        [
+            Job(
+                project_id=project.id,
+                type="index",
+                method="standard",
+                argv=[],
+                queued_by=project.owner_id,
+                status="succeeded",
+            )
+            for _ in range(55)
+        ]
+    )
+    await db_session.commit()
+
+    default = (await client.get(f"/api/projects/{pid}/jobs", headers=alice)).json()
+    assert default["total"] == 55
+    assert len(default["items"]) == 50
+
+    first = (await client.get(f"/api/projects/{pid}/jobs?limit=20", headers=alice)).json()
+    rest = (await client.get(f"/api/projects/{pid}/jobs?limit=200&offset=20", headers=alice)).json()
+    assert len(first["items"]) == 20 and len(rest["items"]) == 35
+    assert rest["total"] == 55
+    ids = [j["id"] for j in first["items"] + rest["items"]]
+    assert len(set(ids)) == 55
+
+    for bad in ("limit=0", "limit=201", "offset=-1"):
+        r = await client.get(f"/api/projects/{pid}/jobs?{bad}", headers=alice)
+        assert r.status_code == 422, bad

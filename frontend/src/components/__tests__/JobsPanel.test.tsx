@@ -54,12 +54,16 @@ const HEALTH = {
   has_baseline: true, ingest_check: "available", last_index: null, latest_run: null,
 };
 
-// The jobs page lists only the launchable types (decision D2).
-const LIST = "/api/projects/p1/jobs?type=index&type=update";
+// The jobs page lists only the launchable types (decision D2), one page
+// of 20 at a time (R3-10).
+const LIST_PREFIX = "/api/projects/p1/jobs?type=index&type=update&";
+const LIST = `${LIST_PREFIX}limit=20&offset=0`;
 
 // Same mock discipline as FilesPanel/SettingsPanel tests: branch by URL (and
 // method for POST) so a wrong endpoint or body cannot silently pass.
 let jobsList: unknown[] = [job()];
+// The envelope's total; null means "the whole history is jobsList".
+let jobsTotal: number | null = null;
 let postResponse: () => Response = () => new Response(JSON.stringify(job({ id: "j9" })), { status: 201 });
 let preflightResponse: () => Response = () => new Response(JSON.stringify(PREFLIGHT), { status: 200 });
 const apiMock = vi.fn(async (path: string, init?: RequestInit) => {
@@ -69,8 +73,9 @@ const apiMock = vi.fn(async (path: string, init?: RequestInit) => {
   if (path === "/api/projects/p1/jobs" && init?.method === "POST") {
     return postResponse();
   }
-  if (path === LIST) {
-    return new Response(JSON.stringify(jobsList), { status: 200 });
+  if (path.startsWith(LIST_PREFIX)) {
+    const total = jobsTotal ?? jobsList.length;
+    return new Response(JSON.stringify({ items: jobsList, total }), { status: 200 });
   }
   if (path === "/api/projects/p1/health") {
     return new Response(JSON.stringify(HEALTH), { status: 200 });
@@ -104,6 +109,7 @@ afterEach(() => {
 // and postResponse by the 409 test; later tests must not inherit either.
 beforeEach(() => {
   jobsList = [job()];
+  jobsTotal = null;
   postResponse = () => new Response(JSON.stringify(job({ id: "j9" })), { status: 201 });
   preflightResponse = () => new Response(JSON.stringify(PREFLIGHT), { status: 200 });
 });
@@ -200,6 +206,16 @@ test("the list asks for index and update jobs only", async () => {
   mount(true);
   await screen.findByText("排隊中");
   expect(apiMock).toHaveBeenCalledWith(LIST, expect.anything());
+});
+
+test("the history pages through the server instead of stopping at one page (R3-10)", async () => {
+  jobsTotal = 25;
+  mount(true);
+  await screen.findByText("排隊中");
+  await userEvent.click(screen.getByTitle("2"));
+  await waitFor(() => expect(apiMock).toHaveBeenCalledWith(
+    `${LIST_PREFIX}limit=20&offset=20`, expect.anything(),
+  ));
 });
 
 test("statuses render translated, unknown ones raw", async () => {

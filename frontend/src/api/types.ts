@@ -18,9 +18,11 @@ export type TagCatalog = components["schemas"]["TagCatalogOut"];
 export type BulkDeleteResult = components["schemas"]["BulkDeleteOut"];
 export type SettingsOut = components["schemas"]["SettingsOut"];
 export type SettingsVersionOut = components["schemas"]["VersionOut"];
+export type SettingsVersionPage = components["schemas"]["VersionPageOut"];
 export type SettingsVersionDetail = components["schemas"]["VersionDetailOut"];
 export type EnvKeyOut = components["schemas"]["EnvKeyOut"];
 export type Job = components["schemas"]["JobOut"];
+export type JobPage = components["schemas"]["JobPageOut"];
 export type LastRun = components["schemas"]["LastRunOut"];
 export type Preflight = components["schemas"]["PreflightOut"];
 export type ProjectHealth = components["schemas"]["HealthOut"];
@@ -71,10 +73,9 @@ export type GraphNode = components["schemas"]["GraphNodeOut"];
 export type GraphEdge = components["schemas"]["GraphEdgeOut"];
 export type GraphData = components["schemas"]["GraphOut"];
 
-// Error envelope (i18n spec §4.1): code/params are additive to the
-// legacy detail string. No backend response_model — hand-maintained.
-export interface ApiErrorBody {
-  detail?: string;
-  code?: string;
-  params?: Record<string, string | number>;
-}
+// Error envelopes (i18n spec §4.1), documented on every operation (R3-32):
+// ApiErrorBody for a 4xx, ValidationErrorBody for a 422, SettingsConflict
+// for the settings PUT 409.
+export type ApiErrorBody = components["schemas"]["ApiErrorOut"];
+export type ValidationErrorBody = components["schemas"]["ValidationErrorOut"];
+export type SettingsConflict = components["schemas"]["SettingsConflictOut"];

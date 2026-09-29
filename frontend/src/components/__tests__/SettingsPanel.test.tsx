@@ -38,6 +38,7 @@ let activeJob: { id: string; type: string } | null = null;
 
 // Same mock discipline as FilesPanel.test.tsx: branch by URL (and method for
 // PUT) so a wrong endpoint or body cannot silently pass on another call.
+let versionsTotal = 0;
 let putResponse: () => Response = () => new Response(JSON.stringify({ content_hash: "new" }), { status: 200 });
 const apiMock = vi.fn(async (path: string, init?: RequestInit) => {
   if (path === "/api/projects/p1/settings" && init?.method !== "PUT") {
@@ -46,8 +47,8 @@ const apiMock = vi.fn(async (path: string, init?: RequestInit) => {
   if (path === "/api/projects/p1/settings" && init?.method === "PUT") {
     return putResponse();
   }
-  if (path === "/api/projects/p1/settings/versions") {
-    return new Response(JSON.stringify([]), { status: 200 });
+  if (path.startsWith("/api/projects/p1/settings/versions?")) {
+    return new Response(JSON.stringify({ items: [], total: versionsTotal }), { status: 200 });
   }
   if (path === "/api/projects/p1/env") {
     return new Response(JSON.stringify({ keys: envKeys }), { status: 200 });
@@ -62,6 +63,7 @@ const apiMock = vi.fn(async (path: string, init?: RequestInit) => {
 });
 
 beforeEach(() => {
+  versionsTotal = 0;
   Object.assign(fixture, FIXTURE);
   envKeys = [];
   activeJob = null;
@@ -308,4 +310,14 @@ test("an invalid-YAML save stays inline with its line, not a parser-dump toast (
   const lineStart = ta.value.split("\n").slice(0, 2).join("\n").length + 1;
   await waitFor(() => expect(ta.selectionStart).toBe(lineStart));
   expect(ta).toHaveFocus();
+});
+
+test("the version history pages instead of stopping at 50 (R3-10)", async () => {
+  versionsTotal = 25;
+  mount();
+  await loadedYaml();
+  await userEvent.click(await screen.findByTitle("2"));
+  await waitFor(() => expect(apiMock).toHaveBeenCalledWith(
+    "/api/projects/p1/settings/versions?limit=20&offset=20", expect.anything(),
+  ));
 });

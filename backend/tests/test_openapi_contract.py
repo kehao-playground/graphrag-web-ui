@@ -5,9 +5,13 @@ FastAPI 0.141 keeps lazily-included routers as _IncludedRouter placeholders
 in app.routes, so the walk uses iter_route_contexts() — the same iterator
 the OpenAPI generator itself uses."""
 
+import uuid
+
 from fastapi.routing import APIRoute, iter_route_contexts
 
+from graphrag_ui.api.schemas import ApiErrorOut, ValidationErrorOut
 from graphrag_ui.main import create_app
+from tests.test_jobs_api import _setup_users
 
 KNOWN_UNTYPED = {
     "DELETE /api/admin/roles/{role_id}",
@@ -40,3 +44,46 @@ def test_untyped_endpoints_ratchet():
         if isinstance(rc.original_route, APIRoute) and rc.response_model is None
     }
     assert untyped == KNOWN_UNTYPED, f"response_model debt changed: {untyped ^ KNOWN_UNTYPED}"
+
+
+def _operations(schema: dict):
+    for path, item in schema["paths"].items():
+        for method, op in item.items():
+            yield f"{method.upper()} {path}", op
+
+
+def _ref(response: dict) -> str:
+    return response["content"]["application/json"]["schema"]["$ref"]
+
+
+def test_every_operation_documents_the_error_envelope():
+    """R3-32: every client error an operation can answer is in the contract.
+    4XX is the ApiError envelope; a 422 is its own shape (detail is a list)
+    and replaces FastAPI's HTTPValidationError, whose `input` field the
+    handler never sends (R1-80)."""
+    schema = create_app().openapi()
+    components = schema["components"]["schemas"]
+    assert "ApiErrorOut" in components and "ValidationErrorOut" in components
+    assert "HTTPValidationError" not in components
+    assert "ValidationError" not in components
+    for name, op in _operations(schema):
+        responses = op["responses"]
+        assert _ref(responses["4XX"]) == "#/components/schemas/ApiErrorOut", name
+        if "422" in responses:
+            assert _ref(responses["422"]) == "#/components/schemas/ValidationErrorOut", name
+    # route-specific shapes win over the range
+    put_settings = schema["paths"]["/api/projects/{pid}/settings"]["put"]["responses"]
+    assert _ref(put_settings["409"]) == "#/components/schemas/SettingsConflictOut"
+
+
+async def test_error_bodies_match_the_documented_models(client, app):
+    """The documented models describe what the handlers actually send."""
+    r = await client.post("/api/auth/login", json={})
+    assert r.status_code == 422
+    ValidationErrorOut.model_validate(r.json())
+
+    _, alice, _ = await _setup_users(client, app)
+    r = await client.get(f"/api/jobs/{uuid.uuid4()}", headers=alice)
+    assert r.status_code == 404
+    body = ApiErrorOut.model_validate(r.json())
+    assert body.code == "job_not_found"

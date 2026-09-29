@@ -17,6 +17,8 @@ from graphrag_ui.adapters.models import Job
 from graphrag_ui.api.deps import (
     CurrentUser,
     DbSession,
+    PageLimit,
+    PageOffset,
     Principal,
     ProjectRunJobs,
     ProjectView,
@@ -29,6 +31,7 @@ from graphrag_ui.api.schemas import (
     CancelOut,
     JobCreateIn,
     JobOut,
+    JobPageOut,
     PreflightOut,
 )
 from graphrag_ui.domain.jobs import TERMINAL_STATUSES, display_status
@@ -87,10 +90,12 @@ def register_jobs_routes(app):
         job = await jobs_service.enqueue(db, project, body.type, body.method, user.user)
         return job_out(job)
 
-    @router.get("/projects/{pid}/jobs", response_model=list[JobOut])
+    @router.get("/projects/{pid}/jobs", response_model=JobPageOut)
     async def list_jobs(
         project: ProjectView,
         db: DbSession,
+        limit: PageLimit = 50,
+        offset: PageOffset = 0,
         # Static Literal spelling of domain.jobs.JOB_TYPES (same posture
         # as JobCreateIn): validates, feeds the OpenAPI enum, and an
         # unknown type is a 422 rather than a silently empty list.
@@ -98,11 +103,13 @@ def register_jobs_routes(app):
         # both launchable types in one request (decision D2).
         type: Annotated[list[Literal["index", "update", "test_run"]] | None, Query()] = None,
     ):
-        # Server-side exclusion so the jobs page can drop test_run rows
-        # (spec 8).
-        return [
-            job_out(j) for j in await jobs_service.list_for_project(db, project.id, job_types=type)
-        ]
+        """Newest first, paged (at most 200 per page); total counts every
+        job matching `type`. Server-side exclusion so the jobs page can
+        drop test_run rows (spec 8)."""
+        jobs, total = await jobs_service.list_for_project(
+            db, project.id, limit=limit, offset=offset, job_types=type
+        )
+        return JobPageOut(items=[JobOut(**job_out(j)) for j in jobs], total=total)
 
     @router.get("/projects/{pid}/jobs/preflight", response_model=PreflightOut)
     async def preflight(project: ProjectView, db: DbSession):

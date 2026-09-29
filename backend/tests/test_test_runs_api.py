@@ -366,9 +366,12 @@ def test_count_regressions_ignores_lineages_missing_on_either_side():
 
 async def test_jobs_list_can_exclude_test_runs(client, project_with_jobs):
     alice, pid = project_with_jobs
-    all_jobs = (await client.get(f"/api/projects/{pid}/jobs", headers=alice)).json()
-    index_only = (await client.get(f"/api/projects/{pid}/jobs?type=index", headers=alice)).json()
+    all_jobs = (await client.get(f"/api/projects/{pid}/jobs", headers=alice)).json()["items"]
+    page = (await client.get(f"/api/projects/{pid}/jobs?type=index", headers=alice)).json()
+    index_only = page["items"]
     assert len(index_only) < len(all_jobs)
+    # total counts the filtered rows, not the project's whole history
+    assert page["total"] == len(index_only)
     assert all(j["type"] == "index" for j in index_only)
 
 
@@ -569,9 +572,9 @@ async def test_jobs_list_type_filter_repeats(client, project_with_jobs):
     """Decision D2: the jobs page asks for ?type=index&type=update in one
     request; a single-valued param would keep only the last value."""
     alice, pid = project_with_jobs
-    all_jobs = (await client.get(f"/api/projects/{pid}/jobs", headers=alice)).json()
+    all_jobs = (await client.get(f"/api/projects/{pid}/jobs", headers=alice)).json()["items"]
     r = await client.get(f"/api/projects/{pid}/jobs?type=index&type=update", headers=alice)
     assert r.status_code == 200
-    got = r.json()
+    got = r.json()["items"]
     assert {j["id"] for j in got} == {j["id"] for j in all_jobs if j["type"] != "test_run"}
     assert any(j["type"] == "test_run" for j in all_jobs)
