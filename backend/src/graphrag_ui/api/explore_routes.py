@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, Query, status
 from graphrag_ui.adapters.artifacts import ArtifactsNotIndexedError
 from graphrag_ui.api.deps import DbSession, ProjectView, get_current_user
 from graphrag_ui.api.errors import ApiError
+from graphrag_ui.api.schemas import ArtifactDetailOut, ArtifactPageOut, GraphOut
 from graphrag_ui.services.explore import (
     ExploreReadError,
     UnknownTableError,
@@ -51,7 +52,8 @@ def register_explore_routes(app):
     # (create_app() is called repeatedly in tests), auth on the router itself.
     router = APIRouter(prefix="/api/projects", dependencies=[Depends(get_current_user)])
 
-    @router.get("/{pid}/artifacts/graph")  # MUST register before {table}
+    # MUST register before {table}
+    @router.get("/{pid}/artifacts/graph", response_model=GraphOut)
     async def get_graph(
         project: ProjectView,
         db: DbSession,
@@ -62,7 +64,7 @@ def register_explore_routes(app):
         except _ExploreErrors as exc:
             raise _explore_error_http(exc) from None
 
-    @router.get("/{pid}/artifacts/{table}")
+    @router.get("/{pid}/artifacts/{table}", response_model=ArtifactPageOut)
     async def list_table(
         project: ProjectView,
         table: str,
@@ -87,7 +89,7 @@ def register_explore_routes(app):
         except _ExploreErrors as exc:
             raise _explore_error_http(exc) from None
 
-    @router.get("/{pid}/artifacts/{table}/{hrid}")
+    @router.get("/{pid}/artifacts/{table}/{hrid}", response_model=ArtifactDetailOut)
     async def get_row_detail(
         project: ProjectView,
         table: str,

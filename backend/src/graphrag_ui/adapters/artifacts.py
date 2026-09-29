@@ -159,7 +159,8 @@ def graph(root: Path, level: int | None = None, node_limit: int | None = None) -
             {
                 "hrid": int(hrid),
                 "title": title,
-                "type": type_,
+                # graph filters key on the type; a null one is "untyped"
+                "type": type_ or "",
                 "degree": int(degree),
                 "frequency": int(frequency),
                 "community": community_of.get(eid),

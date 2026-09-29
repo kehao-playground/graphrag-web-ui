@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query, status
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.api.deps import (
@@ -26,6 +26,7 @@ from graphrag_ui.api.deps import (
 )
 from graphrag_ui.api.errors import ApiError
 from graphrag_ui.api.query_routes import Method
+from graphrag_ui.api.schemas import CitationOut, QueryTimingsOut, UuidStr
 from graphrag_ui.domain.permissions import Atom, can
 from graphrag_ui.domain.test_runs import MATRIX_DEFAULT_RUNS
 from graphrag_ui.services import test_runs as test_runs_service
@@ -51,27 +52,17 @@ class RatingIn(BaseModel):
     note: str = ""
 
 
-def _uuid_to_str(v: object) -> object:
-    # pydantic 2 does not implicitly coerce UUID to str (ProjectOut's validator)
-    return str(v) if isinstance(v, uuid.UUID) else v
-
-
 class RunOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
-    set_id: str
-    job_id: str
-    index_job_id: str | None
+    id: UuidStr
+    set_id: UuidStr
+    job_id: UuidStr
+    index_job_id: UuidStr | None
     method: str
     workspace_config_revision: str | None
     started_at: datetime | None
     finished_at: datetime | None
-
-    @field_validator("id", "set_id", "job_id", "index_job_id", mode="before")
-    @classmethod
-    def _ids(cls, v: object) -> object:
-        return _uuid_to_str(v)
 
 
 class CellOut(BaseModel):
@@ -97,13 +88,8 @@ class RatingOut(BaseModel):
 
     score: str
     note: str
-    rated_by: str
+    rated_by: UuidStr
     rated_at: datetime
-
-    @field_validator("rated_by", mode="before")
-    @classmethod
-    def _rated_by(cls, v: object) -> object:
-        return _uuid_to_str(v)
 
 
 class ResultOut(BaseModel):
@@ -112,8 +98,8 @@ class ResultOut(BaseModel):
     question_id: str
     question_text: str
     answer: str | None
-    citations: list | None
-    timings: dict | None
+    citations: list[CitationOut] | None
+    timings: QueryTimingsOut | None
     error: str | None
     completed_at: datetime | None
     rating: RatingOut | None
@@ -188,8 +174,16 @@ def register_test_runs_routes(app):
                     question_id=str(result.question_id),
                     question_text=result.question_text,
                     answer=result.answer,
-                    citations=result.citations,
-                    timings=result.timings,
+                    citations=(
+                        [CitationOut.model_validate(c) for c in result.citations]
+                        if result.citations is not None
+                        else None
+                    ),
+                    timings=(
+                        QueryTimingsOut.model_validate(result.timings)
+                        if result.timings is not None
+                        else None
+                    ),
                     error=result.error,
                     completed_at=result.completed_at,
                     rating=RatingOut.model_validate(rating) if rating is not None else None,

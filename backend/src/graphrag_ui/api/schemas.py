@@ -1,9 +1,14 @@
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Literal, Protocol
+from typing import Annotated, Any, Literal, Protocol
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, EmailStr, Field
+
+# pydantic 2 does not coerce UUID to str, and the ORM ids are UUIDs: every
+# response id field is declared UuidStr so the wire type stays a plain
+# string (types.generated.ts keeps `string`) without a validator per model.
+UuidStr = Annotated[str, BeforeValidator(lambda v: str(v) if isinstance(v, UUID) else v)]
 
 
 class LoginIn(BaseModel):
@@ -26,7 +31,7 @@ class RoleOut(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
+    id: UuidStr
     scope: str
     name: str
     description: str
@@ -35,29 +40,17 @@ class RoleOut(BaseModel):
     user_count: int | None = None
     member_count: int | None = None
 
-    @field_validator("id", mode="before")
-    @classmethod
-    def _uuid_to_str(cls, v: object) -> object:
-        # pydantic 2 does not implicitly coerce UUID to str; Role.id is a UUID
-        return str(v) if isinstance(v, UUID) else v
-
 
 class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
+    id: UuidStr
     email: EmailStr
     display_name: str
     roles: list[RoleOut] = []
     permissions: list[str] = []  # union of roles' atoms (spec §7)
     is_active: bool
     must_change_password: bool
-
-    @field_validator("id", mode="before")
-    @classmethod
-    def _uuid_to_str(cls, v: object) -> object:
-        # pydantic 2 does not implicitly coerce UUID to str; User.id is a UUID
-        return str(v) if isinstance(v, UUID) else v
 
 
 class _UserLike(Protocol):
@@ -102,15 +95,10 @@ class UserBriefOut(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
+    id: UuidStr
     email: EmailStr
     display_name: str
     is_active: bool
-
-    @field_validator("id", mode="before")
-    @classmethod
-    def _uuid_to_str(cls, v: object) -> object:
-        return str(v) if isinstance(v, UUID) else v
 
 
 class LoginOut(BaseModel):
@@ -128,6 +116,13 @@ class AuthConfigOut(BaseModel):
     """Runtime auth mode for SPA boot detection (spec §5.3)."""
 
     auth_mode: Literal["local", "proxy"]
+
+
+class LivenessOut(BaseModel):
+    """GET /api/health: the process answers. Named apart from the
+    per-project HealthOut, which is the knowledge-base aggregate."""
+
+    status: Literal["ok"]
 
 
 class ReadyOut(BaseModel):
@@ -150,9 +145,18 @@ class JobCreateIn(BaseModel):
     method: Literal["standard", "fast"]
 
 
+class JobProgressOut(BaseModel):
+    """Batch progress the test-run worker ticks between questions (spec
+    §5.4): `done` of `total` questions answered."""
+
+    done: int
+    total: int
+
+
 class JobOut(BaseModel):
-    """API contract for a job row; frontend types.ts mirrors these keys
-    (spec §6.1). argv included so the UI can show the exact CLI invocation."""
+    """API contract for a job row (spec §6.1). argv included so the UI can
+    show the exact CLI invocation; progress is null for jobs that report
+    none."""
 
     id: str
     project_id: str
@@ -169,6 +173,11 @@ class JobOut(BaseModel):
     started_at: datetime | None
     finished_at: datetime | None
     argv: list[str]
+    progress: JobProgressOut | None
+
+
+class CancelOut(BaseModel):
+    detail: str
 
 
 class LastRunOut(BaseModel):
@@ -216,3 +225,91 @@ class AuditPageOut(BaseModel):
 
     rows: list[AuditEntryOut]
     total: int
+
+
+class CitationEntryOut(BaseModel):
+    id: int
+    # null when the cited id is absent from the frame (the LLM cites ids
+    # that were never indexed)
+    text: str | None
+    # Resolved WITH the answer (spec §7.4); null when the generation guard
+    # withheld links, the title mapped to nothing, or the label is not
+    # "Sources". Defaulted: result rows stored before the field existed
+    # carry no key.
+    source_name: str | None = None
+
+
+class CitationOut(BaseModel):
+    """One `[Data: <label> (ids)]` group of an answer. The same shape is
+    the SSE `citations` event payload and a stored test result's
+    citations."""
+
+    label: str
+    ids: list[int]
+    entries: list[CitationEntryOut]
+
+
+class QueryTimingsOut(BaseModel):
+    """Also the SSE `done` event payload."""
+
+    frames_ms: float
+    search_ms: float
+    citations_ms: float
+    total_ms: float
+
+
+class ContextFrameOut(BaseModel):
+    name: str
+    rows: int
+
+
+class QueryOut(BaseModel):
+    answer: str
+    context: list[ContextFrameOut]
+    citations: list[CitationOut]
+    timings: QueryTimingsOut
+
+
+class ArtifactPageOut(BaseModel):
+    """One page of a parquet table. Rows are projections of the table's
+    list columns, so their keys vary per table."""
+
+    rows: list[dict[str, Any]]
+    total: int
+    # a job is queued or running: the parquet files may be mid-rewrite
+    stale: bool
+
+
+class ArtifactDetailOut(BaseModel):
+    row: dict[str, Any]
+    stale: bool
+
+
+class GraphNodeOut(BaseModel):
+    hrid: int
+    title: str
+    type: str  # "" when the entity has none
+    degree: int
+    frequency: int
+    # the node's community at the requested level; null when it has none
+    community: int | None
+
+
+class GraphEdgeOut(BaseModel):
+    # entity titles, matching GraphNodeOut.title
+    source: str
+    target: str
+    weight: float
+
+
+class GraphOut(BaseModel):
+    level: int
+    levels: list[int]
+    nodes: list[GraphNodeOut]
+    edges: list[GraphEdgeOut]
+    # GRAPH_NODE_LIMIT capped the response: the highest-degree nodes were
+    # kept and edges to cut nodes went with them. node_limit is null when
+    # uncapped.
+    truncated: bool
+    node_limit: int | None
+    stale: bool

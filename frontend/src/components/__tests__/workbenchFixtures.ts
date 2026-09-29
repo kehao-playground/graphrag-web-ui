@@ -99,7 +99,7 @@ export const RESULTS_RUN4 = {
       answer: null, citations: null, timings: null, error: null,
       completed_at: null, rating: null },
     { id: "r4", question_id: "q-7", position: 8, question_text: "Q7 發票怎麼開",
-      answer: null, citations: null, timings: null, error: "boom",
+      answer: null, citations: null, timings: null, error: "query failed",
       completed_at: "2026-09-04T10:08:00Z", rating: null },
   ],
 };

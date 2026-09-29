@@ -41,6 +41,7 @@ export type Matrix = components["schemas"]["MatrixOut"];
 export type ResultList = components["schemas"]["ResultListOut"];
 export type AuditEntry = components["schemas"]["AuditEntryOut"];
 export type AuditPage = components["schemas"]["AuditPageOut"];
+export type JobProgress = components["schemas"]["JobProgressOut"];
 
 // display_status → antd Tag color; unknown statuses fall back to "default".
 // no backend response_model yet — hand-maintained (spec A5.2)
@@ -53,56 +54,22 @@ export const JobStatusColor: Record<string, string> = {
   "failed(interrupted)": "volcano",
   cancelled: "default",
 };
-// Query tab (Task 5): mirrors the SSE stream contract of
-// GET /api/projects/{id}/query/stream — citations events carry [Citation],
-// done events carry QueryTimings.
-// no backend response_model yet — hand-maintained (spec A5.2)
-export type QueryMethod = "local" | "global" | "drift" | "basic";
-// no backend response_model yet — hand-maintained (spec A5.2)
-export interface Citation {
-  label: string; ids: number[];
-  // source_name is resolved WITH the answer (spec §7.4) and is null when
-  // the generation guard withheld links, when the title mapped to nothing,
-  // or when the label is not "Sources". `npm run gen:types` will not
-  // produce this — the SSE contract has no backend response_model.
-  entries: { id: number; text: string | null; source_name: string | null }[];
-}
-// no backend response_model yet — hand-maintained (spec A5.2)
-export interface QueryTimings {
-  frames_ms: number; search_ms: number; citations_ms: number; total_ms: number;
-}
-// Explore tab (Task 4): mirrors the GET /api/projects/{id}/artifacts/* JSON
-// envelopes. Rows are projections of the parquet list_columns; the detail row
-// is the full record. Graph* types are consumed by GraphView (Task 5).
-// no backend response_model yet — hand-maintained (spec A5.2)
+// Query tab: the POST /query body, whose citations/timings are also the
+// SSE stream's `citations` and `done` event payloads (the stream route
+// itself has no response_model — its frames reuse these shapes).
+export type QueryMethod = components["schemas"]["QueryIn"]["method"];
+export type Citation = components["schemas"]["CitationOut"];
+export type QueryTimings = components["schemas"]["QueryTimingsOut"];
+// Explore tab: GET /api/projects/{id}/artifacts/*.
+// The table name is a path parameter, so it has no schema to alias.
 export type ArtifactTableName =
   | "entities" | "relationships" | "communities"
   | "community_reports" | "text_units" | "documents";
-// no backend response_model yet — hand-maintained (spec A5.2)
-export interface ArtifactPage {
-  rows: Record<string, unknown>[];
-  total: number;
-  stale: boolean;
-}
-// no backend response_model yet — hand-maintained (spec A5.2)
-export interface ArtifactDetail {
-  row: Record<string, unknown>;
-  stale: boolean;
-}
-// no backend response_model yet — hand-maintained (spec A5.2)
-export interface GraphNode {
-  hrid: number; title: string; type: string;
-  degree: number; frequency: number; community: number | null;
-}
-// no backend response_model yet — hand-maintained (spec A5.2)
-export interface GraphEdge { source: string; target: string; weight: number }
-// no backend response_model yet — hand-maintained (spec A5.2)
-export interface GraphData {
-  level: number; levels: number[]; nodes: GraphNode[]; edges: GraphEdge[]; stale: boolean;
-  // GRAPH_NODE_LIMIT capped the response: the highest-degree nodes were kept
-  // and edges to cut nodes went with them. node_limit is null when uncapped.
-  truncated: boolean; node_limit: number | null;
-}
+export type ArtifactPage = components["schemas"]["ArtifactPageOut"];
+export type ArtifactDetail = components["schemas"]["ArtifactDetailOut"];
+export type GraphNode = components["schemas"]["GraphNodeOut"];
+export type GraphEdge = components["schemas"]["GraphEdgeOut"];
+export type GraphData = components["schemas"]["GraphOut"];
 
 // Error envelope (i18n spec §4.1): code/params are additive to the
 // legacy detail string. No backend response_model — hand-maintained.

@@ -48,18 +48,11 @@ async def project_health(session: AsyncSession, project: Project) -> dict:
     # is rule 3's overview case, not artifact wreckage (spec 7.5).
     artifacts_stale = base is not None and base.artifact_epoch != project.artifact_epoch
 
-    last = (
-        await session.execute(
-            select(Job)
-            .where(
-                Job.project_id == project.id,
-                Job.type.in_(("index", "update")),
-                Job.finished_at.is_not(None),
-            )
-            .order_by(Job.finished_at.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
+    # last_index is the newest SUCCESS — the output the project answers
+    # from; last_attempt is the newest finish of any status, so a failed or
+    # cancelled job reads as an attempt, never as a fresh index (R3-06).
+    last = await _last_finished_index(session, project.id, succeeded_only=True)
+    attempt = await _last_finished_index(session, project.id, succeeded_only=False)
     active = await jobs_service.active_job(session, project.id)
 
     return {
@@ -70,6 +63,16 @@ async def project_health(session: AsyncSession, project: Project) -> dict:
         "last_index": (
             {"job_id": str(last.id), "type": last.type, "finished_at": last.finished_at}
             if last is not None
+            else None
+        ),
+        "last_attempt": (
+            {
+                "job_id": str(attempt.id),
+                "type": attempt.type,
+                "status": attempt.status,
+                "finished_at": attempt.finished_at,
+            }
+            if attempt is not None
             else None
         ),
         "active_job": ({"id": str(active.id), "type": active.type} if active is not None else None),
@@ -111,8 +114,31 @@ async def batch_health(
                 if health["last_index"] is not None
                 else None
             ),
+            "last_attempt": (
+                {
+                    "status": health["last_attempt"]["status"],
+                    "finished_at": health["last_attempt"]["finished_at"],
+                }
+                if health["last_attempt"] is not None
+                else None
+            ),
         }
     return out
+
+
+async def _last_finished_index(
+    session: AsyncSession, project_id: uuid.UUID, *, succeeded_only: bool
+) -> Job | None:
+    stmt = select(Job).where(
+        Job.project_id == project_id,
+        Job.type.in_(("index", "update")),
+        Job.finished_at.is_not(None),
+    )
+    if succeeded_only:
+        stmt = stmt.where(Job.status == "succeeded")
+    return (
+        await session.execute(stmt.order_by(Job.finished_at.desc()).limit(1))
+    ).scalar_one_or_none()
 
 
 async def _latest_run(session: AsyncSession, project_id: uuid.UUID) -> dict | None:

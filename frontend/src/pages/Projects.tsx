@@ -92,9 +92,14 @@ export default function Projects() {
         // project whose only fault is removed documents must not read
         // healthy.
         const pending = h.files.new + h.files.modified;
-        if (h.files.removed === 0 && pending === 0) return null;
+        // last_attempt is the newest finish of any status, so a failure
+        // there is newer than the last success. A cancel is the user's
+        // own choice, not a fault to flag.
+        const failed = h.last_attempt?.status === "failed";
+        if (h.files.removed === 0 && pending === 0 && !failed) return null;
         return (
           <>
+            {failed && <Tag color="red">{t("projects.healthAttemptFailed")}</Tag>}
             {h.files.removed > 0 && (
               <Tag color="red">{t("projects.healthRemoved")}</Tag>
             )}

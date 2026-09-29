@@ -20,6 +20,7 @@ const H = (over: Partial<ActionHealth> = {}): ActionHealth => ({
   has_baseline: true,
   ingest_check: "available",
   last_index: { job_id: "j0" },
+  last_attempt: { job_id: "j0", status: "succeeded" },
   latest_run: null,
   ...over,
 });
@@ -41,21 +42,28 @@ test("a running test run's card leads to the workbench", () => {
 // full index of nothing, and it is not an error.
 test("a project without documents asks for an upload, as info", () => {
   const a = nextAction(H({
-    files: { ...H().files, total: 0 }, has_baseline: false, last_index: null, api_key_missing: true,
+    files: { ...H().files, total: 0 }, has_baseline: false, last_index: null, last_attempt: null,
+    api_key_missing: true,
   }));
   expect(a).toEqual({ key: "noDocuments", severity: "info", target: "files" });
 });
 
 // F9-01: a placeholder key fails the index at its first model call.
 test("a missing API key ranks right after documents, before any index advice", () => {
-  const a = nextAction(H({ api_key_missing: true, has_baseline: false, last_index: null }));
+  const a = nextAction(H({
+    api_key_missing: true, has_baseline: false, last_index: null, last_attempt: null,
+  }));
   expect(a).toEqual({ key: "apiKeyMissing", severity: "warning", target: "settings" });
   expect(nextAction(H({ api_key_missing: true, artifacts_stale: true })).key).toBe("apiKeyMissing");
 });
 
 test("no baseline is info before any index ran, an error after one failed", () => {
-  expect(nextAction(H({ has_baseline: false, last_index: null })).severity).toBe("info");
-  expect(nextAction(H({ has_baseline: false })).severity).toBe("error");
+  const none = { has_baseline: false, last_index: null, last_attempt: null };
+  expect(nextAction(H(none)).severity).toBe("info");
+  // R3-06: a failed first index has no last_index (successes only) — the
+  // attempt is what says an index ran.
+  const failed = { ...none, last_attempt: { job_id: "j1", status: "failed" } };
+  expect(nextAction(H(failed)).severity).toBe("error");
 });
 
 // R4-05: the skipped card leads to the evidence (the run's log), not to a
@@ -111,6 +119,9 @@ const CLEAN = {
   has_baseline: true,
   ingest_check: "available",
   last_index: { job_id: "j0", type: "index", finished_at: "2026-09-04T00:00:00Z" },
+  last_attempt: {
+    job_id: "j0", type: "index", status: "succeeded", finished_at: "2026-09-04T00:00:00Z",
+  } as Record<string, string>,
   latest_run: null,
 };
 
@@ -133,6 +144,7 @@ function renderOverview(over: {
   artifacts_stale?: boolean;
   files?: Partial<(typeof CLEAN)["files"]>;
   ingest_check?: string;
+  last_attempt?: Record<string, string>;
 } = {}) {
   healthBody = { ...CLEAN, ...over, files: { ...CLEAN.files, ...(over.files ?? {}) } };
   return render(
@@ -187,4 +199,22 @@ test("a placeholder API key sends the user to settings", async () => {
   renderOverview({ api_key_missing: true });
   expect(await screen.findByRole("link", { name: /前往設定/ }))
     .toHaveAttribute("href", "/projects/p1/settings");
+});
+
+// R3-06: a failure newer than the last index is shown as an attempt, in
+// red, next to the index it did not replace.
+test("a failed attempt after the last index is shown apart from it", async () => {
+  renderOverview({
+    last_attempt: {
+      job_id: "j9", type: "index", status: "failed", finished_at: "2026-09-05T00:00:00Z",
+    },
+  });
+  const line = await screen.findByText(/最近一次嘗試：失敗/);
+  expect(line.closest(".ant-typography")).toHaveClass("ant-typography-danger");
+});
+
+test("a succeeded last attempt adds no attempt line", async () => {
+  renderOverview();
+  await screen.findByText(/最近一次索引/);
+  expect(screen.queryByText(/最近一次嘗試/)).not.toBeInTheDocument();
 });

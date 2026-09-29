@@ -532,7 +532,9 @@ existing audit log (`test.rated`), not by row versioning.
   spawn no CLI.
 - `progress` (JSON, nullable) — `{done, total}`, written by the test-run
   service between questions so the UI can show batch progress without a
-  new streaming mechanism.
+  new streaming mechanism. `JobOut.progress` carries it (so the preflight's
+  `active_job` does too), and the workbench's running-job notice renders
+  it as "3 of 20 questions answered" (R3-07).
 
 ## 6. Per-file index state
 
@@ -851,7 +853,11 @@ caller bug, not a silent empty list.
 
 Per-question failures do not fail the run: `test_results.error` records
 them, the matrix marks that cell errored, and the remaining questions
-still execute. Cancellation keeps the results already produced.
+still execute. The recorded text is the fixed `query failed`, never the
+exception: every project viewer reads the row, and provider error bodies,
+URLs and workspace paths stay in the server log with the run id and
+position — the interactive query path's no-leak posture (R2-07; migration
+`d41c7e2b9a15` scrubs rows written before). Cancellation keeps the results already produced.
 
 ### 7.3 Concurrency, rate limiting, cost
 
@@ -1142,6 +1148,9 @@ GET /api/projects/{id}/health
   artifacts_stale: bool         -- projects.artifact_epoch !=
                                 -- baseline.artifact_epoch (§7.4)
   last_index: {job_id, type, finished_at} | null
+                                -- newest SUCCEEDED index/update
+  last_attempt: {job_id, type, status, finished_at} | null
+                                -- newest finished index/update, any status
   active_job: {id, type} | null
   latest_run: {run_id, set_id, method, index_job_id,
                ratings: {good, fair, poor, unrated},
@@ -1163,6 +1172,12 @@ corrupt is not covered (§6.3). Its files still report
 `indexed` from the baseline, which is why the overview must call it out
 (action card 4, §9.3) instead of scoring the project healthy.
 
+`last_index` and `last_attempt` are split because a failed or cancelled
+job is not an index the project answers from: reporting it as
+`last_index` showed a failure as a fresh index date (R3-06). The overview
+shows a non-succeeded `last_attempt` in red beside the last index, and
+the list flags a failed one.
+
 `regressions` is computed server-side (count of lineages whose newest
 rating is worse than the previous run's) because the overview must state
 it without downloading every result — the first design promised only a
@@ -1175,7 +1190,8 @@ GET /api/projects/health?ids=<uuid,uuid,...>
 
 returns the compact subset the project list needs — `files.new`,
 `files.modified`, `files.removed`, **`files.skipped`**, **`ingest_check`**,
-`artifacts_stale`, `has_baseline`, `last_index.finished_at` — one round
+`artifacts_stale`, `has_baseline`, `last_index.finished_at`,
+`last_attempt.{status, finished_at}` — one round
 trip for the whole list, filtered to projects the caller can see. Without it the list would
 issue one request per project.
 
@@ -1320,12 +1336,11 @@ set in one action.
   (asking is what a first visit is for). The matrix mode then shows an empty
   state with *Create question set* in place of the picker, and the launch
   button reads *Run the set* until the project has a run.
-- **`Citation` is hand-maintained**, not generated: it lives in
-  `frontend/src/api/types.ts:34` because the SSE contract has no backend
-  `response_model`. It gains `entries[].source_name: string | null`, and
-  `null` — the generation guard, an unrecoverable title, or a non-`Sources`
-  label — is what renders unlinked. `npm run gen:types` will not do this
-  one; it has to be edited by hand alongside the schema change.
+- **`Citation` is generated** from `CitationOut` (the `POST /query`
+  response model, whose `citations`/`timings` shapes the SSE `citations`
+  and `done` frames reuse; R1-12). `entries[].source_name: string | null`
+  — `null` for the generation guard, an unrecoverable title, or a
+  non-`Sources` label — is what renders unlinked.
 
 ### 9.3 Slice ③ — Wiring
 
@@ -1353,7 +1368,7 @@ set in one action.
      absence is legible rather than mysterious.
   5. no `has_baseline` → run a **full index** to establish a trustworthy
      baseline (an update will not do it — §5.2). *Info* while no index
-     has ever finished (`last_index` null), an error once one has.
+     has ever finished (`last_attempt` null), an error once one has.
   6. `removed > 0` → deleted documents are still answering queries; only
      a **full index** clears them.
   7. `new + modified > 0` → rebuild; link to `files?state=new,modified`.

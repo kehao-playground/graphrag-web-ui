@@ -19,6 +19,53 @@
         "title": "ActiveJobOut",
         "type": "object"
       },
+      "ArtifactDetailOut": {
+        "properties": {
+          "row": {
+            "additionalProperties": true,
+            "title": "Row",
+            "type": "object"
+          },
+          "stale": {
+            "title": "Stale",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "row",
+          "stale"
+        ],
+        "title": "ArtifactDetailOut",
+        "type": "object"
+      },
+      "ArtifactPageOut": {
+        "description": "One page of a parquet table. Rows are projections of the table's\nlist columns, so their keys vary per table.",
+        "properties": {
+          "rows": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "stale": {
+            "title": "Stale",
+            "type": "boolean"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "rows",
+          "total",
+          "stale"
+        ],
+        "title": "ArtifactPageOut",
+        "type": "object"
+      },
       "AuditEntryOut": {
         "description": "One audit row, with the actor resolved to an email.\n\nactor_id/actor_email are both null for rows the system wrote with no\nsigned-in actor (bootstrap admin creation), and actor_email alone is\nnull when the actor's user row is gone \u2014 the history stays readable\neither way.",
         "properties": {
@@ -178,6 +225,16 @@
             "title": "Ingest Check",
             "type": "string"
           },
+          "last_attempt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BatchLastAttemptOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "last_index": {
             "anyOf": [
               {
@@ -194,7 +251,8 @@
           "ingest_check",
           "artifacts_stale",
           "has_baseline",
-          "last_index"
+          "last_index",
+          "last_attempt"
         ],
         "title": "BatchHealthEntryOut",
         "type": "object"
@@ -213,6 +271,25 @@
           "projects"
         ],
         "title": "BatchHealthOut",
+        "type": "object"
+      },
+      "BatchLastAttemptOut": {
+        "properties": {
+          "finished_at": {
+            "format": "date-time",
+            "title": "Finished At",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "finished_at"
+        ],
+        "title": "BatchLastAttemptOut",
         "type": "object"
       },
       "BatchLastIndexOut": {
@@ -288,6 +365,19 @@
         "title": "BulkDeleteOut",
         "type": "object"
       },
+      "CancelOut": {
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "CancelOut",
+        "type": "object"
+      },
       "CellOut": {
         "properties": {
           "completed": {
@@ -352,6 +442,90 @@
           "new_password"
         ],
         "title": "ChangePasswordIn",
+        "type": "object"
+      },
+      "CitationEntryOut": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "source_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Name"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          }
+        },
+        "required": [
+          "id",
+          "text"
+        ],
+        "title": "CitationEntryOut",
+        "type": "object"
+      },
+      "CitationOut": {
+        "description": "One `[Data: <label> (ids)]` group of an answer. The same shape is\nthe SSE `citations` event payload and a stored test result's\ncitations.",
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/CitationEntryOut"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Ids",
+            "type": "array"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "ids",
+          "entries"
+        ],
+        "title": "CitationOut",
+        "type": "object"
+      },
+      "ContextFrameOut": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "rows": {
+            "title": "Rows",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "rows"
+        ],
+        "title": "ContextFrameOut",
         "type": "object"
       },
       "DryRunOut": {
@@ -588,6 +762,133 @@
         "title": "FileOut",
         "type": "object"
       },
+      "GraphEdgeOut": {
+        "properties": {
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          },
+          "weight": {
+            "title": "Weight",
+            "type": "number"
+          }
+        },
+        "required": [
+          "source",
+          "target",
+          "weight"
+        ],
+        "title": "GraphEdgeOut",
+        "type": "object"
+      },
+      "GraphNodeOut": {
+        "properties": {
+          "community": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Community"
+          },
+          "degree": {
+            "title": "Degree",
+            "type": "integer"
+          },
+          "frequency": {
+            "title": "Frequency",
+            "type": "integer"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "integer"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "hrid",
+          "title",
+          "type",
+          "degree",
+          "frequency",
+          "community"
+        ],
+        "title": "GraphNodeOut",
+        "type": "object"
+      },
+      "GraphOut": {
+        "properties": {
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/GraphEdgeOut"
+            },
+            "title": "Edges",
+            "type": "array"
+          },
+          "level": {
+            "title": "Level",
+            "type": "integer"
+          },
+          "levels": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Levels",
+            "type": "array"
+          },
+          "node_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Limit"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/GraphNodeOut"
+            },
+            "title": "Nodes",
+            "type": "array"
+          },
+          "stale": {
+            "title": "Stale",
+            "type": "boolean"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "level",
+          "levels",
+          "nodes",
+          "edges",
+          "truncated",
+          "node_limit",
+          "stale"
+        ],
+        "title": "GraphOut",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -632,6 +933,16 @@
             "title": "Ingest Check",
             "type": "string"
           },
+          "last_attempt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LastAttemptOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "last_index": {
             "anyOf": [
               {
@@ -659,6 +970,7 @@
           "has_baseline",
           "artifacts_stale",
           "last_index",
+          "last_attempt",
           "active_job",
           "latest_run",
           "api_key_missing"
@@ -693,7 +1005,7 @@
         "type": "object"
       },
       "JobOut": {
-        "description": "API contract for a job row; frontend types.ts mirrors these keys\n(spec \u00a76.1). argv included so the UI can show the exact CLI invocation.",
+        "description": "API contract for a job row (spec \u00a76.1). argv included so the UI can\nshow the exact CLI invocation; progress is null for jobs that report\nnone.",
         "properties": {
           "argv": {
             "items": {
@@ -760,6 +1072,16 @@
             "title": "Method",
             "type": "string"
           },
+          "progress": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JobProgressOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "project_id": {
             "title": "Project Id",
             "type": "string"
@@ -821,12 +1143,63 @@
           "queued_at",
           "started_at",
           "finished_at",
-          "argv"
+          "argv",
+          "progress"
         ],
         "title": "JobOut",
         "type": "object"
       },
+      "JobProgressOut": {
+        "description": "Batch progress the test-run worker ticks between questions (spec\n\u00a75.4): `done` of `total` questions answered.",
+        "properties": {
+          "done": {
+            "title": "Done",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "done",
+          "total"
+        ],
+        "title": "JobProgressOut",
+        "type": "object"
+      },
+      "LastAttemptOut": {
+        "description": "The newest finished index or update of any status; differs from\nlast_index when a later job failed or was cancelled.",
+        "properties": {
+          "finished_at": {
+            "format": "date-time",
+            "title": "Finished At",
+            "type": "string"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "type",
+          "status",
+          "finished_at"
+        ],
+        "title": "LastAttemptOut",
+        "type": "object"
+      },
       "LastIndexOut": {
+        "description": "The newest SUCCEEDED index or update: the output the project\nanswers from.",
         "properties": {
           "finished_at": {
             "format": "date-time",
@@ -959,6 +1332,21 @@
           "regressions"
         ],
         "title": "LatestRunOut",
+        "type": "object"
+      },
+      "LivenessOut": {
+        "description": "GET /api/health: the process answers. Named apart from the\nper-project HealthOut, which is the knowledge-base aggregate.",
+        "properties": {
+          "status": {
+            "const": "ok",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "LivenessOut",
         "type": "object"
       },
       "LoginIn": {
@@ -1337,6 +1725,7 @@
             "type": "string"
           },
           "query": {
+            "maxLength": 2000,
             "minLength": 1,
             "title": "Query",
             "type": "string"
@@ -1344,6 +1733,7 @@
           "response_type": {
             "anyOf": [
               {
+                "maxLength": 100,
                 "type": "string"
               },
               {
@@ -1358,6 +1748,68 @@
           "query"
         ],
         "title": "QueryIn",
+        "type": "object"
+      },
+      "QueryOut": {
+        "properties": {
+          "answer": {
+            "title": "Answer",
+            "type": "string"
+          },
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/CitationOut"
+            },
+            "title": "Citations",
+            "type": "array"
+          },
+          "context": {
+            "items": {
+              "$ref": "#/components/schemas/ContextFrameOut"
+            },
+            "title": "Context",
+            "type": "array"
+          },
+          "timings": {
+            "$ref": "#/components/schemas/QueryTimingsOut"
+          }
+        },
+        "required": [
+          "answer",
+          "context",
+          "citations",
+          "timings"
+        ],
+        "title": "QueryOut",
+        "type": "object"
+      },
+      "QueryTimingsOut": {
+        "description": "Also the SSE `done` event payload.",
+        "properties": {
+          "citations_ms": {
+            "title": "Citations Ms",
+            "type": "number"
+          },
+          "frames_ms": {
+            "title": "Frames Ms",
+            "type": "number"
+          },
+          "search_ms": {
+            "title": "Search Ms",
+            "type": "number"
+          },
+          "total_ms": {
+            "title": "Total Ms",
+            "type": "number"
+          }
+        },
+        "required": [
+          "frames_ms",
+          "search_ms",
+          "citations_ms",
+          "total_ms"
+        ],
+        "title": "QueryTimingsOut",
         "type": "object"
       },
       "QuestionIn": {
@@ -1617,7 +2069,9 @@
           "citations": {
             "anyOf": [
               {
-                "items": {},
+                "items": {
+                  "$ref": "#/components/schemas/CitationOut"
+                },
                 "type": "array"
               },
               {
@@ -1678,14 +2132,12 @@
           "timings": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/QueryTimingsOut"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Timings"
+            ]
           }
         },
         "required": [
@@ -2155,6 +2607,8 @@
       "UserCreateIn": {
         "properties": {
           "display_name": {
+            "maxLength": 100,
+            "minLength": 1,
             "title": "Display Name",
             "type": "string"
           },
@@ -2241,6 +2695,8 @@
           "display_name": {
             "anyOf": [
               {
+                "maxLength": 100,
+                "minLength": 1,
                 "type": "string"
               },
               {
@@ -3025,7 +3481,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/LivenessOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -3098,7 +3556,9 @@
           "202": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/CancelOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -3489,7 +3949,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/GraphOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -3612,7 +4074,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactPageOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -3673,7 +4137,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactDetailOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -4713,7 +5179,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/QueryOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -4771,6 +5239,7 @@
             "name": "query",
             "required": true,
             "schema": {
+              "maxLength": 2000,
               "minLength": 1,
               "title": "Query",
               "type": "string"
@@ -4783,6 +5252,7 @@
             "schema": {
               "anyOf": [
                 {
+                  "maxLength": 100,
                   "type": "string"
                 },
                 {

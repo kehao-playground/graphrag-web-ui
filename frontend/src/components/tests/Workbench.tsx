@@ -359,6 +359,9 @@ export default function Workbench({ projectId, canUse, canRunJobs, canEdit }: {
               type="warning"
               showIcon
               message={t("workbench.jobRunning", { type: jobTypeLabel(activeJob.type, t) })}
+              description={activeJob.progress
+                ? t("workbench.jobProgress", activeJob.progress)
+                : undefined}
             />
           )}
 

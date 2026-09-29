@@ -903,6 +903,30 @@ export interface components {
             /** Type */
             type: string;
         };
+        /** ArtifactDetailOut */
+        ArtifactDetailOut: {
+            /** Row */
+            row: {
+                [key: string]: unknown;
+            };
+            /** Stale */
+            stale: boolean;
+        };
+        /**
+         * ArtifactPageOut
+         * @description One page of a parquet table. Rows are projections of the table's
+         *     list columns, so their keys vary per table.
+         */
+        ArtifactPageOut: {
+            /** Rows */
+            rows: {
+                [key: string]: unknown;
+            }[];
+            /** Stale */
+            stale: boolean;
+            /** Total */
+            total: number;
+        };
         /**
          * AuditEntryOut
          * @description One audit row, with the actor resolved to an email.
@@ -980,6 +1004,7 @@ export interface components {
             has_baseline: boolean;
             /** Ingest Check */
             ingest_check: string;
+            last_attempt: components["schemas"]["BatchLastAttemptOut"] | null;
             last_index: components["schemas"]["BatchLastIndexOut"] | null;
         };
         /** BatchHealthOut */
@@ -988,6 +1013,16 @@ export interface components {
             projects: {
                 [key: string]: components["schemas"]["BatchHealthEntryOut"];
             };
+        };
+        /** BatchLastAttemptOut */
+        BatchLastAttemptOut: {
+            /**
+             * Finished At
+             * Format: date-time
+             */
+            finished_at: string;
+            /** Status */
+            status: string;
         };
         /** BatchLastIndexOut */
         BatchLastIndexOut: {
@@ -1016,6 +1051,11 @@ export interface components {
             /** Failed */
             failed: string[];
         };
+        /** CancelOut */
+        CancelOut: {
+            /** Detail */
+            detail: string;
+        };
         /** CellOut */
         CellOut: {
             /** Completed */
@@ -1035,6 +1075,36 @@ export interface components {
             current_password: string;
             /** New Password */
             new_password: string;
+        };
+        /** CitationEntryOut */
+        CitationEntryOut: {
+            /** Id */
+            id: number;
+            /** Source Name */
+            source_name?: string | null;
+            /** Text */
+            text: string | null;
+        };
+        /**
+         * CitationOut
+         * @description One `[Data: <label> (ids)]` group of an answer. The same shape is
+         *     the SSE `citations` event payload and a stored test result's
+         *     citations.
+         */
+        CitationOut: {
+            /** Entries */
+            entries: components["schemas"]["CitationEntryOut"][];
+            /** Ids */
+            ids: number[];
+            /** Label */
+            label: string;
+        };
+        /** ContextFrameOut */
+        ContextFrameOut: {
+            /** Name */
+            name: string;
+            /** Rows */
+            rows: number;
         };
         /** DryRunOut */
         DryRunOut: {
@@ -1119,6 +1189,47 @@ export interface components {
             /** Size */
             size: number;
         };
+        /** GraphEdgeOut */
+        GraphEdgeOut: {
+            /** Source */
+            source: string;
+            /** Target */
+            target: string;
+            /** Weight */
+            weight: number;
+        };
+        /** GraphNodeOut */
+        GraphNodeOut: {
+            /** Community */
+            community: number | null;
+            /** Degree */
+            degree: number;
+            /** Frequency */
+            frequency: number;
+            /** Hrid */
+            hrid: number;
+            /** Title */
+            title: string;
+            /** Type */
+            type: string;
+        };
+        /** GraphOut */
+        GraphOut: {
+            /** Edges */
+            edges: components["schemas"]["GraphEdgeOut"][];
+            /** Level */
+            level: number;
+            /** Levels */
+            levels: number[];
+            /** Node Limit */
+            node_limit: number | null;
+            /** Nodes */
+            nodes: components["schemas"]["GraphNodeOut"][];
+            /** Stale */
+            stale: boolean;
+            /** Truncated */
+            truncated: boolean;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -1136,6 +1247,7 @@ export interface components {
             has_baseline: boolean;
             /** Ingest Check */
             ingest_check: string;
+            last_attempt: components["schemas"]["LastAttemptOut"] | null;
             last_index: components["schemas"]["LastIndexOut"] | null;
             latest_run: components["schemas"]["LatestRunOut"] | null;
         };
@@ -1154,8 +1266,9 @@ export interface components {
         };
         /**
          * JobOut
-         * @description API contract for a job row; frontend types.ts mirrors these keys
-         *     (spec §6.1). argv included so the UI can show the exact CLI invocation.
+         * @description API contract for a job row (spec §6.1). argv included so the UI can
+         *     show the exact CLI invocation; progress is null for jobs that report
+         *     none.
          */
         JobOut: {
             /** Argv */
@@ -1174,6 +1287,7 @@ export interface components {
             id: string;
             /** Method */
             method: string;
+            progress: components["schemas"]["JobProgressOut"] | null;
             /** Project Id */
             project_id: string;
             /**
@@ -1194,7 +1308,40 @@ export interface components {
             /** Type */
             type: string;
         };
-        /** LastIndexOut */
+        /**
+         * JobProgressOut
+         * @description Batch progress the test-run worker ticks between questions (spec
+         *     §5.4): `done` of `total` questions answered.
+         */
+        JobProgressOut: {
+            /** Done */
+            done: number;
+            /** Total */
+            total: number;
+        };
+        /**
+         * LastAttemptOut
+         * @description The newest finished index or update of any status; differs from
+         *     last_index when a later job failed or was cancelled.
+         */
+        LastAttemptOut: {
+            /**
+             * Finished At
+             * Format: date-time
+             */
+            finished_at: string;
+            /** Job Id */
+            job_id: string;
+            /** Status */
+            status: string;
+            /** Type */
+            type: string;
+        };
+        /**
+         * LastIndexOut
+         * @description The newest SUCCEEDED index or update: the output the project
+         *     answers from.
+         */
         LastIndexOut: {
             /**
              * Finished At
@@ -1234,6 +1381,18 @@ export interface components {
             run_id: string;
             /** Set Id */
             set_id: string;
+        };
+        /**
+         * LivenessOut
+         * @description GET /api/health: the process answers. Named apart from the
+         *     per-project HealthOut, which is the knowledge-base aggregate.
+         */
+        LivenessOut: {
+            /**
+             * Status
+             * @constant
+             */
+            status: "ok";
         };
         /** LoginIn */
         LoginIn: {
@@ -1380,6 +1539,30 @@ export interface components {
             /** Response Type */
             response_type?: string | null;
         };
+        /** QueryOut */
+        QueryOut: {
+            /** Answer */
+            answer: string;
+            /** Citations */
+            citations: components["schemas"]["CitationOut"][];
+            /** Context */
+            context: components["schemas"]["ContextFrameOut"][];
+            timings: components["schemas"]["QueryTimingsOut"];
+        };
+        /**
+         * QueryTimingsOut
+         * @description Also the SSE `done` event payload.
+         */
+        QueryTimingsOut: {
+            /** Citations Ms */
+            citations_ms: number;
+            /** Frames Ms */
+            frames_ms: number;
+            /** Search Ms */
+            search_ms: number;
+            /** Total Ms */
+            total_ms: number;
+        };
         /** QuestionIn */
         QuestionIn: {
             /** Text */
@@ -1490,7 +1673,7 @@ export interface components {
             /** Answer */
             answer: string | null;
             /** Citations */
-            citations: unknown[] | null;
+            citations: components["schemas"]["CitationOut"][] | null;
             /** Completed At */
             completed_at: string | null;
             /** Error */
@@ -1504,10 +1687,7 @@ export interface components {
             /** Question Text */
             question_text: string;
             rating: components["schemas"]["RatingOut"] | null;
-            /** Timings */
-            timings: {
-                [key: string]: unknown;
-            } | null;
+            timings: components["schemas"]["QueryTimingsOut"] | null;
         };
         /** RoleCreateIn */
         RoleCreateIn: {
@@ -2228,7 +2408,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["LivenessOut"];
                 };
             };
         };
@@ -2281,7 +2461,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["CancelOut"];
                 };
             };
             /** @description Validation Error */
@@ -2529,7 +2709,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["GraphOut"];
                 };
             };
             /** @description Validation Error */
@@ -2567,7 +2747,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ArtifactPageOut"];
                 };
             };
             /** @description Validation Error */
@@ -2600,7 +2780,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ArtifactDetailOut"];
                 };
             };
             /** @description Validation Error */
@@ -3254,7 +3434,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["QueryOut"];
                 };
             };
             /** @description Validation Error */

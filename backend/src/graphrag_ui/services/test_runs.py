@@ -47,10 +47,11 @@ from graphrag_ui.services.questions import live_questions
 
 logger = logging.getLogger(__name__)
 
-# Per-question error tails: the full exception stays in the server log; the
-# row keeps the discriminating end of the message (QueryError detail is
-# already a tail — this bounds any exception type).
-_ERROR_TAIL_CHARS = 500
+# What a failed question's row says. Fixed, like the interactive query
+# path's messages (spec A7): the exception carries provider error bodies,
+# URLs and workspace paths, and every project viewer reads this row — the
+# cause stays in the server log with the run id and position (R2-07).
+QUESTION_FAILED_ERROR = "query failed"
 
 _INDEX_JOB_TYPES = ("index", "update")
 
@@ -260,10 +261,10 @@ async def execute_test_run(
                 body["timings"],
                 None,
             )
-        except Exception as exc:  # one bad question must not fail the run
+        except Exception:  # one bad question must not fail the run
             logger.exception("test_run question failed (run %s, position %s)", run.id, row.position)
             answer, citations, timings = None, None, None
-            error = (str(exc) or repr(exc))[-_ERROR_TAIL_CHARS:]
+            error = QUESTION_FAILED_ERROR
         # Row and progress tick in ONE commit: done can never advertise a
         # question whose answer is not yet durable.
         async with factory() as s:
