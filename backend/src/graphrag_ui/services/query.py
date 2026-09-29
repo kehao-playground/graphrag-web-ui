@@ -9,6 +9,7 @@ Error contract (route maps, service never touches HTTP):
   SERVER-SIDE only (logger.exception); clients get a fixed message (502)
 """
 
+import asyncio
 import logging
 import time
 import uuid
@@ -21,8 +22,13 @@ import pandas as pd
 from graphrag_ui.adapters.frame_cache import WorkspaceNotIndexedError, get_frame_cache, tables_for
 from graphrag_ui.adapters.graphrag_search import GraphragSearchAdapter, load_config
 from graphrag_ui.adapters.models import Project, User
-from graphrag_ui.domain.citations import build_citations
-from graphrag_ui.services.citations import Generation, enrich_sources, read_generation
+from graphrag_ui.domain.citations import build_citations, cited_ids, frame_key
+from graphrag_ui.services.citations import (
+    CitationMemo,
+    Generation,
+    enrich_sources,
+    read_generation,
+)
 from graphrag_ui.services.errors import INTERRUPTED_DETAIL, ServicePipelineError
 from graphrag_ui.services.projects import ws_path
 from graphrag_ui.services.rate_limit import get_rate_limiter
@@ -35,50 +41,32 @@ DEFAULT_RESPONSE_TYPE = "multiple paragraphs"
 # First present column wins when flattening a context frame to {id: text}.
 _TEXT_COLUMNS = ("text", "title", "description", "name")
 
-# Frame-name synonyms that all mean graphrag text units: search context keys
-# them "sources"/"units" per mode, the cached parquet table is "text_units".
-_TEXT_UNIT_KEYS = ("text_units", "units", "sources")
-
-# Same synonym pair for community reports: graphrag's search context keys
-# the frame "reports" (community_context.py / mixed_context.py use
-# context_name="Reports" → lower()), while the cached parquet table is
-# "community_reports" (adapters.frame_cache.TABLES). Entities, communities
-# and relationships use the same key on both sides (verified in graphrag
-# 3.1.0 mixed_context.py), so no further aliases are needed.
-_REPORT_KEYS = ("community_reports", "reports")
-
 
 class QueryError(ServicePipelineError):
     """Query pipeline failure. code: "config" (500) | "search" (502).
     detail is for the server log only — routes return fixed messages."""
 
 
-def _flatten_frames(frames: dict[str, pd.DataFrame]) -> dict[str, dict[int, str | None]]:
-    """Flatten context frames to {frame_key: {id: text}} for the pure parser."""
+def _cited_texts(answer: str, frames: dict[str, pd.DataFrame]) -> dict[str, dict[int, str | None]]:
+    """{canonical key: {id: text}} for the ids the answer's markers cite,
+    for the pure citation builder.
+
+    Every frame name maps once onto the domain's canonical key: graphrag
+    names the text-units frame "units" or "sources" per mode while the
+    cached parquet table is "text_units", and the reports frame "reports"
+    while the table is "community_reports" (R1-89). The first frame on a
+    key wins. Only cited rows are flattened, so an answer citing five text
+    units costs five rows, not a copy of every table (R1-72)."""
+    wanted = cited_ids(answer)
     texts: dict[str, dict[int, str | None]] = {}
     for name, df in frames.items():
-        entries = _frame_texts(df)
-        if name in _TEXT_UNIT_KEYS:
-            # graphrag names the text-units frame "units" or "sources"
-            # depending on the mode, and its "Sources" markers always
-            # reference text units (Task 1 note): expose one flattened entry
-            # under every synonym so citations resolve regardless of which
-            # side named it — search context OR the cached parquet tables the
-            # streaming path joins against.
-            for key in _TEXT_UNIT_KEYS:
-                texts.setdefault(key, entries)
-        elif name in _REPORT_KEYS:
-            # POST joins graphrag's context frames (keyed "reports"), the
-            # stream joins cached parquet tables (keyed "community_reports"):
-            # expose both names so "Reports" markers resolve on either path.
-            for key in _REPORT_KEYS:
-                texts.setdefault(key, entries)
-        else:
-            texts[name] = entries
+        key = frame_key(name)
+        if key in wanted and key not in texts:
+            texts[key] = _frame_texts(df, wanted[key])
     return texts
 
 
-def _frame_texts(df: pd.DataFrame) -> dict[int, str | None]:
+def _frame_texts(df: pd.DataFrame, ids: set[int]) -> dict[int, str | None]:
     if "id" not in df.columns:
         return {}
     text_col = next((c for c in _TEXT_COLUMNS if c in df.columns), None)
@@ -90,29 +78,24 @@ def _frame_texts(df: pd.DataFrame) -> dict[int, str | None]:
     # answer markers cite that int (model short_id reads human_readable_id);
     # search-context frames instead put the same int straight into "id".
     # Key on human_readable_id when both columns exist, else on int(id);
-    # non-int ids are skipped so a hash id without hrid resolves nothing
-    # instead of raising per row (which nulled every stream citation).
+    # non-int ids coerce to NaN and match nothing, so a hash id without
+    # hrid resolves nothing instead of raising.
     id_col = "human_readable_id" if "human_readable_id" in df.columns else "id"
-    entries: dict[int, str | None] = {}
-    for raw_id, text in zip(df[id_col], df[text_col]):
-        try:
-            entry_id = int(raw_id)
-        except (TypeError, ValueError):
-            continue
-        # NaN cells render as text: null (domain keeps None for missing text)
-        entries[entry_id] = None if pd.isna(text) else str(text)
-    return entries
+    keys = pd.to_numeric(df[id_col], errors="coerce")
+    cited = keys.isin(ids)
+    # NaN cells render as text: null (domain keeps None for missing text)
+    return {
+        int(entry_id): None if pd.isna(text) else str(text)
+        for entry_id, text in zip(keys[cited], df[text_col][cited])
+    }
 
 
 def _text_units_frame(frames: dict[str, pd.DataFrame]) -> pd.DataFrame | None:
-    """The text-units frame among its synonyms: its ids are what the
+    """The text-units frame under any of its names: its ids are what the
     answer's Sources markers cite and its document_id column is what maps
     them to documents — taken from the frames that ANSWERED, never re-read
     (spec 7.4)."""
-    for key in _TEXT_UNIT_KEYS:
-        if key in frames:
-            return frames[key]
-    return None
+    return next((df for name, df in frames.items() if frame_key(name) == "sources"), None)
 
 
 @dataclass(frozen=True)
@@ -136,7 +119,9 @@ async def _prepare_query(project: Project, method: str, *, config: Any = None) -
     root = ws_path(project.id)
     if config is None:
         try:
-            config = load_config(root)
+            # settings.yaml + .env + pydantic validation: file I/O and CPU,
+            # so off the loop (R1-73); the adapter memoises per file version
+            config = await asyncio.to_thread(load_config, root)
         except Exception as exc:
             logger.exception("query config load failed (project %s)", project.id)
             raise QueryError("config", str(exc)[-500:]) from exc
@@ -144,7 +129,10 @@ async def _prepare_query(project: Project, method: str, *, config: Any = None) -
     frames_start = time.perf_counter()
     cache = get_frame_cache()
     try:
-        frames = {table: await cache.get(root, table) for table in tables_for(method)}
+        tables = tables_for(method)
+        # A cold cache reads each parquet in its own thread; await them together
+        loaded = await asyncio.gather(*(cache.get(root, table) for table in tables))
+        frames = dict(zip(tables, loaded, strict=True))
     except WorkspaceNotIndexedError:
         raise
     except Exception as exc:  # e.g. corrupt parquet — 502, tail kept server-side
@@ -163,14 +151,11 @@ async def _execute_query(
     response_type: str | None,
     *,
     g0: Generation,
-    memo: dict[str, str | None] | None = None,
+    memo: CitationMemo | None = None,
 ) -> dict:
     """search -> citations -> timings. Non-streaming only: the adapter's
     search returns context_data, which is what the citation ENTRY TEXT
-    joins against. The hrid -> document map comes from the cached parquet
-    frames the search was handed instead: graphrag's context text-units
-    frame has no document_id column, so joining it linked nothing on this
-    path while the stream route linked fine (R4-40). Streaming has no
+    joins against (see _citations for the document map). Streaming has no
     context_data and keeps its own tail in stream_query. `g0` is the
     generation the caller read BEFORE the frame load (spec 7.4 step 1) —
     the guard must bracket the documents read that enrichment performs
@@ -190,19 +175,7 @@ async def _execute_query(
         raise QueryError("search", str(exc)[-500:]) from exc
     search_ms = (time.perf_counter() - search_start) * 1000
 
-    citations_start = time.perf_counter()
-    text_units = _text_units_frame(prepared.frames)
-    if text_units is None:  # modes that load no text_units table (global)
-        text_units = _text_units_frame(context)
-    citations = await enrich_sources(
-        build_citations(answer, _flatten_frames(context)),
-        text_units,
-        prepared.root,
-        prepared.project_id,
-        g0=g0,
-        memo={} if memo is None else memo,
-    )
-    citations_ms = (time.perf_counter() - citations_start) * 1000
+    citations, citations_ms = await _citations(answer, context, prepared, g0, memo)
 
     return {
         "answer": answer,
@@ -217,6 +190,43 @@ async def _execute_query(
     }
 
 
+async def _preamble(project: Project, user: User, method: str) -> tuple[Generation, Prepared]:
+    """The interactive preamble both routes share: rate limit first (a
+    cheap in-memory check before any I/O), then G0 BEFORE the frame load
+    (spec 7.4 step 1: the guard must bracket the documents read that
+    enrichment performs after the search), then config and frames."""
+    get_rate_limiter().check(str(user.id), str(project.id))
+    g0 = await read_generation(project.id)
+    return g0, await _prepare_query(project, method)
+
+
+async def _citations(
+    answer: str,
+    context: dict[str, pd.DataFrame],
+    prepared: Prepared,
+    g0: Generation,
+    memo: CitationMemo | None,
+) -> tuple[list[dict], float]:
+    """Markers joined against `context` for their entry text, cited text
+    units mapped to documents through the cached parquet frames the search
+    was handed (graphrag's context text-units frame has no document_id
+    column, R4-40), falling back to the context's for modes that load no
+    text_units table (global). Returns the citations and their duration."""
+    start = time.perf_counter()
+    text_units = _text_units_frame(prepared.frames)
+    if text_units is None:
+        text_units = _text_units_frame(context)
+    citations = await enrich_sources(
+        build_citations(answer, _cited_texts(answer, context)),
+        text_units,
+        prepared.root,
+        prepared.project_id,
+        g0=g0,
+        memo=CitationMemo() if memo is None else memo,
+    )
+    return citations, (time.perf_counter() - start) * 1000
+
+
 async def run_query(
     project: Project,
     user: User,
@@ -226,12 +236,7 @@ async def run_query(
 ) -> dict:
     """Run one four-mode query; returns the API response body (never raises HTTP)."""
     total_start = time.perf_counter()
-    # Rate limit first: cheap in-memory check before any I/O.
-    get_rate_limiter().check(str(user.id), str(project.id))
-    # G0 before the frame load (spec 7.4 step 1): the guard must bracket the
-    # documents read that enrichment performs after the search.
-    g0 = await read_generation(project.id)
-    prepared = await _prepare_query(project, method)
+    g0, prepared = await _preamble(project, user, method)
     body = await _execute_query(prepared, method, query, response_type, g0=g0)
     # total_ms spans the whole interactive request (limiter + preamble +
     # search), so it is measured from run_query's own entry.
@@ -257,10 +262,7 @@ async def stream_query(
     logged server-side); before the first chunk it raises QueryError.
     """
     total_start = time.perf_counter()
-    get_rate_limiter().check(str(user.id), str(project.id))
-    # G0 before the frame load, exactly like run_query (spec 7.4 step 1).
-    g0 = await read_generation(project.id)
-    prepared = await _prepare_query(project, method)
+    g0, prepared = await _preamble(project, user, method)
 
     gen = GraphragSearchAdapter().stream(
         method,
@@ -289,17 +291,10 @@ async def stream_query(
         raise QueryError("search", str(exc)[-500:]) from exc
     search_ms = (time.perf_counter() - search_start) * 1000
 
-    citations_start = time.perf_counter()
     # Streaming has no context_data: join markers against the cached frames
-    citations = await enrich_sources(
-        build_citations("".join(answer_parts), _flatten_frames(prepared.frames)),
-        _text_units_frame(prepared.frames),
-        prepared.root,
-        prepared.project_id,
-        g0=g0,
-        memo={},
+    citations, citations_ms = await _citations(
+        "".join(answer_parts), prepared.frames, prepared, g0, None
     )
-    citations_ms = (time.perf_counter() - citations_start) * 1000
 
     yield ("citations", citations)
     yield (

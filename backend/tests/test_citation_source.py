@@ -8,6 +8,7 @@ the resolver, the recovery rule, and the guard all run for real.
 """
 
 import json
+import threading
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -372,7 +373,13 @@ async def test_stored_batch_results_link_documents(db_session, run_ready, fake_a
     await execute_test_run(run_ready.job_id, run_ready.root, cancel_requested=lambda: False)
 
     rows = (
-        (await db_session.execute(select(TestResult).where(TestResult.run_id == run_ready.run_id)))
+        (
+            await db_session.execute(
+                select(TestResult)
+                .where(TestResult.run_id == run_ready.run_id)
+                .execution_options(populate_existing=True)
+            )
+        )
         .scalars()
         .all()
     )
@@ -469,6 +476,61 @@ async def test_one_resolver_call_per_question_querying_only_unmemoed_ids(
 
     assert len(calls) == 1
     assert len(calls[0]) == 5
+
+
+async def test_a_run_reads_the_baseline_once(db_session, run_ready, monkeypatch):
+    """R1-98: the baseline row and its entries are run-scoped like the
+    memo; the G0/G1 guard already withholds links if a rebuild lands."""
+    calls = []
+    original = citations_service.baseline_row
+
+    async def counting(session, project_id):
+        calls.append(project_id)
+        return await original(session, project_id)
+
+    monkeypatch.setattr(citations_service, "baseline_row", counting)
+
+    await execute_test_run(run_ready.job_id, run_ready.root, cancel_requested=lambda: False)
+
+    assert len(calls) == 1
+    results = (
+        (
+            await db_session.execute(
+                select(TestResult)
+                .where(TestResult.run_id == run_ready.run_id)
+                .execution_options(populate_existing=True)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    names = {e["source_name"] for r in results for c in r.citations or [] for e in c["entries"]}
+    assert names == {f"file-{i}.md" for i in range(1, 6)}
+
+
+async def test_the_documents_read_runs_off_the_event_loop(project_indexed, monkeypatch):
+    """R2-20: the duckdb scan of documents.parquet runs in a worker thread."""
+    threads = []
+    original = citations_service.resolve_document_titles
+
+    def recording(root, ids):
+        threads.append(threading.current_thread())
+        return original(root, ids)
+
+    monkeypatch.setattr(citations_service, "resolve_document_titles", recording)
+    body = await query_service.run_query(
+        project_indexed, SimpleNamespace(id=uuid.uuid4()), "local", "q"
+    )
+    assert len(threads) == 1 and threads[0] is not threading.main_thread()
+    assert any(e["source_name"] for c in body["citations"] for e in c["entries"])
+
+
+def test_hrid_to_document_maps_only_the_cited_hrids():
+    """R1-72: the text-units frame is filtered to the cited hrids, not
+    walked row by row."""
+    unit = text_unit_frame([1, 2, 3], ["d1", "d2", "d3"])
+    assert citations_service._hrid_to_document(unit, {2, 9}) == {2: "d2"}
+    assert citations_service._hrid_to_document(None, {2}) == {}
 
 
 async def test_a_global_query_cites_no_sources_and_reads_no_documents(

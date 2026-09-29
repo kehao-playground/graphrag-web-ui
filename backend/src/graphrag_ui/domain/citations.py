@@ -10,7 +10,7 @@ free of pandas and I/O.
 
 import re
 
-__all__ = ["GROUP_RE", "MARKER_RE", "build_citations", "parse_markers"]
+__all__ = ["GROUP_RE", "MARKER_RE", "build_citations", "cited_ids", "frame_key", "parse_markers"]
 
 # Matches the full bracketed marker, e.g. "[Data: Entities (12, 34); Reports (5)]".
 MARKER_RE = re.compile(r"\[Data:\s*([^\]]+)\]")
@@ -18,10 +18,17 @@ MARKER_RE = re.compile(r"\[Data:\s*([^\]]+)\]")
 # Matches one label group inside a marker, e.g. "Entities (12, 34)".
 GROUP_RE = re.compile(r"([A-Za-z ]+?)\s*\(([\d,\s]+)\)")
 
-# Canonical context frame key per normalized label (singular + plural fold).
+# The ONE canonical frame key per normalized label: every spelling of text
+# units folds onto "sources" and every spelling of community reports onto
+# "reports" (R1-89), so the service maps each frame name once through
+# frame_key() and a marker and its frame always meet on the same key.
 _LABEL_KEYS = {
     "sources": "sources",
     "source": "sources",
+    "text_units": "sources",
+    "text_unit": "sources",
+    "units": "sources",
+    "unit": "sources",
     "entities": "entities",
     "entity": "entities",
     "relations": "relationships",
@@ -30,13 +37,10 @@ _LABEL_KEYS = {
     "relationship": "relationships",
     "reports": "reports",
     "report": "reports",
+    "community_reports": "reports",
+    "community_report": "reports",
     "communities": "communities",
     "community": "communities",
-    "community_reports": "community_reports",
-    "text_units": "text_units",
-    "text_unit": "text_units",
-    "units": "units",
-    "unit": "units",
 }
 
 
@@ -59,7 +63,7 @@ def parse_markers(text: str) -> list[tuple[str, list[int]]]:
             ids = _unique_ids(group.group(2))
             if not ids:
                 continue
-            key = (_frame_key(label), tuple(ids))
+            key = (frame_key(label), tuple(ids))
             if key in seen:
                 continue
             seen.add(key)
@@ -75,14 +79,24 @@ def build_citations(text: str, texts_by_key: dict[str, dict[int, str | None]]) -
     frames = texts_by_key or {}
     citations: list[dict] = []
     for label, ids in parse_markers(text):
-        frame = frames.get(_frame_key(label))
+        frame = frames.get(frame_key(label))
         entries = [] if frame is None else [{"id": i, "text": frame.get(i)} for i in ids]
         citations.append({"label": label, "ids": ids, "entries": entries})
     return citations
 
 
-def _frame_key(label: str) -> str:
-    """Normalize a marker label to its context frame key (never raises)."""
+def cited_ids(text: str) -> dict[str, set[int]]:
+    """Every id the answer's markers cite, grouped by canonical frame key —
+    the only rows the caller needs to flatten (R1-72)."""
+    wanted: dict[str, set[int]] = {}
+    for label, ids in parse_markers(text):
+        wanted.setdefault(frame_key(label), set()).update(ids)
+    return wanted
+
+
+def frame_key(label: str) -> str:
+    """Normalize a marker label or a frame name to its canonical frame key
+    (never raises)."""
     normalized = re.sub(r"\s+", "_", label.strip().lower())
     return _LABEL_KEYS.get(normalized, normalized)
 

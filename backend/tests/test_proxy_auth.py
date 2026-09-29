@@ -84,7 +84,7 @@ async def test_provision_new_user_defaults(db_session, monkeypatch):
     assert user.display_name == "New"
     # Unusable hash: no password ever verifies against a JIT row (spec §5.2)
     assert user.password_hash == UNUSABLE_PASSWORD_HASH
-    assert not verify_password("anything", user.password_hash)
+    assert not await verify_password("anything", user.password_hash)
 
 
 async def test_provision_listed_email_is_admin(db_session, monkeypatch):

@@ -391,7 +391,7 @@ async def save_file(
                 if size > max_file_bytes():
                     raise FileTooLargeError(get_settings().upload_max_file_mb)
                 h.update(chunk)
-                out.write(chunk)
+                await asyncio.to_thread(out.write, chunk)
         # The quota needs the final size, so _commit_upload checks it once
         # the stream is consumed, inside the lock and before any row.
         await _commit_upload(

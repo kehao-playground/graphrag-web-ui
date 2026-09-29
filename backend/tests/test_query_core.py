@@ -7,12 +7,15 @@ interactive bucket and could be rejected mid-set, leaving a partial run -
 which is the whole reason batch execution is a job.
 """
 
+import asyncio
+import threading
 import uuid
 from types import SimpleNamespace
 
 import pandas as pd
 import pytest
 
+from graphrag_ui.adapters.frame_cache import tables_for
 from graphrag_ui.adapters.models import Project
 from graphrag_ui.config import get_settings
 from graphrag_ui.services import query as query_service
@@ -163,6 +166,35 @@ async def test_prepare_query_reuses_a_caller_supplied_config(
     first = await query_service._prepare_query(project, "local")
     await query_service._prepare_query(project, "local", config=first.config)
     assert loads["n"] == 1
+
+
+async def test_config_loads_off_the_loop_and_frames_load_concurrently(project, monkeypatch):
+    """R1-73 (2): the config load runs in a worker thread and the frame
+    loads are awaited together — a cache whose gets each wait for all the
+    others would deadlock (and time out) on a sequential preamble."""
+    threads: list[threading.Thread] = []
+
+    def loading(root):
+        threads.append(threading.current_thread())
+        return object()
+
+    class BarrierCache:
+        def __init__(self, n: int):
+            self.n, self.started, self.all_in = n, 0, asyncio.Event()
+
+        async def get(self, root, table):
+            self.started += 1
+            if self.started == self.n:
+                self.all_in.set()
+            await asyncio.wait_for(self.all_in.wait(), timeout=2)
+            return pd.DataFrame({"table": [table]})
+
+    tables = tables_for("local")
+    monkeypatch.setattr(query_service, "load_config", loading)
+    monkeypatch.setattr(query_service, "get_frame_cache", lambda: BarrierCache(len(tables)))
+    prepared = await query_service._prepare_query(project, "local")
+    assert len(threads) == 1 and threads[0] is not threading.main_thread()
+    assert {name: df["table"][0] for name, df in prepared.frames.items()} == {t: t for t in tables}
 
 
 async def test_streaming_still_streams(project, user, fake_adapter, fake_cache):

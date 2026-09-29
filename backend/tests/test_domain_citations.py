@@ -1,4 +1,4 @@
-from graphrag_ui.domain.citations import build_citations, parse_markers
+from graphrag_ui.domain.citations import build_citations, cited_ids, parse_markers
 
 
 def test_parse_single_probe_marker():
@@ -49,9 +49,24 @@ def test_build_citations_joins_text_from_key_dict():
 
 def test_build_citations_normalizes_labels():
     text = "[Data: Text Units (1); Relations (9)]"
-    frames = {"text_units": {1: "unit text"}, "relationships": {9: "rel text"}}
+    frames = {"sources": {1: "unit text"}, "relationships": {9: "rel text"}}
     citations = build_citations(text, frames)
     assert [c["entries"][0]["text"] for c in citations] == ["unit text", "rel text"]
+
+
+def test_label_synonyms_fold_to_one_canonical_key():
+    """R1-89: every text-unit spelling reads the one "sources" frame and
+    every report spelling the one "reports" frame."""
+    text = "[Data: Text Units (1); Units (2); Community Reports (5); Report (6)]"
+    frames = {"sources": {1: "a", 2: "b"}, "reports": {5: "r5", 6: "r6"}}
+    texts = [e["text"] for c in build_citations(text, frames) for e in c["entries"]]
+    assert texts == ["a", "b", "r5", "r6"]
+
+
+def test_cited_ids_groups_every_marker_by_canonical_key():
+    text = "[Data: Sources (1, 2); Entities (7)] and [Data: Text Units (3); Reports (5)]"
+    assert cited_ids(text) == {"sources": {1, 2, 3}, "entities": {7}, "reports": {5}}
+    assert cited_ids("no markers") == {}
 
 
 def test_build_citations_missing_key_keeps_ids_empty_entries():

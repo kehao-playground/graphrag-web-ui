@@ -136,13 +136,13 @@ def register_auth_routes(app):
         user: CurrentUser,
         db: DbSession,
     ):
-        if not verify_password(body.current_password, user.user.password_hash):
+        if not await verify_password(body.current_password, user.user.password_hash):
             raise ApiError(
                 status.HTTP_400_BAD_REQUEST,
                 "auth_wrong_current_password",
                 "incorrect current password",
             )
-        user.user.password_hash = hash_password(body.new_password)
+        user.user.password_hash = await hash_password(body.new_password)
         user.user.must_change_password = False
         # Changing the password revokes every refresh token (including this
         # login's); the commit also flushes the user mutation above

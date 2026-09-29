@@ -19,6 +19,16 @@ _CANCEL_GRACE_S = 30.0
 _IO_POLL_S = 0.5
 
 
+def _log_tail(log_path: Path) -> str:
+    """The last _ERROR_TAIL_CHARS characters of the log, read from its end:
+    a failed multi-hour job's log is never loaded whole. UTF-8 needs at most
+    four bytes per character, so that many bytes always cover the tail."""
+    with log_path.open("rb") as fh:
+        fh.seek(0, 2)
+        fh.seek(max(0, fh.tell() - 4 * _ERROR_TAIL_CHARS))
+        return fh.read().decode(errors="replace")[-_ERROR_TAIL_CHARS:]
+
+
 @dataclass
 class RunResult:
     status: str  # succeeded | failed | cancelled
@@ -64,29 +74,18 @@ class IndexRunner:
         # Allowlisted environment + the workspace .env (R2-01): the child
         # must not see JWT_SECRET, DATABASE_URL or any other API secret,
         # since settings.yaml `${VAR}` placeholders resolve from its environ.
-        proc = await asyncio.create_subprocess_exec(
-            *self._prefix,
-            *argv,
-            cwd=root,
-            env=subprocess_env(root),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-        )
+        # stdout+stderr go straight to the log file: the child writes it
+        # itself, so no per-chunk write runs on the event loop (R1-73).
+        with log_path.open("ab") as log:
+            proc = await asyncio.create_subprocess_exec(
+                *self._prefix,
+                *argv,
+                cwd=root,
+                env=subprocess_env(root),
+                stdout=log,
+                stderr=asyncio.subprocess.STDOUT,
+            )
         cancelled = False
-
-        assert proc.stdout is not None, "created with stdout=PIPE"
-
-        stdout = proc.stdout
-
-        async def _pump() -> None:
-            # stream stdout(+stderr) to the log file as it arrives
-            with log_path.open("ab") as fh:
-                while True:
-                    chunk = await stdout.read(8192)
-                    if not chunk:
-                        break
-                    fh.write(chunk)
-                    fh.flush()
 
         async def _cancel_poll() -> None:
             nonlocal cancelled
@@ -106,12 +105,10 @@ class IndexRunner:
                             proc.kill()
                     return
 
-        pump = asyncio.create_task(_pump())
         poller = asyncio.create_task(_cancel_poll())
         try:
             exit_code = await proc.wait()
         finally:
-            await pump  # drain EOF
             poller.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await poller
@@ -121,7 +118,7 @@ class IndexRunner:
             status, error = "succeeded", None
         else:
             status = "failed"
-            tail = log_path.read_text(errors="replace")[-_ERROR_TAIL_CHARS:]
+            tail = _log_tail(log_path)
             from graphrag_ui.domain.jobs import error_annotation
 
             note = error_annotation(exit_code)
