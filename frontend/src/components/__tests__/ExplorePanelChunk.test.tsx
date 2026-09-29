@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { createQueryClient } from "../../api/queryClient";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { MemoryRouter } from "react-router-dom";
 import ExplorePanel from "../ExplorePanel";
 import { stubFetch } from "../../testing/stubFetch";
 
@@ -21,7 +22,9 @@ afterEach(() => { vi.restoreAllMocks(); });
 test("a failed graph chunk shows the error in place; table mode still works", async () => {
   render(
     <QueryClientProvider client={createQueryClient()}>
-      <ExplorePanel projectId="p1" canUse />
+      <MemoryRouter>
+        <ExplorePanel projectId="p1" canUse />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
   const user = userEvent.setup();

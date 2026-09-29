@@ -359,11 +359,8 @@ export default {
     bulkDeletePartial: "{{n}} 個檔案無法刪除：{{names}}",
     frozenNotice: "索引作業執行中，暫停文件異動",
     previewLoadFailed: "載入預覽失敗({{status}})",
-    previewMatch: "命中",
-    previewMatchHit: "是",
-    previewMiss: "否",
-    previewOffset: "視窗起點",
-    previewTotal: "檔案大小(位元組)",
+    previewPassage: "顯示引用段落 · 文件大小 {{size}}",
+    previewPassageMissing: "文件中已找不到引用段落，改為顯示開頭 · 文件大小 {{size}}",
     state: {
       new: "未索引", modified: "已修改", removed: "已刪除",
       indexed: "已索引", skipped: "已略過",
@@ -435,6 +432,19 @@ export default {
     // disabled rather than left to 404.
     sourceRemoved: "文件已刪除",
     timings: "frames {{frames}}ms · 搜尋 {{search}}ms · 引用 {{citations}}ms · 總計 {{total}}ms",
+    sourcesHeading: "來源",
+    sourceNumber: "來源 #{{id}}",
+    showMore: "顯示更多",
+    showLess: "收合",
+    openPassage: "在文件中檢視",
+    openInExplore: "在探索頁開啟（新分頁）",
+    // Under the method select: what each method does and how long it takes.
+    hintLocal: "從與問題最相關的實體與段落作答，通常數秒內完成。",
+    hintGlobal: "彙整整個語料的社群報告，通常需要數十秒。",
+    hintDrift: "先做全域搜尋，再展開多次區域搜尋，通常需要 1–3 分鐘。",
+    hintBasic: "只對文字區塊做向量搜尋，通常數秒內完成。",
+    elapsed: "已經過 {{seconds}} 秒",
+    cancelled: "已取消查詢",
   },
   workbench: {
     modeMatrix: "評分矩陣",

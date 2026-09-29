@@ -4,6 +4,7 @@ import { vi, beforeEach, afterEach } from "vitest";
 import type { ReactNode } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { createQueryClient } from "../../api/queryClient";
+import { MemoryRouter } from "react-router-dom";
 import ExplorePanel from "../ExplorePanel";
 import { useAuth } from "../../stores/auth";
 import type { GraphData } from "../../api/types";
@@ -103,10 +104,12 @@ beforeEach(() => {
   useAuth.setState({ accessToken: "test-token" });
 });
 
-function mount() {
+function mount(url = "/") {
   render(
     <QueryClientProvider client={createQueryClient()}>
-      <ExplorePanel projectId="p1" canUse />
+      <MemoryRouter initialEntries={[url]}>
+        <ExplorePanel projectId="p1" canUse />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -235,4 +238,15 @@ test("409 not indexed surfaces the backend detail", async () => {
   errorResponse = new Response(JSON.stringify({ detail: "not indexed yet — run an indexing job first" }), { status: 409 });
   mount();
   expect(await screen.findByText("not indexed yet — run an indexing job first")).toBeInTheDocument();
+});
+
+test("?table=&row= (a citation link) opens that row's detail", async () => {
+  mount("/?table=entities&row=2");
+  expect(await screen.findByText("first programmer")).toBeInTheDocument();
+});
+
+test("an unknown ?table= falls back to entities with no drawer", async () => {
+  mount("/?table=nope&row=2");
+  await screen.findByText("Alan Turing");
+  expect(screen.queryByText("first programmer")).not.toBeInTheDocument();
 });

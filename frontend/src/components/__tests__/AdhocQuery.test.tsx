@@ -3,14 +3,15 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, vi } from "vitest";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { createQueryClient } from "../../api/queryClient";
+import { MemoryRouter } from "react-router-dom";
 import AdhocQuery from "../tests/AdhocQuery";
 import { useAuth } from "../../stores/auth";
 import { stubFetch } from "../../testing/stubFetch";
 
 // EventSource mock per the JobLogViewer pattern: a class capturing `url` +
 // listeners with a manual emit() and a close() spy. emit() without data
-// simulates a transport-style error (no SSE payload) — pre-stream 4xx JSON
-// responses arrive that way because EventSource never exposes the body.
+// simulates a transport-style error (no SSE payload) — a network drop, or an
+// auth/validation 4xx, whose JSON body EventSource never exposes.
 type Listener = (e: { data?: string }) => void;
 class MockEventSource {
   static instances: MockEventSource[] = [];
@@ -77,7 +78,9 @@ afterEach(() => {
 function mount(canUse = true, canEdit = true) {
   return render(
     <QueryClientProvider client={createQueryClient()}>
-      <AdhocQuery projectId="p1" canUse={canUse} canEdit={canEdit} />
+      <MemoryRouter>
+        <AdhocQuery projectId="p1" canUse={canUse} canEdit={canEdit} />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -110,17 +113,52 @@ test("chunks append progressively into the answer area", async () => {
   expect(await screen.findByText("第一段。第二段。")).toBeInTheDocument();
 });
 
-test("citations render inside the 引用 collapse with label, ids and entry text (null → —)", async () => {
+test("citations render inside the 引用 collapse, one line per cited item (null → —)", async () => {
   mount();
   const user = userEvent.setup();
   const es = await startStream();
   es.emit("citations", JSON.stringify([
     { label: "Sources", ids: [2, 7], entries: [{ id: 2, text: "引用文字 A" }, { id: 7, text: null }] },
   ]));
-  await user.click(await screen.findByText("引用 (1)"));
-  expect(await screen.findByText("Sources #2, 7")).toBeInTheDocument();
+  await user.click(await screen.findByText("引用 (2)"));
+  expect(await screen.findByText("來源")).toBeInTheDocument();
+  expect(screen.getByText("來源 #2")).toBeInTheDocument();
   expect(screen.getByText("引用文字 A")).toBeInTheDocument();
   expect(screen.getByText("—")).toBeInTheDocument();
+});
+
+test("the method hint names what the method costs in time", async () => {
+  mount();
+  expect(screen.getByText(/通常數秒內完成/)).toBeInTheDocument();
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("combobox"));
+  await user.click(await screen.findByTitle("DRIFT"));
+  expect(await screen.findByText(/1–3 分鐘/)).toBeInTheDocument();
+});
+
+test("while streaming, an elapsed counter ticks and Cancel stops the query", async () => {
+  mount();
+  const es = await startStream();
+  es.emit("chunk", JSON.stringify("部分答案"));
+  expect(screen.getByText("已經過 0 秒")).toBeInTheDocument();
+  expect(await screen.findByText("已經過 1 秒", undefined, { timeout: 2500 })).toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: /^取\s?消$/ }));
+  expect(es.close).toHaveBeenCalled();
+  expect(screen.getByRole("button", { name: /^執\s?行$/ })).toBeEnabled();
+  expect(screen.queryByText(/已經過/)).not.toBeInTheDocument();
+  // The partial answer stays readable.
+  expect(screen.getByText("部分答案")).toBeInTheDocument();
+});
+
+test("a refused stream's error frame shows the localized reason", async () => {
+  mount();
+  const es = await startStream();
+  // The backend sends pre-stream refusals as the only frame (i18n §4.3).
+  es.emit("error", JSON.stringify({
+    detail: "not indexed yet — run an indexing job first", code: "not_indexed",
+  }));
+  expect(await screen.findByText(/尚未建立索引/)).toBeInTheDocument();
+  expect(es.close).toHaveBeenCalled();
 });
 
 test("done renders the timings line rounded to whole ms and closes the EventSource", async () => {

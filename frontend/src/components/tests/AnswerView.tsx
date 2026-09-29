@@ -1,14 +1,36 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { Link } from "react-router-dom";
 import { Button, Collapse, Skeleton, Tooltip, Typography } from "antd";
 import type { Citation, QueryTimings } from "../../api/types";
 import { projectFiles } from "../../api/queries";
 import FilePreviewDrawer, { type Locator } from "../files/FilePreviewDrawer";
+import Markdown from "./Markdown";
+import { EXPLORE_TABLE, buildCitationModel, parseMarker, type Passage, type SourceDoc } from "./citationModel";
+
+// A cited passage shows one line; the rest is a click away (R4-10).
+const EXCERPT_CHARS = 120;
+
+function Excerpt({ text }: { text: string | null }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  if (text === null) return <>—</>;
+  if (text.length <= EXCERPT_CHARS) return <>{text}</>;
+  return (
+    <>
+      <span style={{ whiteSpace: "pre-wrap" }}>{open ? text : `${text.slice(0, EXCERPT_CHARS)}…`}</span>{" "}
+      <Button type="link" size="small" style={{ padding: 0, height: "auto" }} onClick={() => setOpen(!open)}>
+        {open ? t("query.showLess") : t("query.showMore")}
+      </Button>
+    </>
+  );
+}
 
 // One rendering for every answer (spec §9.2): the ad-hoc stream and the
 // result drawer render identically, so users compare answers, not
-// layouts. Lifted verbatim from QueryPanel's answer area.
+// layouts. The answer renders as Markdown whose [Data: …] markers anchor
+// into the citations panel; the panel lists each cited document once.
 //
 // Slice ③ closes the citation loop here (spec §7.4/§9.3): a Sources entry
 // whose source_name arrived WITH the answer links to that document's
@@ -26,18 +48,47 @@ export default function AnswerView({ projectId, answer, citations, timings, stre
 }) {
   const { t } = useTranslation();
   const answerRef = useRef<HTMLDivElement>(null);
-  const [preview, setPreview] = useState<{ name: string; locator: Locator } | null>(null);
+  const [preview, setPreview] = useState<{ name: string; locator: Locator; passage: string } | null>(null);
+  const model = useMemo(() => buildCitationModel(citations), [citations]);
+  const [citationsOpen, setCitationsOpen] = useState(false);
+  // The anchor a clicked [Data] marker asked for; scrolled to once the
+  // collapse has mounted its children.
+  const [target, setTarget] = useState<string | null>(null);
+  const uid = useId();
+  const anchorId = (key: string, id: number) => `${uid}cite-${key}-${id}`;
 
-  // Keep the newest line visible as the answer grows.
+  // Follow the newest line while streaming, unless the user scrolled up to
+  // read; the bound goes away once the answer is complete (R4-09/R4-11).
+  const follow = useRef(true);
+  useEffect(() => {
+    if (streaming) follow.current = true;
+  }, [streaming]);
   useEffect(() => {
     const el = answerRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [answer]);
+    if (el && streaming && follow.current) el.scrollTop = el.scrollHeight;
+  }, [answer, streaming]);
 
-  const linkable = useMemo(
-    () => citations.some((c) => c.label === "Sources" && c.entries.some((en) => en.source_name !== null)),
-    [citations],
-  );
+  // The collapse mounts its panel a frame or two after opening, so the
+  // anchor is looked up over a few animation frames.
+  useEffect(() => {
+    if (!citationsOpen || target === null) return;
+    let frame = 0;
+    const attempt = (left: number) => {
+      const el = document.getElementById(target);
+      if (el) {
+        el.scrollIntoView?.({ block: "center", behavior: "smooth" });
+        setTarget(null);
+      } else if (left > 0) {
+        frame = requestAnimationFrame(() => attempt(left - 1));
+      } else {
+        setTarget(null);
+      }
+    };
+    attempt(30);
+    return () => cancelAnimationFrame(frame);
+  }, [citationsOpen, target]);
+
+  const linkable = model.sources.some((d) => d.name !== null);
 
   // The live file listing is how the loop learns a cited document no
   // longer exists. The documents pane's query (read-only share; fresh for
@@ -57,55 +108,152 @@ export default function AnswerView({ projectId, answer, citations, timings, stre
     return { known: files.data !== undefined, names };
   }, [files.data]);
 
-  const entryNode = (label: string, en: Citation["entries"][number]) => {
-    // Only Sources resolves (spec §7.4): other labels summarize many
-    // documents, and a null source_name (guard withheld, unmapped title)
-    // renders unlinked — resolution is best-effort throughout.
-    const name = label === "Sources" ? (en.source_name ?? null) : null;
-    const removed = name !== null && alive.known && !alive.names.has(name);
+  const openPreview = (name: string, p: Passage) => setPreview({
+    name,
+    locator: origin ? { resultId: origin.resultId, entryId: p.id } : { passage: p.text ?? "" },
+    passage: p.text ?? "",
+  });
+
+  // Only Sources resolves to a document (spec §7.4): other labels summarize
+  // many documents, and a null source_name (guard withheld, unmapped title)
+  // renders unlinked — resolution is best-effort throughout.
+  const docName = (doc: SourceDoc) => {
+    const { name } = doc;
+    if (name === null) return <Typography.Text strong>{t("query.sourceNumber", { id: doc.passages[0].id })}</Typography.Text>;
+    if (!alive.known) return <Typography.Text strong>{name}</Typography.Text>;
+    if (!alive.names.has(name)) {
+      return (
+        // The span carries the hover: native disabled buttons swallow
+        // pointer events in real browsers, and the tooltip must still open.
+        <Tooltip title={t("query.sourceRemoved")}>
+          <span>
+            <Button type="link" disabled style={{ padding: 0, height: "auto" }}>{name}</Button>
+          </span>
+        </Tooltip>
+      );
+    }
     return (
-      <Typography.Paragraph
-        key={en.id}
-        type="secondary"
-        style={{ whiteSpace: "pre-wrap", marginBottom: 0 }}
+      <Button
+        type="link"
+        style={{ padding: 0, height: "auto", whiteSpace: "normal" }}
+        onClick={() => openPreview(name, doc.passages[0])}
       >
-        {en.text ?? "—"}
-        {name && alive.known && !removed && (
-          <Button
-            type="link"
-            style={{ padding: 0, height: "auto", whiteSpace: "normal" }}
-            onClick={() => setPreview({
-              name,
-              locator: origin
-                ? { resultId: origin.resultId, entryId: en.id }
-                : { passage: en.text ?? "" },
-            })}
-          >
-            {name}
-          </Button>
-        )}
-        {removed && (
-          // The span carries the hover: native disabled buttons swallow
-          // pointer events in real browsers, and the tooltip must still open.
-          <Tooltip title={t("query.sourceRemoved")}>
-            <span>
-              <Button type="link" disabled style={{ padding: 0, height: "auto" }}>
-                {name}
-              </Button>
-            </span>
-          </Tooltip>
-        )}
-      </Typography.Paragraph>
+        {name}
+      </Button>
     );
   };
+  const docLive = (doc: SourceDoc) => doc.name !== null && alive.known && alive.names.has(doc.name);
+
+  // A [Data: …] marker becomes one anchor per cited id; ids the payload
+  // does not carry stay plain text.
+  const markerNode = (raw: string, key: string) => {
+    const groups = parseMarker(raw);
+    if (groups.length === 0) return raw;
+    return (
+      <Typography.Text key={key} type="secondary" style={{ fontSize: 12 }}>
+        [
+        {groups.map((g, gi) => (
+          <span key={gi}>
+            {gi > 0 && "; "}
+            {g.label}{" "}
+            {g.ids.map((id, ii) => (
+              <span key={id}>
+                {ii > 0 && ", "}
+                {model.has(g.key, id) ? (
+                  <Button
+                    type="link"
+                    size="small"
+                    style={{ padding: 0, height: "auto", fontSize: 12 }}
+                    onClick={() => {
+                      setCitationsOpen(true);
+                      setTarget(anchorId(g.key, id));
+                    }}
+                  >
+                    {id}
+                  </Button>
+                ) : id}
+              </span>
+            ))}
+          </span>
+        ))}
+        ]
+      </Typography.Text>
+    );
+  };
+
+  const citationBody = (
+    <>
+      {model.sources.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <Typography.Text strong>{t("query.sourcesHeading")}</Typography.Text>
+          {model.sources.map((doc, di) => (
+            <div key={doc.name ?? `#${doc.passages[0].id}`} style={{ marginTop: di > 0 ? 8 : 4 }}>
+              {docName(doc)}
+              {doc.passages.map((p, pi) => (
+                <div key={p.id} id={anchorId("sources", p.id)} style={{ paddingInlineStart: 12 }}>
+                  <Excerpt text={p.text} />
+                  {pi > 0 && docLive(doc) && (
+                    <>
+                      {" "}
+                      <Button
+                        type="link"
+                        size="small"
+                        style={{ padding: 0, height: "auto" }}
+                        onClick={() => openPreview(doc.name!, p)}
+                      >
+                        {t("query.openPassage")}
+                      </Button>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+      {model.groups.map((g) => {
+        const table = EXPLORE_TABLE[g.key];
+        return (
+          <div key={g.key} style={{ marginBottom: 12 }}>
+            <Typography.Text strong>{g.label}</Typography.Text>
+            <ul style={{ margin: 0, paddingInlineStart: 20 }}>
+              {g.items.map((it) => (
+                <li key={it.id} id={anchorId(g.key, it.id)}>
+                  {table ? (
+                    <Link
+                      to={`/projects/${projectId}/explore?table=${table}&row=${it.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={t("query.openInExplore")}
+                    >
+                      {it.text === null ? `#${it.id}`
+                        : it.text.length > EXCERPT_CHARS ? `${it.text.slice(0, EXCERPT_CHARS)}…` : it.text}
+                    </Link>
+                  ) : (
+                    <Excerpt text={it.text ?? `#${it.id}`} />
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        );
+      })}
+    </>
+  );
 
   return (
     <>
       {(streaming || answer.length > 0) && (
-        <div ref={answerRef} style={{ maxHeight: "40vh", overflow: "auto" }}>
-          <Typography.Paragraph style={{ whiteSpace: "pre-wrap", marginBottom: 0 }}>
-            {answer}
-          </Typography.Paragraph>
+        <div
+          ref={answerRef}
+          data-answer
+          style={streaming ? { maxHeight: "40vh", overflow: "auto" } : undefined}
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+          }}
+        >
+          <Markdown text={answer} renderMarker={markerNode} />
         </div>
       )}
 
@@ -113,17 +261,12 @@ export default function AnswerView({ projectId, answer, citations, timings, stre
         <Skeleton active paragraph={{ rows: 2 }} title={false} />
       ) : citations.length > 0 ? (
         <Collapse
+          activeKey={citationsOpen ? ["citations"] : []}
+          onChange={(keys) => setCitationsOpen(([] as string[]).concat(keys).includes("citations"))}
           items={[{
             key: "citations",
-            label: t("query.citations", { count: citations.length }),
-            children: citations.map((c, i) => (
-              <div key={`${c.label}-${i}`} style={{ marginBottom: 8 }}>
-                <Typography.Text strong>
-                  {c.label} #{c.ids.join(", ")}
-                </Typography.Text>
-                {c.entries.map((en) => entryNode(c.label, en))}
-              </div>
-            )),
+            label: t("query.citations", { count: model.count }),
+            children: citationBody,
           }]}
         />
       ) : null}
@@ -143,6 +286,7 @@ export default function AnswerView({ projectId, answer, citations, timings, stre
         projectId={projectId}
         name={preview?.name ?? null}
         locator={preview?.locator}
+        highlight={preview?.passage}
         onClose={() => setPreview(null)}
       />
     </>

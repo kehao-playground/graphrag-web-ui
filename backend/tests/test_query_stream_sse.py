@@ -2,10 +2,10 @@
 
 FakeStreamAdapter/FakeCache are patched at the service seams; the SSE event
 sequence (chunk* → citations → done), the ?token= auth fallback with its
-must-change gate, pre-stream JSON errors (429/409/502) and the mid-stream
+must-change gate, pre-stream refusals as one error frame and the mid-stream
 error event exercise the real route + service + domain citation parser.
-SSE events never wrap pre-stream failures: those must be plain JSON HTTP
-errors before the 200/stream starts."""
+Auth and validation failures (401/403/422) still answer as plain HTTP
+errors; service refusals (rate limit, not indexed, config, adapter) do not."""
 
 import json
 
@@ -305,8 +305,13 @@ async def test_token_must_change_member_403(client, app, fake_adapter, fake_cach
     assert r.json()["detail"] == "password change required"
 
 
-async def test_rate_limit_third_stream_429_json(client, app, fake_adapter, fake_cache, monkeypatch):
-    """429 must arrive as plain JSON BEFORE any SSE byte is written."""
+async def test_rate_limit_third_stream_is_one_error_frame(
+    client, app, fake_adapter, fake_cache, monkeypatch
+):
+    """A refused stream answers 200 text/event-stream whose only frame is
+    `event: error` {detail, code} (i18n spec §4.3) — EventSource never
+    exposes an HTTP error body, so a JSON 429 would reach the SPA as a
+    bare transport error."""
     monkeypatch.setenv("QUERY_RATE_LIMIT_PER_HOUR", "2")
     get_settings.cache_clear()
     reset_rate_limiter()
@@ -314,20 +319,27 @@ async def test_rate_limit_third_stream_429_json(client, app, fake_adapter, fake_
     url = _url(pid, method="basic", query="q")
     assert (await client.get(url, headers=alice)).status_code == 200
     assert (await client.get(url, headers=alice)).status_code == 200
-    r = await client.get(url, headers=alice)
+    body, headers = await _stream(client, url, alice)
 
-    assert r.status_code == 429
-    assert r.json()["detail"] == "too many queries — please retry later"
-    assert r.headers["content-type"].startswith("application/json")
+    assert headers["content-type"].startswith("text/event-stream")
+    assert _events(body) == [
+        (
+            "error",
+            {"detail": "too many queries — please retry later", "code": "query_rate_limited"},
+        )
+    ]
 
 
-async def test_unindexed_409_pre_stream_json(client, app, fake_adapter):
-    # real frame cache + empty workspace: no output/*.parquet — and the
-    # error is JSON, not an SSE error event.
+async def test_unindexed_is_one_error_frame(client, app, fake_adapter):
+    # real frame cache + empty workspace: no output/*.parquet
     pid, alice, _, _ = await _viewer_setup(client, app)
-    r = await client.get(_url(pid, method="basic", query="q"), headers=alice)
-    assert r.status_code == 409
-    assert r.json()["detail"] == "not indexed yet — run an indexing job first"
+    body, _ = await _stream(client, _url(pid, method="basic", query="q"), alice)
+    assert _events(body) == [
+        (
+            "error",
+            {"detail": "not indexed yet — run an indexing job first", "code": "not_indexed"},
+        )
+    ]
 
 
 async def test_mid_stream_adapter_error_event_then_close(client, app, fake_adapter, fake_cache):
@@ -345,14 +357,13 @@ async def test_mid_stream_adapter_error_event_then_close(client, app, fake_adapt
     assert len(events) == 3
 
 
-async def test_pre_chunk_adapter_failure_502_json(client, app, fake_adapter, fake_cache):
-    """Adapter failing BEFORE any chunk is a pre-stream failure: JSON 502
-    with the fixed detail (the cause stays in server logs), not SSE."""
+async def test_pre_chunk_adapter_failure_is_one_error_frame(client, app, fake_adapter, fake_cache):
+    """Adapter failing BEFORE any chunk: one error frame with the fixed
+    detail and `query_failed` (the cause stays in server logs)."""
     pid, alice, _, _ = await _viewer_setup(client, app)
     fake_adapter.fail_after = 0
-    r = await client.get(_url(pid, method="basic", query="q"), headers=alice)
-    assert r.status_code == 502
-    assert r.json()["detail"] == "query failed"
+    body, _ = await _stream(client, _url(pid, method="basic", query="q"), alice)
+    assert _events(body) == [("error", {"detail": "query failed", "code": "query_failed"})]
 
 
 async def test_non_member_403(client, app, fake_adapter, fake_cache):

@@ -1,6 +1,7 @@
 import { lazy, Suspense, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { useSearchParams } from "react-router-dom";
 import type { ParseKeys } from "i18next";
 import {
   Alert, Descriptions, Drawer, Input, InputNumber, Segmented, Select, Space, Spin, Table, Typography,
@@ -90,9 +91,15 @@ export default function ExplorePanel({ projectId, canUse }: { projectId: string;
     label: TABLE_META[name].label,
     value: name,
   }));
+  // A citation links here as ?table=<name>&row=<human_readable_id>: that
+  // table, with the row's detail open. Read once; the drawer's close drops it.
+  const [params, setParams] = useSearchParams();
+  const linkedTable = params.get("table");
+  const linked = linkedTable !== null && Object.hasOwn(TABLE_META, linkedTable) ? linkedTable as ArtifactTableName : null;
+  const linkedRow = Number(params.get("row") ?? "");
   const [mode, setMode] = useState<Mode>("table");
   const [GraphView, setGraphView] = useState(loadGraphView);
-  const [table, setTable] = useState<ArtifactTableName>("entities");
+  const [table, setTable] = useState<ArtifactTableName>(linked ?? "entities");
   const [offset, setOffset] = useState(0);
   const [limit, setLimit] = useState(50);
   const [q, setQ] = useState("");
@@ -100,7 +107,18 @@ export default function ExplorePanel({ projectId, canUse }: { projectId: string;
   // equality (domain keyword_fields flag), not a set membership test.
   const [typeTags, setTypeTags] = useState<string[]>([]);
   const [community, setCommunity] = useState<number | null>(null);
-  const [hrid, setHrid] = useState<number | null>(null);
+  const [hrid, setHrid] = useState<number | null>(
+    linked && params.get("row") !== null && Number.isInteger(linkedRow) ? linkedRow : null,
+  );
+  const closeDetail = () => {
+    setHrid(null);
+    if (params.has("row")) {
+      setParams((p) => {
+        p.delete("row");
+        return p;
+      }, { replace: true });
+    }
+  };
 
   const meta = TABLE_META[table];
 
@@ -217,7 +235,7 @@ export default function ExplorePanel({ projectId, canUse }: { projectId: string;
         title={meta.label}
         size="large"
         open={hrid !== null}
-        onClose={() => setHrid(null)}
+        onClose={closeDetail}
       >
         {detail.data ? (
           <Descriptions column={1} size="small" bordered>

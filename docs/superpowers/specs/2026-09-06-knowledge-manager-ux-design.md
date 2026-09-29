@@ -1310,6 +1310,16 @@ answer rendered differently in two places, users would reasonably suspect
 they had gotten different results. An ad-hoc answer saves into a question
 set in one action.
 
+`AnswerView` renders the answer as Markdown (headings, lists, emphasis —
+built from text, no HTML passthrough) and turns each `[Data: …]` marker
+into anchors that open and scroll to the cited item. The citations panel
+lists each cited document once (one-line excerpt, expand on click) and
+each entity, relationship or report once, linked to its Explore row
+(`explore?table=&row=`, new tab). The ad-hoc box names each method's
+typical duration under the method select, and while a query streams it
+shows the elapsed seconds and a *Cancel* that closes the stream, keeping
+the partial answer (amended by fix wave F16).
+
 - **Matrix**: rows = question **lineages**, columns = the most recent runs
   (default 5). No virtualization — hundreds of rows × 5 columns is well
   within antd's `Table`; complexity for imagined scale is complexity now
@@ -1395,6 +1405,9 @@ set in one action.
   never a later lookup — and open `FilePreviewDrawer` with the locator for
   their origin (§7.4): `{resultId, entryId}` for a stored run,
   `{passage}` for an ad-hoc query. Slice ①'s reserved prop is used here.
+  The drawer marks the cited passage and scrolls to it, with one line
+  saying the passage is shown (or no longer found) and the document size;
+  a head-window preview from the Documents pane has no header (F16).
 - **Project list** gains an index-health column fed by
   `GET /api/projects/health?ids=`.
 
