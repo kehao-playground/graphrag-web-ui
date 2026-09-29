@@ -240,3 +240,24 @@ async def test_enqueue_refuses_a_workspace_whose_settings_escape(client, app):
         f"/api/projects/{pid}/jobs", headers=alice, json={"type": "index", "method": "fast"}
     )
     assert r.status_code == 201, r.text
+
+
+async def test_job_out_carries_batch_progress(client, app, db_session):
+    """R3-07: the test-run worker's {done, total} reaches the API; jobs
+    with no progress answer null."""
+    from graphrag_ui.adapters import jobs_repo
+
+    _, alice, _ = await _setup_users(client, app)
+    pid = await _project(client, alice)
+    j = (
+        await client.post(
+            f"/api/projects/{pid}/jobs", headers=alice, json={"type": "index", "method": "fast"}
+        )
+    ).json()
+    assert j["progress"] is None
+    await jobs_repo.set_progress(db_session, uuid.UUID(j["id"]), 3, 20)
+    await db_session.commit()
+    got = (await client.get(f"/api/jobs/{j['id']}", headers=alice)).json()
+    assert got["progress"] == {"done": 3, "total": 20}
+    pre = (await client.get(f"/api/projects/{pid}/jobs/preflight", headers=alice)).json()
+    assert pre["active_job"]["progress"] == {"done": 3, "total": 20}

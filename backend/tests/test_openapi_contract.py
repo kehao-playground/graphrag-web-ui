@@ -22,19 +22,13 @@ KNOWN_UNTYPED = {
     "DELETE /api/projects/{pid}/question-sets/{sid}/questions/{qid}",
     "DELETE /api/projects/{pid}",
     "DELETE /api/projects/{pid}/members/{user_id}",
-    "GET /api/health",
     "GET /api/jobs/{job_id}/logs",
-    "GET /api/projects/{pid}/artifacts/graph",
-    "GET /api/projects/{pid}/artifacts/{table}",
-    "GET /api/projects/{pid}/artifacts/{table}/{hrid}",
     "GET /api/projects/{pid}/query/stream",
     "PATCH /api/projects/{pid}/env",
     "POST /api/admin/users/{user_id}/reset-password",
     "POST /api/auth/change-password",
     "POST /api/auth/logout",
-    "POST /api/jobs/{job_id}/cancel",
     "POST /api/projects/{pid}/files/{filename}/tags",
-    "POST /api/projects/{pid}/query",
 }
 
 

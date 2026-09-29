@@ -375,3 +375,19 @@ async def test_a_lowercased_user_can_log_in(client):
         "/api/auth/login", json={"email": "casey@test.local", "password": "casey-pass-12"}
     )
     assert r.status_code == 200
+
+
+async def test_display_name_longer_than_the_column_is_a_422(client):
+    """R2-08: the column is String(100); a longer name was a bare 500 at flush."""
+    hdr = await _admin_token(client)
+    body = {"email": "long@test.local", "password": "pass-12345"}
+    r = await client.post("/api/admin/users", headers=hdr, json={**body, "display_name": "x" * 101})
+    assert r.status_code == 422
+    assert r.json()["code"] == "validation_failed"
+    r = await client.post("/api/admin/users", headers=hdr, json={**body, "display_name": "x" * 100})
+    assert r.status_code == 201
+    uid = r.json()["id"]
+    r = await client.patch(f"/api/admin/users/{uid}", headers=hdr, json={"display_name": "y" * 101})
+    assert r.status_code == 422
+    r = await client.patch(f"/api/admin/users/{uid}", headers=hdr, json={"display_name": ""})
+    assert r.status_code == 422

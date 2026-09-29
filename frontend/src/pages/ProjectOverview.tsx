@@ -4,7 +4,7 @@ import { Alert, Card, Space, Spin, Typography } from "antd";
 import { projectHealth } from "../api/queries";
 import type { ProjectHealth } from "../api/types";
 import ActionCard from "../components/project/ActionCard";
-import { jobTypeLabel } from "../components/labels";
+import { jobStatusLabel, jobTypeLabel } from "../components/labels";
 import { methodLabel } from "../components/tests/methods";
 
 // The knowledge-base health overview (spec §9.3): one action card that is
@@ -74,6 +74,18 @@ function OverviewBody({ projectId, data }: { projectId: string; data: ProjectHea
             </Typography.Text>
           ) : (
             <Typography.Text type="secondary">{t("overview.neverIndexed")}</Typography.Text>
+          )}
+          {/* The newest finish that was not a success is shown apart from
+              the last index, never as it (R3-06). */}
+          {data.last_attempt && data.last_attempt.status !== "succeeded" && (
+            <div>
+              <Typography.Text type="danger">
+                {t("overview.lastAttemptLine", {
+                  status: jobStatusLabel(data.last_attempt.status, t),
+                  time: new Date(data.last_attempt.finished_at).toLocaleString(i18n.language),
+                })}
+              </Typography.Text>
+            </div>
           )}
         </Card>
         <Card size="small" title={t("overview.latestRunTitle")} style={{ minWidth: 260 }}>

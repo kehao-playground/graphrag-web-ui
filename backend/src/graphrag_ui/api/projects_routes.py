@@ -3,10 +3,10 @@ from datetime import datetime
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Response, status
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy import select
 
-from graphrag_ui.adapters.models import ProjectMember, Role, User
+from graphrag_ui.adapters.models import Project, ProjectMember, Role, User
 from graphrag_ui.adapters.workspace import (
     GraphragInitInitializer,
     WorkspaceInitError,
@@ -16,15 +16,18 @@ from graphrag_ui.api.deps import (
     CurrentUser,
     DbSession,
     ProjectManage,
+    ProjectManageAccess,
     ProjectView,
     ProjectViewAccess,
     get_current_user,
 )
 from graphrag_ui.api.errors import ApiError
+from graphrag_ui.api.schemas import UuidStr
 from graphrag_ui.domain.permissions import effective_project_perms
 from graphrag_ui.services.projects import (
     create_project,
     delete_project,
+    get_member_perms,
     list_projects,
     member_perms_for_projects,
     remove_member,
@@ -47,20 +50,14 @@ class ProjectUpdateIn(BaseModel):
 class ProjectOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
+    id: UuidStr
     name: str
     slug: str
     description: str | None
     input_file_type: str
-    owner_id: str
+    owner_id: UuidStr
     created_at: datetime
     my_permissions: list[str] = []
-
-    @field_validator("id", "owner_id", mode="before")
-    @classmethod
-    def _uuid_to_str(cls, v: object) -> object:
-        # pydantic 2 does not implicitly coerce UUID to str; Project.id / owner_id are UUIDs
-        return str(v) if isinstance(v, uuid.UUID) else v
 
 
 class MemberIn(BaseModel):
@@ -76,6 +73,17 @@ class MemberOut(BaseModel):
     role_name: str
 
 
+def _project_out(
+    project: Project, global_perms: frozenset[str], member_perms: frozenset[str] | None
+) -> ProjectOut:
+    """ProjectOut with the caller's effective atoms: every route that
+    answers a project answers them, so no response underreports what the
+    caller may do (R3-22)."""
+    po = ProjectOut.model_validate(project)
+    po.my_permissions = sorted(effective_project_perms(global_perms, member_perms))
+    return po
+
+
 def get_initializer() -> WorkspaceInitializer:
     return GraphragInitInitializer()
 
@@ -88,12 +96,7 @@ def register_projects_routes(app):
     async def list_all(db: DbSession, user: CurrentUser):
         projects = await list_projects(db, user.user, user.global_perms)
         perms = await member_perms_for_projects(db, user.id, [p.id for p in projects])
-        out = []
-        for p in projects:
-            po = ProjectOut.model_validate(p)
-            po.my_permissions = sorted(effective_project_perms(user.global_perms, perms.get(p.id)))
-            out.append(po)
-        return out
+        return [_project_out(p, user.global_perms, perms.get(p.id)) for p in projects]
 
     @router.post("", response_model=ProjectOut, status_code=status.HTTP_201_CREATED)
     async def post_project(
@@ -116,22 +119,22 @@ def register_projects_routes(app):
             raise ApiError(
                 status.HTTP_500_INTERNAL_SERVER_ERROR, "init_failed", "graphrag init failed"
             ) from None
-        return ProjectOut.model_validate(project)
+        # the owner membership create_project just wrote
+        member_perms = await get_member_perms(db, project.id, user.id)
+        return _project_out(project, user.global_perms, member_perms)
 
     @router.get("/{pid}", response_model=ProjectOut)
     async def get_one(access: ProjectViewAccess, user: CurrentUser):
-        po = ProjectOut.model_validate(access.project)
-        po.my_permissions = sorted(effective_project_perms(user.global_perms, access.member_perms))
-        return po
+        return _project_out(access.project, user.global_perms, access.member_perms)
 
     @router.patch("/{pid}", response_model=ProjectOut)
     async def patch_one(
-        body: ProjectUpdateIn, project: ProjectManage, db: DbSession, user: CurrentUser
+        body: ProjectUpdateIn, access: ProjectManageAccess, db: DbSession, user: CurrentUser
     ):
         project = await update_project(
-            db, project, name=body.name, description=body.description, actor_id=user.id
+            db, access.project, name=body.name, description=body.description, actor_id=user.id
         )
-        return ProjectOut.model_validate(project)
+        return _project_out(project, user.global_perms, access.member_perms)
 
     @router.delete("/{pid}", status_code=status.HTTP_204_NO_CONTENT)
     async def delete_one(project: ProjectManage, db: DbSession, user: CurrentUser):

@@ -314,3 +314,4 @@ ProjectEditSettings = Annotated[Project, Depends(require_project(Atom.project_ed
 ProjectManage = Annotated[Project, Depends(require_project(Atom.project_manage))]
 SseProjectView = Annotated[Project, Depends(require_project(Atom.project_view, sse=True))]
 ProjectViewAccess = Annotated[ProjectAccess, Depends(require_project_access(Atom.project_view))]
+ProjectManageAccess = Annotated[ProjectAccess, Depends(require_project_access(Atom.project_manage))]

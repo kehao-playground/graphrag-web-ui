@@ -26,6 +26,7 @@ from graphrag_ui.api.deps import (
 )
 from graphrag_ui.api.errors import ApiError
 from graphrag_ui.api.schemas import (
+    CancelOut,
     JobCreateIn,
     JobOut,
     PreflightOut,
@@ -37,8 +38,7 @@ from graphrag_ui.services.projects import get_member_perms, ws_path
 
 
 def job_out(j: Job) -> dict:
-    # Keys are the API contract (frontend types.ts mirrors them, spec §6.1);
-    # argv included so the UI can show the exact CLI invocation.
+    # Keys are JobOut's (the response_model validates them, spec §6.1).
     return {
         "id": str(j.id),
         "project_id": str(j.project_id),
@@ -55,6 +55,7 @@ def job_out(j: Job) -> dict:
         "started_at": j.started_at,
         "finished_at": j.finished_at,
         "argv": j.argv,
+        "progress": j.progress,
     }
 
 
@@ -117,14 +118,14 @@ def register_jobs_routes(app):
             raise forbidden()
         return job_out(job)
 
-    @router.post("/jobs/{job_id}/cancel", status_code=202)
+    @router.post("/jobs/{job_id}/cancel", response_model=CancelOut, status_code=202)
     async def cancel_job(job_id: uuid.UUID, db: DbSession, user: CurrentUser):
         job = await _job_or_404(db, job_id)
         if not can(user.global_perms, Atom.project_run_jobs, await _job_perms(db, user, job)):
             raise forbidden()
         if not await jobs_service.cancel(db, job):
             raise ApiError(status.HTTP_409_CONFLICT, "job_already_finished", "job already finished")
-        return {"detail": "cancellation requested"}
+        return CancelOut(detail="cancellation requested")
 
     @sse_router.get("/jobs/{job_id}/logs")
     async def job_logs(

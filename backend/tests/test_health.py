@@ -365,3 +365,47 @@ async def test_api_key_missing_flags_a_referenced_placeholder_or_absent_key(
 
     (root / ".env").write_text("GRAPHRAG_API_KEY=sk-real-value\nUNUSED=<OTHER>\n")
     assert await missing() is False  # an unreferenced placeholder does not count
+
+
+async def test_last_index_is_the_last_success_and_last_attempt_the_last_finish(
+    client, db_session, indexed_project
+):
+    """R3-06: a failed job newer than a succeeded one is the last ATTEMPT,
+    never the last index — the overview and the list must not show a
+    failure as a fresh index date."""
+    alice, pid = indexed_project
+    project = await db_session.get(Project, uuid.UUID(pid))
+    now = datetime.now(UTC)
+    for hours_ago, status in ((3, "succeeded"), (2, "cancelled"), (1, "failed")):
+        db_session.add(
+            Job(
+                project_id=project.id,
+                type="index",
+                method="fast",
+                argv=[],
+                queued_by=project.owner_id,
+                status=status,
+                queued_at=now - timedelta(hours=hours_ago, minutes=5),
+                finished_at=now - timedelta(hours=hours_ago),
+            )
+        )
+    await db_session.commit()
+
+    body = (await client.get(f"/api/projects/{pid}/health", headers=alice)).json()
+    succeeded = body["last_index"]
+    attempt = body["last_attempt"]
+    assert succeeded is not None and attempt is not None
+    assert attempt["status"] == "failed"
+    assert attempt["job_id"] != succeeded["job_id"]
+    assert attempt["finished_at"] > succeeded["finished_at"]
+
+    batch = (await client.get(f"/api/projects/health?ids={pid}", headers=alice)).json()
+    entry = batch["projects"][pid]
+    assert entry["last_index"] == {"finished_at": succeeded["finished_at"]}
+    assert entry["last_attempt"] == {"status": "failed", "finished_at": attempt["finished_at"]}
+
+
+async def test_no_finished_index_means_no_last_index_or_attempt(client, indexed_project):
+    alice, pid = indexed_project
+    body = (await client.get(f"/api/projects/{pid}/health", headers=alice)).json()
+    assert body["last_index"] is None and body["last_attempt"] is None

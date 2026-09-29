@@ -179,3 +179,21 @@ async def test_owner_role_not_grantable(client, app):
     )
     assert r.status_code == 400  # owner is fixed to the creator (single-owner policy)
     assert r.json()["code"] == "member_owner_protected"
+
+
+async def test_create_and_patch_answer_the_callers_permissions(client, app):
+    """R3-22: POST (and PATCH) returned my_permissions: [] while GET
+    returned the owner's atoms — the contract lied for one round trip."""
+    app.dependency_overrides[get_initializer] = FakeInitializer
+    await _setup_two_users(client)
+    alice = await _activate(client, "alice@test.local", "alice-pass-1", "alice-pass-2")
+    created = await client.post(
+        "/api/projects", headers=alice, json={"name": "Perms", "input_file_type": "text"}
+    )
+    assert created.status_code == 201
+    pid = created.json()["id"]
+    fetched = (await client.get(f"/api/projects/{pid}", headers=alice)).json()
+    assert fetched["my_permissions"]
+    assert created.json()["my_permissions"] == fetched["my_permissions"]
+    patched = await client.patch(f"/api/projects/{pid}", headers=alice, json={"name": "Perms 2"})
+    assert patched.json()["my_permissions"] == fetched["my_permissions"]

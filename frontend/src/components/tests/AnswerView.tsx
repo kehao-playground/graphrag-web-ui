@@ -61,7 +61,7 @@ export default function AnswerView({ projectId, answer, citations, timings, stre
     // Only Sources resolves (spec §7.4): other labels summarize many
     // documents, and a null source_name (guard withheld, unmapped title)
     // renders unlinked — resolution is best-effort throughout.
-    const name = label === "Sources" ? en.source_name : null;
+    const name = label === "Sources" ? (en.source_name ?? null) : null;
     const removed = name !== null && alive.known && !alive.names.has(name);
     return (
       <Typography.Paragraph

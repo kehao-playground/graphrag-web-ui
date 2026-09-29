@@ -38,8 +38,21 @@ class FileCountsOut(BaseModel):
 
 
 class LastIndexOut(BaseModel):
+    """The newest SUCCEEDED index or update: the output the project
+    answers from."""
+
     job_id: str
     type: str
+    finished_at: datetime
+
+
+class LastAttemptOut(BaseModel):
+    """The newest finished index or update of any status; differs from
+    last_index when a later job failed or was cancelled."""
+
+    job_id: str
+    type: str
+    status: str
     finished_at: datetime
 
 
@@ -70,6 +83,7 @@ class HealthOut(BaseModel):
     has_baseline: bool
     artifacts_stale: bool
     last_index: LastIndexOut | None
+    last_attempt: LastAttemptOut | None
     active_job: ActiveJobOut | None
     latest_run: LatestRunOut | None
     # A key settings.yaml references is absent from the .env or still
@@ -91,12 +105,18 @@ class BatchLastIndexOut(BaseModel):
     finished_at: datetime
 
 
+class BatchLastAttemptOut(BaseModel):
+    status: str
+    finished_at: datetime
+
+
 class BatchHealthEntryOut(BaseModel):
     files: BatchFileCountsOut
     ingest_check: str
     artifacts_stale: bool
     has_baseline: bool
     last_index: BatchLastIndexOut | None
+    last_attempt: BatchLastAttemptOut | None
 
 
 class BatchHealthOut(BaseModel):

@@ -263,7 +263,8 @@ async def run_with_citations(client, app, db_session, fake_adapter, fake_cache):
                     "entries": [{"id": 1, "text": UNIT_TEXT, "source_name": "file-a.md"}],
                 }
             ],
-            timings={"search_ms": 1.0},
+            # the shape the worker stores (QueryTimingsOut validates it on read)
+            timings={"frames_ms": 1.0, "search_ms": 1.0, "citations_ms": 1.0, "total_ms": 3.0},
             completed_at=datetime.now(UTC),
         )
     )

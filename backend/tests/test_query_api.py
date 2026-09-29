@@ -328,3 +328,20 @@ def test_query_errors_share_base():
     explore = ExploreReadError("list", "tail text")
     assert (explore.code, explore.detail, explore.tail) == ("list", "tail text", "tail text")
     assert INTERRUPTED_DETAIL == "query interrupted"
+
+
+async def test_query_and_response_type_are_length_bounded(client, app, fake_adapter, fake_cache):
+    """R2-16: the interactive path shares the question routes' bound."""
+    from graphrag_ui.domain.questions import MAX_QUESTION_CHARS
+
+    pid, alice, _, _ = await _viewer_setup(client, app)
+    too_long = "q" * (MAX_QUESTION_CHARS + 1)
+    assert (await _post(client, pid, alice, query=too_long)).status_code == 422
+    assert (await _post(client, pid, alice, response_type="r" * 101)).status_code == 422
+    stream = f"/api/projects/{pid}/query/stream"
+    r = await client.get(stream, headers=alice, params={"method": "basic", "query": too_long})
+    assert r.status_code == 422
+    r = await client.get(
+        stream, headers=alice, params={"method": "basic", "query": "q", "response_type": "r" * 101}
+    )
+    assert r.status_code == 422

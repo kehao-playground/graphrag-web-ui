@@ -14,6 +14,7 @@ export interface ActionHealth {
   has_baseline: boolean;
   ingest_check: string;
   last_index: { job_id: string } | null;
+  last_attempt: { job_id: string; status: string } | null;
   latest_run: { regressions: number } | null;
 }
 
@@ -65,7 +66,9 @@ export function nextAction(health: ActionHealth): NextAction {
     return { key: "artifactsMissing", severity: "error", target: "jobs" };
   }
   if (!health.has_baseline) {
-    return { key: "noBaseline", severity: health.last_index ? "error" : "info", target: "jobs" };
+    // Any finished attempt, not only a success: without a baseline the
+    // newest attempt can only have failed or been cancelled.
+    return { key: "noBaseline", severity: health.last_attempt ? "error" : "info", target: "jobs" };
   }
   if (health.files.removed > 0) {
     return { key: "removed", severity: "error", target: "jobs" };

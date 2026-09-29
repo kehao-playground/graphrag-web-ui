@@ -82,7 +82,7 @@ function sent(method: string) {
 // seeds the preflight mock with the blocking job (any type); route mounts
 // it at its real URL so URL-initialized state (?regressions=1) is testable.
 function renderWorkbench(opts: {
-  activeJob?: { id: string; type: string } | null;
+  activeJob?: { id: string; type: string; progress?: { done: number; total: number } } | null;
   route?: string;
   canEdit?: boolean;
 } = {}) {
@@ -119,6 +119,12 @@ test("a job conflict names which job is running", async () => {
   // Not a dead button, and not a message implying only indexing can block.
   expect(await screen.findByText(/索引作業執行中/)).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "重跑整組" })).toBeDisabled();
+});
+
+// R3-07: a running batch says how far it is.
+test("a running test run shows its progress", async () => {
+  renderWorkbench({ activeJob: { id: "j2", type: "test_run", progress: { done: 3, total: 20 } } });
+  expect(await screen.findByText("已回答 3 / 20 題")).toBeInTheDocument();
 });
 
 test("without an active job 重跑整組 stays enabled", async () => {
@@ -182,7 +188,10 @@ test("rating the last result of a run closes the drawer", async () => {
   renderWorkbench();
   await userEvent.click(await screen.findByLabelText(cellLabel("Q7 發票怎麼開", 4)));
   // The errored result opens too — the error is part of what was asked.
-  expect(await screen.findByText("boom")).toBeInTheDocument();
+  // R2-07: the row holds a fixed server message; the drawer says it in
+  // the reader's language instead of echoing it.
+  expect(await screen.findByText(/此題查詢失敗/)).toBeInTheDocument();
+  expect(screen.queryByText("query failed")).not.toBeInTheDocument();
   expect(await screen.findByText("第 4 / 4 題")).toBeInTheDocument();
   await userEvent.keyboard("2");
   expect(rated).toEqual([{ resultId: "r4", score: "fair", note: "" }]);

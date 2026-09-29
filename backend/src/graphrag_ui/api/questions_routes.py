@@ -19,6 +19,7 @@ from graphrag_ui.api.deps import (
     ProjectView,
     get_current_user,
 )
+from graphrag_ui.api.schemas import UuidStr
 from graphrag_ui.domain.questions import MAX_QUESTION_CHARS
 from graphrag_ui.services import questions as questions_service
 
@@ -46,22 +47,12 @@ class QuestionIn(BaseModel):
     text: str = Field(min_length=1, max_length=MAX_QUESTION_CHARS)
 
 
-def _uuid_to_str(v: object) -> object:
-    # pydantic 2 does not implicitly coerce UUID to str (ProjectOut's validator)
-    return str(v) if isinstance(v, uuid.UUID) else v
-
-
 class SetOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
+    id: UuidStr
     name: str
     created_at: datetime
-
-    @field_validator("id", mode="before")
-    @classmethod
-    def _id(cls, v: object) -> object:
-        return _uuid_to_str(v)
 
 
 class SetListOut(BaseModel):
@@ -71,16 +62,11 @@ class SetListOut(BaseModel):
 class QuestionOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
-    lineage_id: str
+    id: UuidStr
+    lineage_id: UuidStr
     text: str
     position: int
     created_at: datetime
-
-    @field_validator("id", "lineage_id", mode="before")
-    @classmethod
-    def _ids(cls, v: object) -> object:
-        return _uuid_to_str(v)
 
 
 class QuestionListOut(BaseModel):

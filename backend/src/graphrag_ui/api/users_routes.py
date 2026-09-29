@@ -1,4 +1,5 @@
 import uuid
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Response, status
 from pydantic import BaseModel, EmailStr, Field
@@ -23,16 +24,20 @@ from graphrag_ui.services.users import (
     reset_password,
 )
 
+# adapters.models.User.display_name is String(100): longer is a 422 here,
+# not a truncation error at flush.
+DisplayName = Annotated[str, Field(min_length=1, max_length=100)]
+
 
 class UserCreateIn(BaseModel):
     email: EmailStr
-    display_name: str
+    display_name: DisplayName
     password: str = Field(min_length=8)
     roles: list[uuid.UUID] = []
 
 
 class UserUpdateIn(BaseModel):
-    display_name: str | None = None
+    display_name: DisplayName | None = None
     roles: list[uuid.UUID] | None = None
     is_active: bool | None = None
 

@@ -55,6 +55,8 @@ function clean() {
   return {
     artifacts_stale: false, has_baseline: true, ingest_check: "available",
     last_index: { finished_at: "2026-09-01T00:00:00Z" },
+    last_attempt: { status: "succeeded", finished_at: "2026-09-01T00:00:00Z" } as
+      { status: string; finished_at: string },
     files: { new: 0, modified: 0, removed: 0, skipped: 0 },
   };
 }
@@ -107,4 +109,17 @@ test("project list shows index health from one batch request", async () => {
 test("a project with only removed documents is flagged, not shown healthy", async () => {
   renderProjects({ health: { p1: { files: { removed: 2, new: 0, modified: 0, skipped: 0 } } } });
   expect(await screen.findByText(/已刪除文件仍在索引中/)).toBeInTheDocument();
+});
+
+// R3-06: the newest finished index failed — flagged, not read as fresh.
+test("a project whose last index attempt failed is flagged; a cancel is not", async () => {
+  healthBody = {
+    projects: {
+      ...HEALTH_BODY.projects,
+      p1: { ...clean(), last_attempt: { status: "failed", finished_at: "2026-09-02T00:00:00Z" } },
+      p3: { ...clean(), last_attempt: { status: "cancelled", finished_at: "2026-09-02T00:00:00Z" } },
+    },
+  };
+  renderProjects();
+  expect(await screen.findAllByText("最近一次索引失敗")).toHaveLength(1);
 });

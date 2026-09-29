@@ -4,7 +4,6 @@ import { useTranslation } from "react-i18next";
 import {
   Alert, Drawer, Input, Segmented, Skeleton, Space, Typography,
 } from "antd";
-import type { Citation, QueryTimings } from "../../api/types";
 import { sendOk } from "../../api/client";
 import { runResults } from "../../api/queries";
 import AnswerView from "./AnswerView";
@@ -133,12 +132,14 @@ export default function ResultDrawer({ projectId, runId, resultId, onClose, onRa
               {t("workbench.resultPosition", { current: index + 1, total: list.length })}
             </Typography.Text>
           </div>
-          {current.error && <Alert type="error" showIcon message={current.error} />}
+          {/* The row's error is a fixed server message (R2-07): say it in
+              the reader's language rather than echo it. */}
+          {current.error && <Alert type="error" showIcon message={t("workbench.questionFailed")} />}
           <AnswerView
             projectId={projectId}
             answer={current.answer ?? ""}
-            citations={(current.citations as Citation[] | null) ?? []}
-            timings={(current.timings as QueryTimings | null) ?? null}
+            citations={current.citations ?? []}
+            timings={current.timings}
             // A stored run's citations pin to the artifacts that produced
             // them: {resultId, entryId} lets the server re-read the stored
             // passage instead of trusting current artifacts (spec §7.4).

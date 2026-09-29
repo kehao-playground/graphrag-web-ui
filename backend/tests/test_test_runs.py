@@ -275,6 +275,8 @@ async def test_a_per_question_failure_does_not_fail_the_run(db_session, run_read
     assert res.status == "succeeded"
     rows = await _results(db_session, run_ready.run_id)
     assert [row.error is None for row in rows] == [True, False, True]
+    # R2-07: a fixed message, never the exception text (A7 no-leak posture)
+    assert rows[1].error == "query failed"
     assert all(row.completed_at is not None for row in rows)
     assert rows[0].answer == ANSWER and rows[1].answer is None and rows[2].answer == ANSWER
 

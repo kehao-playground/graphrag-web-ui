@@ -8,7 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from graphrag_ui.adapters.db import get_session_factory
-from graphrag_ui.api.schemas import ReadyOut
+from graphrag_ui.api.schemas import LivenessOut, ReadyOut
 from graphrag_ui.config import get_settings
 
 
@@ -18,9 +18,9 @@ def register_health_routes(app):
     # duplicate routes
     router = APIRouter(prefix="/api")
 
-    @router.get("/health")
+    @router.get("/health", response_model=LivenessOut)
     async def health():
-        return {"status": "ok"}
+        return LivenessOut(status="ok")
 
     # The Helm readinessProbe is an httpGet, so kubelet sees only the status
     # code: a 200 carrying {"db": "error"} keeps routing traffic to a pod
