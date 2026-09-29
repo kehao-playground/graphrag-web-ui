@@ -48,6 +48,22 @@ function renderValue(v: unknown) {
   return <pre style={{ margin: 0, whiteSpace: "pre-wrap", fontSize: 12 }}>{JSON.stringify(v, null, 2)}</pre>;
 }
 
+// Hash ids (the internal `id`, the `*_ids` lists) mean nothing to a reader:
+// they show as a count, or a "show" toggle, that expands to the raw values.
+const isHashId = (k: string) => k === "id" || k.endsWith("_ids");
+
+function renderHashIds(v: unknown) {
+  if (v === null) return renderValue(v);
+  return (
+    <details>
+      <summary style={{ cursor: "pointer" }}>
+        {Array.isArray(v) ? i18n.t("explore.idCount", { count: v.length }) : i18n.t("explore.showId")}
+      </summary>
+      {renderValue(v)}
+    </details>
+  );
+}
+
 export default function ExplorePanel({ projectId, canUse }: { projectId: string; canUse: boolean }) {
   const { t } = useTranslation();
   // Labels localize per render; the projection/filter flags are static.
@@ -259,7 +275,7 @@ export default function ExplorePanel({ projectId, canUse }: { projectId: string;
         ) : detail.data ? (
           <Descriptions column={1} size="small" bordered>
             {Object.entries(detail.data.row).map(([k, v]) => (
-              <Descriptions.Item key={k} label={columnLabel(k)}>{renderValue(v)}</Descriptions.Item>
+              <Descriptions.Item key={k} label={columnLabel(k)}>{isHashId(k) ? renderHashIds(v) : renderValue(v)}</Descriptions.Item>
             ))}
           </Descriptions>
         ) : (

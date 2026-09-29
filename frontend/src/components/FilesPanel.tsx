@@ -95,10 +95,10 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
     onSuccess: (result) => {
       // The server's count, not the selection's: a file whose unlink failed
       // stays, and says so by name.
-      message.success(t("files.bulkDeleteDone", { n: result.deleted }));
+      message.success(t("files.bulkDeleteDone", { count: result.deleted }));
       if (result.failed.length > 0) {
         message.warning(
-          t("files.bulkDeletePartial", { n: result.failed.length, names: result.failed.join(", ") }),
+          t("files.bulkDeletePartial", { count: result.failed.length, names: result.failed.join(", ") }),
         );
       }
       setSelected([]);
@@ -112,7 +112,7 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
     const rows = selectedRows;
     const bytes = rows.reduce((n, f) => n + (f.size ?? 0), 0);
     Modal.confirm({
-      title: t("files.bulkDeleteTitle", { n: rows.length, size: humanBytes(bytes) }),
+      title: t("files.bulkDeleteTitle", { count: rows.length, size: humanBytes(bytes) }),
       okText: t("common.delete"),
       okButtonProps: { danger: true },
       onOk: () => bulkDelete.mutate(rows.map((f) => f.name)),
@@ -138,7 +138,7 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
     if (b.pending > 0) {
       message.open({
         key: UPLOAD_KEY, type: "loading", duration: 0,
-        content: t("files.uploadProgress", { done: b.ok.length + b.failed.length, n: b.total }),
+        content: t("files.uploadProgress", { done: b.ok.length + b.failed.length, total: b.total }),
       });
       return;
     }
@@ -147,14 +147,14 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
     if (failed.length === 0) {
       message.open({
         key: UPLOAD_KEY, type: "success",
-        content: total === 1 ? t("files.uploaded", { name: ok[0] }) : t("files.uploadedMany", { n: total }),
+        content: total === 1 ? t("files.uploaded", { name: ok[0] }) : t("files.uploadedMany", { count: total }),
       });
     } else if (total === 1) {
       message.open({ key: UPLOAD_KEY, type: "error", content: solo });
     } else {
       message.open({
         key: UPLOAD_KEY, type: ok.length === 0 ? "error" : "warning", duration: 8,
-        content: t("files.uploadPartial", { ok: ok.length, n: failed.length, names: failed.join("; ") }),
+        content: t("files.uploadPartial", { ok: ok.length, count: total, names: failed.join("; ") }),
       });
     }
     if (ok.length > 0) void invalidateFiles();
@@ -169,7 +169,7 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
     b.total += 1;
     message.open({
       key: UPLOAD_KEY, type: "loading", duration: 0,
-      content: t("files.uploadProgress", { done: b.ok.length + b.failed.length, n: b.total }),
+      content: t("files.uploadProgress", { done: b.ok.length + b.failed.length, total: b.total }),
     });
     // The server is the authority on the cap; checking here only spares
     // the user a doomed transfer of a file it will refuse (R4-08).
@@ -261,7 +261,7 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
         <Alert
           type="info"
           showIcon
-          message={t("files.notIndexedBar", { n: pending })}
+          message={t("files.notIndexedBar", { count: pending })}
           action={<Link to={`/projects/${projectId}/jobs`}>{t("files.goToJobs")}</Link>}
         />
       )}

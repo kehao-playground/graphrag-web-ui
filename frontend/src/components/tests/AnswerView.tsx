@@ -271,15 +271,17 @@ export default function AnswerView({ projectId, answer, citations, timings, stre
         />
       ) : null}
 
+      {/* One plain duration; the stage breakdown is for the curious (R4-34). */}
       {timings && (
-        <Typography.Text type="secondary">
-          {t("query.timings", {
-            frames: Math.round(timings.frames_ms),
-            search: Math.round(timings.search_ms),
-            citations: Math.round(timings.citations_ms),
-            total: Math.round(timings.total_ms),
-          })}
-        </Typography.Text>
+        <Tooltip title={t("query.timings", {
+          frames: Math.round(timings.frames_ms),
+          search: Math.round(timings.search_ms),
+          citations: Math.round(timings.citations_ms),
+        })}>
+          <Typography.Text type="secondary">
+            {t("query.answeredIn", { seconds: (timings.total_ms / 1000).toFixed(1) })}
+          </Typography.Text>
+        </Tooltip>
       )}
 
       <FilePreviewDrawer

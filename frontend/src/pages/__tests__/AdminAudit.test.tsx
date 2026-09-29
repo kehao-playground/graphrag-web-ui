@@ -96,7 +96,7 @@ test("renders the log with actions, targets and payloads", async () => {
   // Actions read as catalog labels, not raw ids (R4-17).
   await waitFor(() => expect(screen.getByText("上傳文件")).toBeInTheDocument());
   expect(screen.getByText("建立使用者")).toBeInTheDocument();
-  expect(screen.getByText("設定環境金鑰")).toBeInTheDocument();
+  expect(screen.getByText("設定環境變數")).toBeInTheDocument();
   // Targets name the project or user when the admin can see it; an
   // unresolvable one keeps its short id.
   expect(await screen.findByText("Research Corpus")).toBeInTheDocument();
@@ -141,7 +141,7 @@ test("requests the first page with the configured page size", async () => {
 test("the action filter is sent to the server, not applied client-side", async () => {
   const user = userEvent.setup();
   mountAudit();
-  await waitFor(() => expect(screen.getByText("設定環境金鑰")).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByText("設定環境變數")).toBeInTheDocument());
 
   // The filter picks from the action catalog (recognition, not recall).
   await user.click(screen.getByRole("combobox", { name: "依動作篩選" }));
@@ -157,5 +157,5 @@ test("the action filter is sent to the server, not applied client-side", async (
   });
   // Server-side paging means the row count must come back from the request,
   // so the other actions are gone rather than merely hidden.
-  await waitFor(() => expect(screen.queryByText("設定環境金鑰")).not.toBeInTheDocument());
+  await waitFor(() => expect(screen.queryByText("設定環境變數")).not.toBeInTheDocument());
 });

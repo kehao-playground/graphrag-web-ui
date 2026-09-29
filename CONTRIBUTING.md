@@ -35,6 +35,22 @@ sliding window on client IP alone collapses to one shared bucket.
   comments of the lines/sections you are modifying (boy-scout rule).
   Do not do repo-wide comment rewrites on their own.
 
+## UI Copy
+
+UI strings live in `frontend/src/i18n/locales/{zh-TW,en-US}.ts`, both
+locales in the same change. The glossary and style rules are in the i18n
+spec §8 (`docs/superpowers/specs/2026-08-24-i18n-design.md`); `npm test`
+lints the mechanical ones. When reviewing copy, also check what the lint
+cannot:
+
+- The same concept uses the same word as the glossary and the rest of
+  the screen (a document is not called a file in the next sentence).
+- Counted messages take `count` and have both en-US plural forms.
+- No internal vocabulary: spec section numbers, config keys the reader
+  never types, raw ids, English nouns in zh-TW sentences.
+- A new backend error code gets an `errors.<code>` entry in both
+  catalogs (`backend/tests/test_error_catalog.py` fails otherwise).
+
 ## Note for AI Agents
 
 Every implementation plan for this repo must carry these rules in its

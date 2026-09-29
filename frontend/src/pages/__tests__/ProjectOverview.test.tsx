@@ -7,6 +7,7 @@ import ProjectOverview from "../ProjectOverview";
 import { nextAction } from "../../components/project/nextAction";
 import type { ActionHealth } from "../../components/project/nextAction";
 import { stubFetch } from "../../testing/stubFetch";
+import { i18n } from "../../i18n";
 
 // --- nextAction: one ordered check, unit-tested without rendering ---
 
@@ -145,6 +146,7 @@ function renderOverview(over: {
   files?: Partial<(typeof CLEAN)["files"]>;
   ingest_check?: string;
   last_attempt?: Record<string, string>;
+  active_job?: Record<string, string>;
 } = {}) {
   healthBody = { ...CLEAN, ...over, files: { ...CLEAN.files, ...(over.files ?? {}) } };
   return render(
@@ -217,4 +219,16 @@ test("a succeeded last attempt adds no attempt line", async () => {
   renderOverview();
   await screen.findByText(/最近一次索引/);
   expect(screen.queryByText(/最近一次嘗試/)).not.toBeInTheDocument();
+});
+
+test("English copy names the running job and the last index in one sentence each (R4-19)", async () => {
+  await i18n.changeLanguage("en-US");
+  renderOverview({ active_job: { id: "j1", type: "update" }, files: { new: 1, total: 6 } });
+  expect(await screen.findByText("An update job is running; health updates when it finishes."))
+    .toBeInTheDocument();
+  // The last-index line uses the short type label ("Index, finished …").
+  expect(screen.getByText(/^Index, finished /)).toBeInTheDocument();
+  // A tile shows the bare count under its label, not "6 documents".
+  expect(screen.getByText("6")).toBeInTheDocument();
+  await i18n.changeLanguage("zh-TW");
 });

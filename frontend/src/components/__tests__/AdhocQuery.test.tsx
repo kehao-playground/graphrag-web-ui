@@ -120,7 +120,7 @@ test("citations render inside the 引用 collapse, one line per cited item (null
   es.emit("citations", JSON.stringify([
     { label: "Sources", ids: [2, 7], entries: [{ id: 2, text: "引用文字 A" }, { id: 7, text: null }] },
   ]));
-  await user.click(await screen.findByText("引用 (2)"));
+  await user.click(await screen.findByText("引用（2）"));
   expect(await screen.findByText("來源")).toBeInTheDocument();
   expect(screen.getByText("來源 #2")).toBeInTheDocument();
   expect(screen.getByText("引用文字 A")).toBeInTheDocument();
@@ -161,14 +161,15 @@ test("a refused stream's error frame shows the localized reason", async () => {
   expect(es.close).toHaveBeenCalled();
 });
 
-test("done renders the timings line rounded to whole ms and closes the EventSource", async () => {
+test("done renders the answer time, its stage breakdown in a tooltip, and closes the EventSource", async () => {
   mount();
   const es = await startStream();
-  // Fractional ms from the backend must render rounded (Math.round), not raw.
   es.emit("done", JSON.stringify({ frames_ms: 10.4, search_ms: 20548.6, citations_ms: 5.6, total_ms: 20564.9 }));
-  expect(
-    await screen.findByText("frames 10ms · 搜尋 20549ms · 引用 6ms · 總計 20565ms"),
-  ).toBeInTheDocument();
+  // One plain duration in seconds on the page (R4-34) …
+  const line = await screen.findByText("回答耗時 20.6 秒");
+  // … and the stages, rounded to whole ms, on hover.
+  await userEvent.hover(line);
+  expect(await screen.findByText("載入索引 10 毫秒 · 搜尋 20549 毫秒 · 整理引用 6 毫秒")).toBeInTheDocument();
   expect(es.close).toHaveBeenCalled();
   // Button re-enables once the stream finished.
   expect(screen.getByRole("button", { name: /^執\s?行$/ })).toBeEnabled();
@@ -208,7 +209,7 @@ test("transport error (pre-stream 4xx / network) shows the generic message and c
   const es = await startStream();
   // No payload = connection-level error, not an SSE error frame.
   es.emit("error");
-  expect(await screen.findByText("查詢失敗,請稍後再試")).toBeInTheDocument();
+  expect(await screen.findByText("查詢失敗，請稍後再試")).toBeInTheDocument();
   expect(es.close).toHaveBeenCalled();
 });
 

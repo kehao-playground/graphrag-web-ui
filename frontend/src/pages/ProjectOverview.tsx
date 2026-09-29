@@ -4,7 +4,7 @@ import { Alert, Card, Space, Spin, Typography } from "antd";
 import { projectHealth } from "../api/queries";
 import type { ProjectHealth } from "../api/types";
 import ActionCard from "../components/project/ActionCard";
-import { jobStatusLabel, jobTypeLabel } from "../components/labels";
+import { jobStatusLabel, jobTypeShortLabel } from "../components/labels";
 import { methodLabel } from "../components/tests/methods";
 
 // The knowledge-base health overview (spec §9.3): one action card that is
@@ -68,7 +68,7 @@ function OverviewBody({ projectId, data }: { projectId: string; data: ProjectHea
           {data.last_index ? (
             <Typography.Text>
               {t("overview.lastIndexLine", {
-                type: jobTypeLabel(data.last_index.type, t),
+                type: jobTypeShortLabel(data.last_index.type, t),
                 time: new Date(data.last_index.finished_at).toLocaleString(i18n.language),
               })}
             </Typography.Text>

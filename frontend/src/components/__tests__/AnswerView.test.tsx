@@ -90,7 +90,7 @@ function renderAnswer(opts: {
 // only after the header click — the AdhocQuery tests expand it the same way.
 async function expandCitations() {
   const user = userEvent.setup();
-  await user.click(await screen.findByText(/引用 \(/));
+  await user.click(await screen.findByText(/引用（/));
   return user;
 }
 
