@@ -1,16 +1,21 @@
 """Knowledge-base health aggregates (spec 7.5): the overview's per-project
 state, plus the compact subset the project list needs in one round trip.
 
-The per-project aggregate reuses list_files rather than reimplementing the
-enumeration — one source of truth for what `removed` and `skipped` mean —
-and reports ingest_check WITH has_baseline because their combination
-carries a fault neither shows alone: `unavailable_not_indexed` under an
-existing baseline means the output once existed and no longer does.
-regressions is counted here, server-side, because the overview must state
-it without downloading every result of the latest run.
+Both reuse files.file_listings rather than reimplementing the enumeration —
+one source of truth for what `removed` and `skipped` mean — and report
+ingest_check WITH has_baseline because their combination carries a fault
+neither shows alone: `unavailable_not_indexed` under an existing baseline
+means the output once existed and no longer does. regressions is counted
+here, server-side, because the overview must state it without downloading
+every result of the latest run.
+
+The batch reads each table once for all its projects (R1-71): the project
+list asks for up to 200 ids per request, and per-project queries made that
+an N+1 of N+1s.
 """
 
 import uuid
+from collections.abc import Sequence
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,48 +23,40 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from graphrag_ui.adapters.models import (
     Job,
     Project,
-    ProjectMember,
     Question,
     ResultRating,
     TestResult,
     TestRun,
     User,
 )
-from graphrag_ui.domain.permissions import sees_all_projects
 from graphrag_ui.domain.test_runs import count_regressions
 from graphrag_ui.services import jobs as jobs_service
 from graphrag_ui.services.env_file import referenced_key_missing
-from graphrag_ui.services.files import list_files
-from graphrag_ui.services.index_snapshots import baseline_row
+from graphrag_ui.services.files import file_listings
+from graphrag_ui.services.projects import list_projects
 
 _FILE_STATES = ("new", "modified", "indexed", "skipped", "removed")
 
 
 async def project_health(session: AsyncSession, project: Project) -> dict:
     """The overview's per-project aggregate (spec 7.5 shape)."""
-    listed = await list_files(session, project)
-    counts = {state: 0 for state in _FILE_STATES}
-    for entry in listed["files"]:
-        counts[entry["index_state"]] += 1
-
-    base = await baseline_row(session, project.id)
-    # No baseline row: has_baseline is false and stale is meaningless —
-    # a failed FIRST index bumps the epoch while promoting nothing, which
-    # is rule 3's overview case, not artifact wreckage (spec 7.5).
-    artifacts_stale = base is not None and base.artifact_epoch != project.artifact_epoch
-
+    listed = (await file_listings(session, [project]))[project.id]
     # last_index is the newest SUCCESS — the output the project answers
     # from; last_attempt is the newest finish of any status, so a failed or
     # cancelled job reads as an attempt, never as a fresh index (R3-06).
-    last = await _last_finished_index(session, project.id, succeeded_only=True)
-    attempt = await _last_finished_index(session, project.id, succeeded_only=False)
+    last = (await _last_finished_indexes(session, [project.id], succeeded_only=True)).get(
+        project.id
+    )
+    attempt = (await _last_finished_indexes(session, [project.id], succeeded_only=False)).get(
+        project.id
+    )
     active = await jobs_service.active_job(session, project.id)
 
     return {
-        "files": {**counts, "total": len(listed["files"])},
+        "files": _file_counts(listed),
         "ingest_check": listed["ingest_check"],
         "has_baseline": listed["has_baseline"],
-        "artifacts_stale": artifacts_stale,
+        "artifacts_stale": listed["artifacts_stale"],
         "last_index": (
             {"job_id": str(last.id), "type": last.type, "finished_at": last.finished_at}
             if last is not None
@@ -89,56 +86,62 @@ async def batch_health(
 ) -> dict[str, dict]:
     """The compact subset for the ids the caller can see (spec 7.5).
 
-    Visibility is the project list's rule applied per id: view_any/act_any
-    sees every requested id, anyone else only their memberships. Unknown or
-    invisible ids are dropped, not 404ed — the batch exists so that a stale
-    project list cannot fail the caller's whole overview.
+    Visibility is the project list's own rule (list_projects, R1-94).
+    Unknown or invisible ids are dropped, not 404ed — the batch exists so
+    that a stale project list cannot fail the caller's whole overview.
     """
-    stmt = select(Project).where(Project.id.in_(ids)).order_by(Project.created_at, Project.id)
-    if not sees_all_projects(global_perms):
-        stmt = stmt.join(ProjectMember).where(ProjectMember.user_id == user.id)
-    projects = list((await session.execute(stmt)).scalars().all())
+    projects = await list_projects(session, user, global_perms, ids=ids)
+    pids = [p.id for p in projects]
+    listings = await file_listings(session, projects)
+    last = await _last_finished_indexes(session, pids, succeeded_only=True)
+    attempts = await _last_finished_indexes(session, pids, succeeded_only=False)
 
     out: dict[str, dict] = {}
     for project in projects:
-        health = await project_health(session, project)
+        listed = listings[project.id]
+        files = _file_counts(listed)
+        index = last.get(project.id)
+        attempt = attempts.get(project.id)
         out[str(project.id)] = {
-            "files": {
-                key: health["files"][key] for key in ("new", "modified", "removed", "skipped")
-            },
-            "ingest_check": health["ingest_check"],
-            "artifacts_stale": health["artifacts_stale"],
-            "has_baseline": health["has_baseline"],
-            "last_index": (
-                {"finished_at": health["last_index"]["finished_at"]}
-                if health["last_index"] is not None
-                else None
-            ),
+            "files": {key: files[key] for key in ("new", "modified", "removed", "skipped")},
+            "ingest_check": listed["ingest_check"],
+            "artifacts_stale": listed["artifacts_stale"],
+            "has_baseline": listed["has_baseline"],
+            "last_index": {"finished_at": index.finished_at} if index is not None else None,
             "last_attempt": (
-                {
-                    "status": health["last_attempt"]["status"],
-                    "finished_at": health["last_attempt"]["finished_at"],
-                }
-                if health["last_attempt"] is not None
+                {"status": attempt.status, "finished_at": attempt.finished_at}
+                if attempt is not None
                 else None
             ),
         }
     return out
 
 
-async def _last_finished_index(
-    session: AsyncSession, project_id: uuid.UUID, *, succeeded_only: bool
-) -> Job | None:
+def _file_counts(listed: dict) -> dict[str, int]:
+    counts = {state: 0 for state in _FILE_STATES}
+    for entry in listed["files"]:
+        counts[entry["index_state"]] += 1
+    return {**counts, "total": len(listed["files"])}
+
+
+async def _last_finished_indexes(
+    session: AsyncSession, project_ids: Sequence[uuid.UUID], *, succeeded_only: bool
+) -> dict[uuid.UUID, Job]:
+    """The newest finished index/update job per project, one query
+    (DISTINCT ON); projects without one are absent."""
+    if not project_ids:
+        return {}
     stmt = select(Job).where(
-        Job.project_id == project_id,
+        Job.project_id.in_(project_ids),
         Job.type.in_(("index", "update")),
         Job.finished_at.is_not(None),
     )
     if succeeded_only:
         stmt = stmt.where(Job.status == "succeeded")
-    return (
-        await session.execute(stmt.order_by(Job.finished_at.desc()).limit(1))
-    ).scalar_one_or_none()
+    stmt = stmt.order_by(Job.project_id, Job.finished_at.desc(), Job.id.desc()).distinct(
+        Job.project_id
+    )
+    return {job.project_id: job for job in (await session.execute(stmt)).scalars()}
 
 
 async def _latest_run(session: AsyncSession, project_id: uuid.UUID) -> dict | None:

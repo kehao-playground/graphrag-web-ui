@@ -80,10 +80,9 @@ async def _states(db_session, project) -> dict[str, str]:
 
 def _stub_hash(monkeypatch) -> None:
     """Hashes the tests can name literally: sha256_file -> "hash-<content>".
-    capture_start resolves it from index_snapshots' module globals and the
-    listing's _scan_input from files' — both are stubbed so a listing over
-    a promoted baseline compares like with like."""
-    monkeypatch.setattr(index_snapshots, "sha256_file", lambda p: f"hash-{p.read_text()}")
+    capture_start and the listing share files.scan_input (R1-96), so one
+    stub covers both and a listing over a promoted baseline compares like
+    with like."""
     monkeypatch.setattr(files_service, "sha256_file", lambda p: f"hash-{p.read_text()}")
 
 

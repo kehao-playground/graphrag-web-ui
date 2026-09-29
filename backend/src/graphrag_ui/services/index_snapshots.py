@@ -14,7 +14,7 @@ Three parts, and each exists because a simpler version lied:
 
 import asyncio
 import uuid
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from collections.abc import Set as AbstractSet
 from pathlib import Path
 
@@ -23,9 +23,15 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.adapters.artifacts import read_document_titles
-from graphrag_ui.adapters.models import IndexSnapshot, IndexSnapshotEntry, Job, Project
+from graphrag_ui.adapters.models import (
+    IndexSnapshot,
+    IndexSnapshotEntry,
+    Job,
+    Project,
+    ProjectFile,
+)
 from graphrag_ui.domain.artifacts import recover_filenames, title_column_configured
-from graphrag_ui.services.files import sha256_file
+from graphrag_ui.services.files import cached_scans, scan_input
 from graphrag_ui.services.project_lock import FREEZING_JOB_TYPES
 from graphrag_ui.services.projects import ws_path
 
@@ -65,8 +71,16 @@ async def capture_start(
     prev_names: set[str] = set()
     if prev is not None:
         prev_names = set(await entries_of(session, prev.id))
+    # The listing's hash cache (R1-69) serves the snapshot too: the rows
+    # are read-only here — the next listing writes back what this scan
+    # re-hashed.
+    rows = (
+        (await session.execute(select(ProjectFile).where(ProjectFile.project_id == project_id)))
+        .scalars()
+        .all()
+    )
     entries, titles, title_recovery = await asyncio.to_thread(
-        _scan_start_state, ws_path(project_id)
+        _scan_start_state, ws_path(project_id), cached_scans({r.name: r for r in rows})
     )
     candidates = frozenset(prev_names | set(entries))
     attributable: list[str] = []
@@ -89,24 +103,20 @@ async def capture_start(
     return row.id
 
 
-def _scan_start_state(root: Path) -> tuple[dict[str, str], list[str] | None, str]:
+def _scan_start_state(
+    root: Path, cache: Mapping[str, tuple[int, int, str]]
+) -> tuple[dict[str, str], list[str] | None, str]:
     """Disk half of the start snapshot: input/ hashes, indexed titles, and
-    the title_column verdict. One to_thread hop — hashing every file in
-    input/ is exactly the unbounded-walk shape spec A4 keeps off the loop.
+    the title_column verdict. One to_thread hop — hashing input/ is exactly
+    the unbounded-walk shape spec A4 keeps off the loop.
 
+    input/ is read by files.scan_input, the listing's own walk (R1-96): the
+    snapshot and the listing must agree on what an input file is — a
+    promoted .tmp-* upload would haunt the union listing as `removed`.
     Every input is optional: workspaces whose job seeded no files (tests,
     freshly created projects) still capture an empty, recovery-tagged row.
     """
-    input_dir = root / "input"
-    entries: dict[str, str] = {}
-    if input_dir.is_dir():
-        for p in sorted(input_dir.iterdir()):
-            # Dotfiles are upload scratch (.tmp-*) or editor droppings;
-            # listings skip them (files._scan_input) and graphrag's own
-            # scan does too, so the snapshot must not see them either —
-            # a promoted .tmp-* would haunt the union listing as `removed`.
-            if p.is_file() and not p.name.startswith("."):
-                entries[p.name] = sha256_file(p)
+    entries = {name: f.sha256 for name, f in scan_input(root / "input", cache).items()}
     titles, title_recovery = _scan_titles(root)
     return entries, titles, title_recovery
 
@@ -228,6 +238,37 @@ async def baseline_row(session: AsyncSession, project_id: uuid.UUID) -> IndexSna
             .where(Project.id == project_id)
         )
     ).scalar_one_or_none()
+
+
+async def baseline_rows(
+    session: AsyncSession, project_ids: Sequence[uuid.UUID]
+) -> dict[uuid.UUID, IndexSnapshot]:
+    """baseline_row for many projects in one query; projects without a
+    baseline are absent."""
+    res = await session.execute(
+        select(Project.id, IndexSnapshot)
+        .join(IndexSnapshot, Project.baseline_snapshot_id == IndexSnapshot.id)
+        .where(Project.id.in_(project_ids))
+    )
+    return {pid: row for pid, row in res.all()}
+
+
+async def entries_by_snapshot(
+    session: AsyncSession, snapshot_ids: Sequence[uuid.UUID]
+) -> dict[uuid.UUID, dict[str, str]]:
+    """entries_of for many snapshots in one query; a snapshot without
+    entries is absent."""
+    if not snapshot_ids:
+        return {}
+    res = await session.execute(
+        select(IndexSnapshotEntry.snapshot_id, IndexSnapshotEntry.name, IndexSnapshotEntry.sha256)
+        .where(IndexSnapshotEntry.snapshot_id.in_(snapshot_ids))
+        .order_by(IndexSnapshotEntry.name)
+    )
+    out: dict[uuid.UUID, dict[str, str]] = {}
+    for sid, name, sha in res.all():
+        out.setdefault(sid, {})[name] = sha
+    return out
 
 
 async def baseline_entries(session: AsyncSession, project_id: uuid.UUID) -> dict[str, str]:

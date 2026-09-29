@@ -4,6 +4,7 @@ import re
 import secrets
 import shutil
 import uuid
+from collections.abc import Sequence
 from pathlib import Path
 
 from sqlalchemy import select
@@ -123,9 +124,18 @@ async def member_perms_for_projects(
 
 
 async def list_projects(
-    session: AsyncSession, user: User, global_perms: frozenset[str]
+    session: AsyncSession,
+    user: User,
+    global_perms: frozenset[str],
+    *,
+    ids: Sequence[uuid.UUID] | None = None,
 ) -> list[Project]:
+    """The projects `user` may see: every project with view_any/act_any,
+    otherwise their memberships — narrowed to `ids` when given (the batch
+    health drops invisible ids rather than failing on them)."""
     stmt = select(Project).order_by(Project.created_at, Project.id)
+    if ids is not None:
+        stmt = stmt.where(Project.id.in_(ids))
     if not sees_all_projects(global_perms):
         stmt = stmt.join(ProjectMember).where(ProjectMember.user_id == user.id)
     return list((await session.execute(stmt)).scalars().all())

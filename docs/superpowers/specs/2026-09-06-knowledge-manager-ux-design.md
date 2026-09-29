@@ -196,7 +196,7 @@ atoms — no client-side role math.
 
 ```
 project_files
-  id, project_id → projects.id, name, sha256, size,
+  id, project_id → projects.id, name, sha256, size, mtime_ns (nullable),
   uploaded_by → users.id (nullable), uploaded_at (nullable),
   discovered_at (nullable)
   unique (project_id, name)
@@ -230,7 +230,23 @@ the computed `sha256`, `uploaded_by = NULL`, `uploaded_at = NULL`, and
 `discovered_at = now()`. The UI renders an unknown uploader as "—" rather
 than attributing the file to whoever happened to open the page. Discovery
 is idempotent and runs under the same project lock as any other
-`project_files` write.
+`project_files` write; a listing with nothing to discover takes no lock and
+commits nothing.
+
+**The row is the listing's hash cache** (amended in fix wave F21, R1-69).
+Every navigation lists files — the Documents pane, the per-project health
+behind the sidebar, the project list's batch health — so hashing every
+file on every listing re-read the whole corpus each time. `mtime_ns` is
+the file's `st_mtime_ns` when `sha256` was taken: a file whose size and
+`mtime_ns` still match its row is not hashed again, and the listing and
+the start snapshot (§5.2) share that one scan. `NULL` means "not cached":
+rows from before the column, uploads, and any file whose mtime is less
+than two seconds older than the scan (filesystem timestamps are coarse, so
+a same-size rewrite within one tick keeps its mtime — git's racy-clean
+rule). A listing writes refreshed hashes back with plain `UPDATE`s by id,
+without the lock: a racing upload or delete at worst leaves a row
+describing an older state of the file, whose mtime no longer matches, so
+the next scan hashes it again.
 
 ### 5.2 Index snapshots
 
