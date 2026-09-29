@@ -187,7 +187,7 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
     {
       title: t("jobs.queuedAt"),
       dataIndex: "queued_at",
-      width: 180,
+      width: 190,
       render: (_, j) => formatDateTime(j.queued_at, i18n.language),
     },
     {

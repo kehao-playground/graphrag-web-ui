@@ -331,7 +331,7 @@ test("version history shows localized times, not the raw ISO (R4-33)", async () 
   versionsTotal = 1;
   mount();
   await loadedYaml();
-  expect(await screen.findByText(formatDateTime(created, "zh-TW"), { exact: false })).toBeInTheDocument();
+  expect(await screen.findByText(formatDateTime(created, "zh-TW").replace(/\s+/g, " "), { exact: false })).toBeInTheDocument();
   expect(screen.queryByText(created, { exact: false })).not.toBeInTheDocument();
   expect(screen.getByText("ea379ab3")).toBeInTheDocument();
 });

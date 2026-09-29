@@ -9,8 +9,12 @@ it("formatDateTime renders through the given locale, never the raw ISO (R1-54)",
   expect(zh).not.toContain("T00:21");
   expect(zh).toContain("2026");
   expect(en).toContain("2026");
-  expect(en).toMatch(/Sep/);
   expect(zh).not.toEqual(en);
+  // Numeric dates keep table cells on one line: the spelled-out medium
+  // style wrapped the 190 px documents column in zh-TW (F20 live walk).
+  expect(en).toMatch(/^\d{1,2}\/\d{1,2}\/2026/);
+  expect(zh).toMatch(/^2026\/\d{1,2}\/\d{1,2}/);
+  expect(en).toMatch(/:\d{2}:\d{2}/);
 });
 
 it("formatShortDateTime carries month, day and time but no year (matrix headers, R4-33)", () => {
@@ -23,7 +27,7 @@ it("formatShortDateTime carries month, day and time but no year (matrix headers,
 it("parses graphrag's '+0000' creation_date form", () => {
   const d = parseDateTime("2026-09-21 00:18:35 +0000");
   expect(d?.toISOString()).toBe("2026-09-21T00:18:35.000Z");
-  expect(formatDateTime("2026-09-21 00:18:35 +0000", "en-US")).toMatch(/Sep/);
+  expect(formatDateTime("2026-09-21 00:18:35 +0000", "en-US")).toMatch(/2026/);
 });
 
 it("an unparseable value comes back unchanged", () => {
