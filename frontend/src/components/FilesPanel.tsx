@@ -297,6 +297,7 @@ export default function FilesPanel({ projectId, inputFileType, canEdit }: {
       <Spin spinning={files.isPending}>
         <FilesTable
           files={visible}
+          emptyText={all.length === 0 ? t("files.emptyNone") : t("files.emptyFiltered")}
           canEdit={canEdit}
           frozen={frozen}
           selected={selected}

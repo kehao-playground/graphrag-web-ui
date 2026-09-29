@@ -6,6 +6,7 @@ import type { ProjectHealth } from "../api/types";
 import ActionCard from "../components/project/ActionCard";
 import { jobStatusLabel, jobTypeShortLabel } from "../components/labels";
 import { methodLabel } from "../components/tests/methods";
+import { formatDateTime } from "../i18n/format";
 
 // The knowledge-base health overview (spec §9.3): one action card that is
 // one ordered check, four stat tiles, and two recent-activity mini-cards.
@@ -43,13 +44,14 @@ function OverviewBody({ projectId, data }: { projectId: string; data: ProjectHea
     <>
       <ActionCard projectId={projectId} health={data} />
 
-      <Space wrap size="middle">
+      {/* A wrapping flex row: tiles grow evenly and wrap whole (R4-32). */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
         <Stat label={t("overview.statDocuments")} value={t("overview.countDocuments", { count: data.files.total })} />
         <Stat label={t("overview.statPending")} value={t("overview.countPending", { count: pending })} />
         <Stat
           label={t("overview.statLastIndex")}
           value={data.last_index
-            ? new Date(data.last_index.finished_at).toLocaleString(i18n.language)
+            ? formatDateTime(data.last_index.finished_at, i18n.language)
             : t("overview.neverIndexed")}
         />
         <Stat
@@ -61,7 +63,7 @@ function OverviewBody({ projectId, data }: { projectId: string; data: ProjectHea
               })
             : t("overview.noRuns")}
         />
-      </Space>
+      </div>
 
       <Space wrap size="middle" align="start">
         <Card size="small" title={t("overview.lastIndexTitle")} style={{ minWidth: 260 }}>
@@ -69,7 +71,7 @@ function OverviewBody({ projectId, data }: { projectId: string; data: ProjectHea
             <Typography.Text>
               {t("overview.lastIndexLine", {
                 type: jobTypeShortLabel(data.last_index.type, t),
-                time: new Date(data.last_index.finished_at).toLocaleString(i18n.language),
+                time: formatDateTime(data.last_index.finished_at, i18n.language),
               })}
             </Typography.Text>
           ) : (
@@ -82,7 +84,7 @@ function OverviewBody({ projectId, data }: { projectId: string; data: ProjectHea
               <Typography.Text type="danger">
                 {t("overview.lastAttemptLine", {
                   status: jobStatusLabel(data.last_attempt.status, t),
-                  time: new Date(data.last_attempt.finished_at).toLocaleString(i18n.language),
+                  time: formatDateTime(data.last_attempt.finished_at, i18n.language),
                 })}
               </Typography.Text>
             </div>
@@ -111,7 +113,7 @@ function OverviewBody({ projectId, data }: { projectId: string; data: ProjectHea
 // zh-TW: the count unit is 份, as the stat value renders "3 份".
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <Card size="small" style={{ minWidth: 150 }}>
+    <Card size="small" style={{ flex: "1 1 200px" }}>
       <Typography.Text type="secondary">{label}</Typography.Text>
       <Typography.Paragraph style={{ marginBottom: 0, fontSize: 18 }}>
         {value}

@@ -6,6 +6,7 @@ import { createQueryClient } from "../../api/queryClient";
 import { Link, RouterProvider, createMemoryRouter } from "react-router-dom";
 import SettingsPanel from "../SettingsPanel";
 import { stubFetch } from "../../testing/stubFetch";
+import { formatDateTime } from "../../i18n/format";
 
 const FIXTURE = {
   content: "input:\n  type: text\n  file_pattern: '.*\\.md$$'\n",
@@ -39,6 +40,7 @@ let activeJob: { id: string; type: string } | null = null;
 // Same mock discipline as FilesPanel.test.tsx: branch by URL (and method for
 // PUT) so a wrong endpoint or body cannot silently pass on another call.
 let versionsTotal = 0;
+let versionItems: Array<{ id: string; content_hash: string; created_at: string }> = [];
 let putResponse: () => Response = () => new Response(JSON.stringify({ content_hash: "new" }), { status: 200 });
 const apiMock = vi.fn(async (path: string, init?: RequestInit) => {
   if (path === "/api/projects/p1/settings" && init?.method !== "PUT") {
@@ -48,7 +50,7 @@ const apiMock = vi.fn(async (path: string, init?: RequestInit) => {
     return putResponse();
   }
   if (path.startsWith("/api/projects/p1/settings/versions?")) {
-    return new Response(JSON.stringify({ items: [], total: versionsTotal }), { status: 200 });
+    return new Response(JSON.stringify({ items: versionItems, total: versionsTotal }), { status: 200 });
   }
   if (path === "/api/projects/p1/env") {
     return new Response(JSON.stringify({ keys: envKeys }), { status: 200 });
@@ -64,6 +66,7 @@ const apiMock = vi.fn(async (path: string, init?: RequestInit) => {
 
 beforeEach(() => {
   versionsTotal = 0;
+  versionItems = [];
   Object.assign(fixture, FIXTURE);
   envKeys = [];
   activeJob = null;
@@ -320,4 +323,21 @@ test("the version history pages instead of stopping at 50 (R3-10)", async () => 
   await waitFor(() => expect(apiMock).toHaveBeenCalledWith(
     "/api/projects/p1/settings/versions?limit=20&offset=20", expect.anything(),
   ));
+});
+
+test("version history shows localized times, not the raw ISO (R4-33)", async () => {
+  const created = "2026-09-21T00:21:34.958879+00:00";
+  versionItems = [{ id: "v1", content_hash: "ea379ab3ffff", created_at: created }];
+  versionsTotal = 1;
+  mount();
+  await loadedYaml();
+  expect(await screen.findByText(formatDateTime(created, "zh-TW"), { exact: false })).toBeInTheDocument();
+  expect(screen.queryByText(created, { exact: false })).not.toBeInTheDocument();
+  expect(screen.getByText("ea379ab3")).toBeInTheDocument();
+});
+
+test("an empty version history says what will appear there (R4-30)", async () => {
+  mount();
+  await loadedYaml();
+  expect(await screen.findByText("尚無歷史版本，每次儲存都會在此保留一份。")).toBeInTheDocument();
 });

@@ -18,6 +18,7 @@ import AdminRoles from "./pages/AdminRoles";
 import AdminAudit from "./pages/AdminAudit";
 import { useAuth } from "./stores/auth";
 import { createQueryClient } from "./api/queryClient";
+import { theme } from "./theme";
 import "./i18n";
 
 const queryClient = createQueryClient();
@@ -55,7 +56,7 @@ export default function App() {
   useEffect(() => { useAuth.getState().restore(); }, []);
 
   return (
-    <ConfigProvider locale={i18n.language === "zh-TW" ? antdZhTW : antdEnUS}>
+    <ConfigProvider theme={theme} locale={i18n.language === "zh-TW" ? antdZhTW : antdEnUS}>
       <QueryClientProvider client={queryClient}>
         <RouterProvider router={router} />
       </QueryClientProvider>

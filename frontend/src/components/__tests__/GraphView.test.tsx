@@ -354,6 +354,7 @@ test("filters matching nothing render the empty state instead of sigma", async (
   // ARTIFACT node has degree 0 < min_degree 1 → zero nodes survive
   await user.click(screen.getByRole("combobox", { name: "類型" }));
   await user.click(await screen.findByText("ARTIFACT", { selector: ".ant-select-item-option-content" }));
-  expect(await screen.findByText("沒有可顯示的節點")).toBeInTheDocument();
+  // The empty state names the filters as the cause (R4-30).
+  expect(await screen.findByText("沒有節點符合目前的篩選條件，請降低最小連結數或清除類型篩選。")).toBeInTheDocument();
   expect(screen.queryByTestId("sigma")).not.toBeInTheDocument();
 });

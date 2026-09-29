@@ -94,3 +94,13 @@ test("change-password signs in again: the change revoked this login's refresh to
   const calls = await reachChangePassword(async () => new Response(null, { status: 204 }))
   await waitFor(() => expect(calls.filter((c) => c.includes("/api/auth/login"))).toHaveLength(2))
 })
+
+test("the login card switches language before sign-in (R4-36)", async () => {
+  useAuth.setState({ authMode: "local" })
+  render(<MemoryRouter><Login /></MemoryRouter>)
+  const user = userEvent.setup()
+  await user.click(screen.getByRole("combobox", { name: "語言" }))
+  await user.click(await screen.findByText("English"))
+  expect(await screen.findByRole("button", { name: /Sign in/i })).toBeInTheDocument()
+  expect(document.documentElement.lang).toBe("en-US")
+})

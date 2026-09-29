@@ -231,7 +231,8 @@ export default function GraphView({ projectId, canUse = true, onOpenNode }: {
       ) : graph.isPending ? (
         <Spin style={{ display: "block", marginTop: 64 }} />
       ) : payload.nodes.length === 0 ? (
-        <Empty description={t("graph.empty")} />
+        // An index with nodes that the filters hide says which knobs to turn.
+        <Empty description={t((graph.data?.nodes.length ?? 0) > 0 ? "graph.emptyFiltered" : "graph.empty")} />
       ) : (
         <>
           <Space wrap size="middle" role="list" aria-label={t("graph.legend")}>

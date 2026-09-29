@@ -97,3 +97,15 @@ describe("catalog keys are used", () => {
     expect(unused).toEqual([]);
   });
 });
+
+// The document language follows i18next everywhere, including /login,
+// which Layout does not render (R1-58).
+it("syncs <html lang> and the title on every language change", async () => {
+  const { i18n } = await import("../index");
+  await i18n.changeLanguage("en-US");
+  expect(document.documentElement.lang).toBe("en-US");
+  expect(document.title).toBe(enUS.layout.title);
+  await i18n.changeLanguage("zh-TW");
+  expect(document.documentElement.lang).toBe("zh-TW");
+  expect(document.title).toBe(zhTW.layout.title);
+});

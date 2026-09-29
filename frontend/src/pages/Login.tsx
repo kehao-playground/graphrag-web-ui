@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Alert, Button, Form, Input, message } from "antd";
 import { useNavigate } from "react-router-dom";
 import ChangePasswordModal from "../components/ChangePasswordModal";
+import LanguageSelect from "../components/LanguageSelect";
 import { redirectToProxyLogin, useAuth } from "../stores/auth";
 
 export default function Login() {
@@ -38,7 +39,10 @@ export default function Login() {
 
   return (
     <div style={{ maxWidth: 360, margin: "12vh auto" }}>
-      <h2>{t("login.pageTitle")}</h2>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h2>{t("login.pageTitle")}</h2>
+        <LanguageSelect />
+      </div>
       {error && <Alert type="error" message={t("login.failed")} style={{ marginBottom: 16 }} showIcon />}
       <Form layout="vertical" onFinish={onFinish}>
         <Form.Item label={t("common.email")} name="email" rules={[{ required: true, message: t("login.emailRequired") }]}>

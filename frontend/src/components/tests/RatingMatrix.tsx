@@ -5,6 +5,7 @@ import type { TableProps } from "antd";
 import type { MatrixCell, MatrixRow, TestRun } from "../../api/types";
 import { methodLabel } from "./methods";
 import { regressedLineages } from "./ratings";
+import { formatShortDateTime } from "../../i18n/format";
 
 // The lineage's current wording: the newest cell that actually asked it
 // (spec §5.3 — each cell carries the text as asked).
@@ -53,15 +54,15 @@ export default function RatingMatrix({ runs, rows, regressionsOnly, onRegression
   // against.
   selectedResultId?: string | null;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
 
   const regressed = useMemo(() => regressedLineages(runs, rows), [runs, rows]);
   const visible = regressionsOnly ? rows.filter((r) => regressed.has(r.lineage_id)) : rows;
 
   // One row per lineage, one column per run — no virtualization (spec
   // §9.2): hundreds of rows × 5 columns is well within antd's Table.
-  // Column label: localized method + the run's start date (a fixed
-  // YYYY-MM-DD slice, not Intl, so the label is stable everywhere).
+  // Column label: localized method + the run's start in the active locale
+  // (month, day and time, so two runs on one day still differ).
   const columns: TableProps<MatrixRow>["columns"] = [
     {
       title: t("workbench.questionColumn"),
@@ -69,7 +70,7 @@ export default function RatingMatrix({ runs, rows, regressionsOnly, onRegression
       render: (_, row) => rowQuestionText(row),
     },
     ...runs.map((run, i) => ({
-      title: `${methodLabel(run.method, t)} · ${run.started_at?.slice(5, 10) ?? "—"}`,
+      title: `${methodLabel(run.method, t)} · ${run.started_at ? formatShortDateTime(run.started_at, i18n.language) : "—"}`,
       key: run.id,
       render: (_: unknown, row: MatrixRow) => {
         const cell = row.cells[i] ?? null;

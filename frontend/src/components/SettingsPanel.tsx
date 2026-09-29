@@ -15,6 +15,7 @@ import {
 } from "../api/queries";
 import type { DryRunOut, EnvKeyOut, SettingsConflict, SettingsVersionDetail } from "../api/types";
 import { isFrozen } from "./project/frozen";
+import { formatDateTime } from "../i18n/format";
 
 const { TextArea } = Input;
 const { Text } = Typography;
@@ -91,7 +92,7 @@ export default function SettingsPanel({ projectId, canEdit }: {
   canEdit: boolean;
 }) {
   const qc = useQueryClient();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [mode, setMode] = useState<"yaml" | "form">("yaml");
   const [conflict, setConflict] = useState<Conflict | null>(null);
   const [saveError, setSaveError] = useState<SaveError | null>(null);
@@ -468,9 +469,12 @@ export default function SettingsPanel({ projectId, canEdit }: {
 
       <div>
         <Typography.Title level={5}>{t("settings.versionHistory")}</Typography.Title>
+        {versions.data?.items.length === 0 && (
+          <Text type="secondary">{t("settings.noVersions")}</Text>
+        )}
         <Collapse items={(versions.data?.items ?? []).map((v) => ({
           key: v.id,
-          label: <span>{v.created_at} · <Text code>{v.content_hash.slice(0, 8)}</Text></span>,
+          label: <span>{formatDateTime(v.created_at, i18n.language)} · <Text code>{v.content_hash.slice(0, 8)}</Text></span>,
           children: (
             <Space>
               <Button size="small" onClick={async () => {

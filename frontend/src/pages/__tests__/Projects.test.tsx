@@ -1,4 +1,5 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, vi } from "vitest";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { createQueryClient } from "../../api/queryClient";
@@ -142,4 +143,13 @@ test("a failed health batch says so in the column (R3-35)", async () => {
   renderProjects();
   expect(await screen.findByText("Research Corpus")).toBeInTheDocument();
   expect(await screen.findAllByText("健康狀態無法取得")).toHaveLength(3);
+});
+
+test("an empty list invites creating the first project (R4-30)", async () => {
+  projectsBody = [];
+  renderProjects();
+  const empty = await screen.findByText("還沒有專案。建立第一個專案，開始上傳文件。");
+  const button = within(empty.closest<HTMLElement>(".ant-empty")!).getByRole("button", { name: "建立第一個專案" });
+  await userEvent.click(button);
+  expect(await screen.findByRole("dialog")).toBeInTheDocument();
 });

@@ -20,6 +20,7 @@ import ExplorePanel from "../components/ExplorePanel";
 import ProjectSidebar from "../components/project/ProjectSidebar";
 import { useActiveJobWatch } from "../components/project/useActiveJobWatch";
 import ProjectOverview from "./ProjectOverview";
+import { formatDateTime } from "../i18n/format";
 
 // The routed panes (spec §4). App nests one <ProjectPane pane=…> per route
 // under /projects/:id; every pane reads this layout through the outlet
@@ -172,8 +173,8 @@ function ProjectInfoDescriptions({ p, owner, canManage }: {
           { key: "slug", label: t("projectDetail.slug"), children: p.slug },
           { key: "description", label: t("common.description"), children: p.description || t("common.notApplicable") },
           { key: "type", label: t("projects.inputFormat"), children: <Tag>{p.input_file_type}</Tag> },
-          { key: "created", label: t("common.createdAt"), children: new Date(p.created_at).toLocaleString(i18n.language) },
-          { key: "owner", label: t("projects.owner"), children: owner ? t("projectDetail.ownerWithNameEmail", { name: owner.display_name, email: owner.email }) : t("common.notApplicable") },
+          { key: "created", label: t("common.createdAt"), children: formatDateTime(p.created_at, i18n.language) },
+          { key: "owner", label: t("projects.owner"), children: owner ? t("common.nameWithEmail", { name: owner.display_name, email: owner.email }) : t("common.notApplicable") },
         ]}
       />
       {canManage && <EditProjectModal p={p} open={editing} onClose={() => setEditing(false)} />}
@@ -376,7 +377,7 @@ function MembersPane({ ctx }: { ctx: ProjectPaneContext }) {
             placeholder={t("projectDetail.selectUser")}
             style={{ minWidth: 240 }}
             value={addUserId}
-            options={addableUsers.map((u) => ({ label: t("projectDetail.ownerWithNameEmail", { name: u.display_name, email: u.email }), value: u.id }))}
+            options={addableUsers.map((u) => ({ label: t("common.nameWithEmail", { name: u.display_name, email: u.email }), value: u.id }))}
             onChange={setAddUserId}
             loading={users.isPending}
           />

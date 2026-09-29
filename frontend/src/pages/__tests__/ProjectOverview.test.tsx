@@ -232,3 +232,9 @@ test("English copy names the running job and the last index in one sentence each
   expect(screen.getByText("6")).toBeInTheDocument();
   await i18n.changeLanguage("zh-TW");
 });
+
+test("stat tiles share the row evenly instead of wrapping ragged (R4-32)", async () => {
+  renderOverview();
+  const label = await screen.findByText("文件總數");
+  expect(label.closest(".ant-card")).toHaveStyle({ flex: "1 1 200px" });
+});

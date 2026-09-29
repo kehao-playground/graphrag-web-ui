@@ -3,12 +3,13 @@ import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import {
-  Alert, Button, Card, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message,
+  Alert, Button, Card, Empty, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message,
 } from "antd";
 import type { TableProps } from "antd";
 import { sendOk } from "../api/client";
 import { projectsHealth, projectsList, usersBrief } from "../api/queries";
 import type { Project } from "../api/types";
+import { formatDateTime } from "../i18n/format";
 
 
 const FILE_TYPES: Project["input_file_type"][] = ["text", "csv", "json"];
@@ -118,7 +119,7 @@ export default function Projects() {
       title: t("common.createdAt"),
       dataIndex: "created_at",
       width: 210,
-      render: (v: string) => new Date(v).toLocaleString(i18n.language),
+      render: (v: string) => formatDateTime(v, i18n.language),
     },
     {
       title: t("projects.owner"),
@@ -167,6 +168,15 @@ export default function Projects() {
         dataSource={projects ?? []}
         columns={columns}
         pagination={false}
+        // Only a loaded, empty list invites the first project (R4-30); a
+        // load failure has its own alert above.
+        locale={isPending || error ? undefined : {
+          emptyText: (
+            <Empty description={t("projects.emptyTitle")}>
+              <Button type="primary" onClick={() => setCreateOpen(true)}>{t("projects.emptyCreate")}</Button>
+            </Empty>
+          ),
+        }}
       />
 
       <Modal
