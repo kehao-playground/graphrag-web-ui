@@ -9,6 +9,7 @@ import {
 import type { TableProps } from "antd";
 import { artifactDetail, artifactList } from "../api/queries";
 import { i18n } from "../i18n";
+import { formatDateTime } from "../i18n/format";
 import ArtifactQueryError from "./ArtifactQueryError";
 import ErrorBoundary from "./ErrorBoundary";
 import type { ArtifactTableName } from "../api/types";
@@ -46,6 +47,15 @@ function renderValue(v: unknown) {
     return <Typography.Paragraph style={{ marginBottom: 0 }} copyable>{v}</Typography.Paragraph>;
   }
   return <pre style={{ margin: 0, whiteSpace: "pre-wrap", fontSize: 12 }}>{JSON.stringify(v, null, 2)}</pre>;
+}
+
+// graphrag's timestamp columns ("2026-09-21 00:18:35 +0000") read in the
+// active locale like every other date (R4-33).
+const DATE_COLUMNS = new Set(["creation_date"]);
+
+function renderCell(k: string, v: unknown) {
+  if (DATE_COLUMNS.has(k) && typeof v === "string") return formatDateTime(v, i18n.language);
+  return isHashId(k) ? renderHashIds(v) : renderValue(v);
 }
 
 // Hash ids (the internal `id`, the `*_ids` lists) mean nothing to a reader:
@@ -178,6 +188,7 @@ export default function ExplorePanel({ projectId, canUse }: { projectId: string;
     title: columnLabel(c),
     dataIndex: c,
     ellipsis: true,
+    ...(DATE_COLUMNS.has(c) && { render: (v: unknown) => (typeof v === "string" ? formatDateTime(v, i18n.language) : String(v ?? "")) }),
   }));
 
   return (
@@ -273,9 +284,15 @@ export default function ExplorePanel({ projectId, canUse }: { projectId: string;
         {detail.error ? (
           <Alert type="error" showIcon message={detail.error.message} />
         ) : detail.data ? (
-          <Descriptions column={1} size="small" bordered>
+          <Descriptions
+            column={1}
+            size="small"
+            bordered
+            // zh labels wrapped per character in the drawer's width (R4-32).
+            styles={{ label: { width: 120, whiteSpace: "nowrap" } }}
+          >
             {Object.entries(detail.data.row).map(([k, v]) => (
-              <Descriptions.Item key={k} label={columnLabel(k)}>{isHashId(k) ? renderHashIds(v) : renderValue(v)}</Descriptions.Item>
+              <Descriptions.Item key={k} label={columnLabel(k)}>{renderCell(k, v)}</Descriptions.Item>
             ))}
           </Descriptions>
         ) : (

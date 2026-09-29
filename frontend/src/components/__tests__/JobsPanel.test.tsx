@@ -198,7 +198,8 @@ test("modal warns when cache exceeds quota and disk is under watermark", async (
   const user = userEvent.setup();
   await waitFor(() => expect(apiMock).toHaveBeenCalledWith("/api/projects/p1/jobs/preflight", expect.anything()));
   await user.click(await screen.findByRole("button", { name: "開始索引" }));
-  expect(await screen.findByText(/快取已超過上限/)).toBeInTheDocument();
+  // Binary units through humanBytes, like every other size (R1-54).
+  expect(await screen.findByText(/快取已超過上限（600 MiB \/ 512 MiB）/)).toBeInTheDocument();
   expect(screen.getByText(/磁碟水位不足/)).toBeInTheDocument();
 });
 

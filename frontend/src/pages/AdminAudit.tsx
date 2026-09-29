@@ -6,6 +6,7 @@ import type { TableProps } from "antd";
 import { adminAudit, projectsList, usersBrief } from "../api/queries";
 import type { AuditEntry } from "../api/types";
 import { AUDIT_ACTIONS, auditActionLabel } from "../components/labels";
+import { formatDateTime } from "../i18n/format";
 
 const PAGE_SIZE = 50;
 
@@ -72,7 +73,7 @@ export default function AdminAudit() {
       title: t("adminAudit.when"),
       dataIndex: "created_at",
       width: 180,
-      render: (v: string) => new Date(v).toLocaleString(i18n.language),
+      render: (v: string) => formatDateTime(v, i18n.language),
     },
     {
       title: t("adminAudit.actor"),

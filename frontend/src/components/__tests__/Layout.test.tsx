@@ -99,3 +99,10 @@ describe("change password (R3-09)", () => {
     expect(screen.queryByText("變更密碼")).toBeNull();
   });
 });
+
+it("the identity line separates name and email in both languages (R4-38)", async () => {
+  mount();
+  expect(screen.getByText("A（a@b.c）")).toBeInTheDocument();
+  await i18n.changeLanguage("en-US");
+  expect(await screen.findByText("A (a@b.c)")).toBeInTheDocument();
+});

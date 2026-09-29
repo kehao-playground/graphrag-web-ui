@@ -16,6 +16,14 @@ export function resolveDetectedLanguage(l: string): "zh-TW" | "en-US" {
 
 export type ErrorCode = keyof (typeof zhTW)["errors"];
 
+// <html lang> and the tab title follow the active language on every page,
+// /login included (R1-58): registered before init so the detected language
+// applies too. index.html ships lang="en" until this first runs.
+i18next.on("languageChanged", (lng) => {
+  document.documentElement.lang = lng;
+  document.title = i18next.t("layout.title");
+});
+
 void i18next
   .use(LanguageDetector)
   .use(initReactI18next)

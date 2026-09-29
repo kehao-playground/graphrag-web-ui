@@ -1,22 +1,18 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Layout as AntLayout, Menu, Select, Typography } from "antd";
+import { Layout as AntLayout, Menu, Typography } from "antd";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../stores/auth";
 import ChangePasswordModal from "./ChangePasswordModal";
 import ErrorBoundary from "./ErrorBoundary";
+import LanguageSelect from "./LanguageSelect";
 
 export default function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout, authMode } = useAuth();
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const [changingPassword, setChangingPassword] = useState(false);
-
-  useEffect(() => {
-    document.documentElement.lang = i18n.language;
-    document.title = t("layout.title");
-  }, [i18n.language, t]);
 
   // The backend-computed atom is the only gate (spec §8): any holder of
   // users:manage — built-in user_admin, a custom role, ops via act_any —
@@ -69,25 +65,18 @@ export default function Layout() {
           }}
         />
         {/* Language dropdown pinned to the very bottom-left corner, with
-            the free space between logout and it absorbing the stretch.
-            Option values are the i18n language codes themselves. */}
+            the free space between logout and it absorbing the stretch. */}
         <div style={{ marginTop: "auto", padding: "0 16px 16px" }}>
-          <Select
-            aria-label={t("layout.language")}
-            value={i18n.language}
-            onChange={(v) => { void i18n.changeLanguage(v); }}
-            options={[
-              { value: "zh-TW", label: "中文" },
-              { value: "en-US", label: "English" },
-            ]}
-            popupMatchSelectWidth={false}
-            style={{ width: "100%" }}
-          />
+          <LanguageSelect style={{ width: "100%" }} />
         </div>
         </div>
       </AntLayout.Sider>
       <AntLayout.Content style={{ padding: 24 }}>
-        <Typography.Text type="secondary">{user?.display_name}({user?.email})</Typography.Text>
+        {user && (
+          <Typography.Text type="secondary">
+            {t("common.nameWithEmail", { name: user.display_name, email: user.email })}
+          </Typography.Text>
+        )}
         {/* A crashed pane stays inside the content area; navigating
             elsewhere clears it. */}
         <ErrorBoundary resetKey={location.pathname}>

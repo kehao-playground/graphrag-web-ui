@@ -8,6 +8,7 @@ import { createQueryClient } from "../../api/queryClient";
  import Workbench from "../tests/Workbench";
 import { MATRIX, SETS, QUESTIONS, PREFLIGHT, RESULTS_RUN3, RESULTS_RUN4, cellLabel } from "./workbenchFixtures";
 import { stubFetch } from "../../testing/stubFetch";
+import { formatShortDateTime } from "../../i18n/format";
 
 // Same mock discipline as FilesPanel/JobsPanel tests: branch by URL (and
 // method for POST/PUT/PATCH) so a wrong endpoint or body cannot silently
@@ -238,8 +239,9 @@ test("two selected cells open the side-by-side diff", async () => {
   expect(await screen.findByRole("heading", { name: /並排比較/ })).toBeInTheDocument();
   // zh-TW: 需附發票。 exists only in run-3's answer; run-4 dropped it.
   expect(await screen.findByText("需附發票。")).toBeInTheDocument();
-  expect(screen.getByText("#13 · 區域 · 09-03")).toBeInTheDocument();
-  expect(screen.getByText("#14 · 區域 · 09-04")).toBeInTheDocument();
+  // Run labels localize their start time (R1-54), whatever the runner's TZ.
+  expect(screen.getByText(`#13 · 區域 · ${formatShortDateTime("2026-09-03T10:00:00Z", "zh-TW")}`)).toBeInTheDocument();
+  expect(screen.getByText(`#14 · 區域 · ${formatShortDateTime("2026-09-04T10:00:00Z", "zh-TW")}`)).toBeInTheDocument();
 });
 
 // --- question-set lifecycle and the first-visit landing (R1-02, R3-23, R4-03)

@@ -8,6 +8,7 @@ import { MemoryRouter } from "react-router-dom";
 import ExplorePanel from "../ExplorePanel";
 import { useAuth } from "../../stores/auth";
 import type { GraphData } from "../../api/types";
+import { formatDateTime } from "../../i18n/format";
 
 // GraphView (graph mode) pulls in sigma: stub the WebGL layer so jsdom never
 // touches canvas. GraphView.test.tsx covers the graph in depth. GraphView
@@ -65,7 +66,7 @@ const OTHER_TABLES: Record<string, Record<string, unknown>[]> = {
   communities: [{ human_readable_id: 0, community: 0, level: 1, parent: -1, size: 3, title: "C0" }],
   community_reports: [{ human_readable_id: 0, community: 0, level: 1, rank: 1.5, title: "C0 report" }],
   text_units: [{ human_readable_id: 1, n_tokens: 42, document_id: "doc-1.md" }],
-  documents: [{ human_readable_id: 1, title: "doc-1.md", creation_date: "2026-08-01" }],
+  documents: [{ human_readable_id: 1, title: "doc-1.md", creation_date: "2026-08-01 00:18:35 +0000" }],
 };
 
 // URL-routing fetch mock (QueryPanel stubGlobal style): the real api() wrapper
@@ -194,6 +195,8 @@ test("community filter renders for entities/communities/community_reports only; 
   await pickOption(user, "文件");
   await screen.findByText("doc-1.md");
   expect(screen.queryByRole("spinbutton", { name: "社群" })).not.toBeInTheDocument();
+  // graphrag's creation_date renders in the active locale (R4-33).
+  expect(screen.getByText(formatDateTime("2026-08-01 00:18:35 +0000", "zh-TW"))).toBeInTheDocument();
 });
 
 test("server pagination: page 2 requests offset = pageSize", async () => {
@@ -232,6 +235,9 @@ test("row click opens the detail drawer and fetches the full row", async () => {
   await user.click(screen.getByText("Ada Lovelace"));
   expect(await screen.findByText("first programmer")).toBeInTheDocument();
   expect(fetchMock).toHaveBeenCalledWith("/api/projects/p1/artifacts/entities/2", expect.anything());
+  // Labels hold one line at a fixed width, not one character per line (R4-32).
+  const label = document.querySelector<HTMLElement>(".ant-drawer .ant-descriptions-item-label")!;
+  expect(label).toHaveStyle({ whiteSpace: "nowrap", width: "120px" });
 });
 
 test("hash ids in the detail show as a count or a toggle, not raw (R4-34)", async () => {

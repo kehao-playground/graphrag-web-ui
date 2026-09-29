@@ -13,6 +13,8 @@ import type { Job } from "../api/types";
 import { i18n } from "../i18n";
 import { jobStatusLabel, jobTypeLabel, jobTypeShortLabel } from "./labels";
 import JobLogViewer from "./JobLogViewer";
+import { formatDateTime } from "../i18n/format";
+import { humanBytes } from "./files/indexState";
 
 
 // Humanized duration for the duration column; at most two units.
@@ -152,7 +154,7 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
             <Alert
               type="warning"
               showIcon
-              message={t("jobs.cacheOver", { used: (pf.cache_bytes / 1024 / 1024).toFixed(0), quota: pf.cache_quota_mb })}
+              message={t("jobs.cacheOver", { used: humanBytes(pf.cache_bytes), quota: humanBytes(pf.cache_quota_mb * 1024 * 1024) })}
             />
           )}
           {diskLow && pf && (
@@ -186,7 +188,7 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
       title: t("jobs.queuedAt"),
       dataIndex: "queued_at",
       width: 180,
-      render: (_, j) => new Date(j.queued_at).toLocaleString(i18n.language),
+      render: (_, j) => formatDateTime(j.queued_at, i18n.language),
     },
     {
       title: t("jobs.duration"),
@@ -228,7 +230,7 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
     ? t(logJob.started_at ? "jobs.logsTitleStarted" : "jobs.logsTitleQueued", {
       type: typeLabel(logJob.type),
       method: methodLabel(logJob.method),
-      time: new Date(logJob.started_at ?? logJob.queued_at).toLocaleString(i18n.language),
+      time: formatDateTime(logJob.started_at ?? logJob.queued_at, i18n.language),
     })
     : t("jobs.logsTitle");
 

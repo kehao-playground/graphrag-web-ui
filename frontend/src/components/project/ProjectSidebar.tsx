@@ -69,7 +69,8 @@ export default function ProjectSidebar({ projectId, permissions }: {
             // shareable, middle-clickable, and reachable without JS routing.
             <Link to={`${base}${e.pane}`} style={{ display: "block", color: "inherit" }}>
               {t(e.labelKey)}
-              {badge !== undefined && <Badge count={badge} style={{ marginLeft: 8 }} />}
+              {/* Pending work, not a fault: gold like the pending tags (R4-38). */}
+              {badge !== undefined && <Badge count={badge} color="gold" style={{ marginLeft: 8 }} />}
             </Link>
           ),
         };

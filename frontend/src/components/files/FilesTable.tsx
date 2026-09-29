@@ -1,11 +1,15 @@
 import { useTranslation } from "react-i18next";
-import { Button, Popconfirm, Table, Tag, Tooltip } from "antd";
+import { Button, Empty, Popconfirm, Table, Tag, Tooltip } from "antd";
 import type { TableProps } from "antd";
 import type { FileEntry } from "../../api/types";
 import { STATE_COLOR, humanBytes, isIndexState, useStateCopy } from "./indexState";
+import { formatDateTime } from "../../i18n/format";
 
-export default function FilesTable({ files, canEdit, frozen = false, selected, onSelect, onDelete, onPreview, onEditTags }: {
+export default function FilesTable({ files, emptyText, canEdit, frozen = false, selected, onSelect, onDelete, onPreview, onEditTags }: {
   files: FileEntry[];
+  // What an empty table says: the caller knows whether nothing exists or
+  // the filters hid everything (R4-30).
+  emptyText?: string;
   canEdit: boolean;
   // While an index/update job is active the panel locks every mutating
   // action instead of letting the user discover the 409 (spec §9.1). The
@@ -70,6 +74,10 @@ export default function FilesTable({ files, canEdit, frozen = false, selected, o
     {
       title: t("files.tags"),
       dataIndex: "tags",
+      // A sized column with a one-line header: unsized, it collapsed until
+      // the zh header wrapped per character at 1280 px (R4-32).
+      width: 220,
+      onHeaderCell: () => ({ style: { whiteSpace: "nowrap" } }),
       render: (_, f) => (
         <>
           {f.tags.map((tag) => <Tag key={tag}>{tag}</Tag>)}
@@ -84,19 +92,22 @@ export default function FilesTable({ files, canEdit, frozen = false, selected, o
     { title: t("files.size"), dataIndex: "size", width: 110, render: (_, f) => (f.size === null ? "—" : humanBytes(f.size)) },
     // A removed row has no file behind it: the size column carries the em
     // dash, modified stays an empty cell so the gap reads once, not twice.
-    { title: t("files.modifiedAt"), dataIndex: "modified_at", width: 190, render: (_, f) => (f.modified_at === null ? null : new Date(f.modified_at).toLocaleString(i18n.language)) },
+    { title: t("files.modifiedAt"), dataIndex: "modified_at", width: 190, render: (_, f) => (f.modified_at === null ? null : formatDateTime(f.modified_at, i18n.language)) },
     ...(canEdit
       ? [{
           title: t("common.actions"),
           width: 90,
-          render: (_: unknown, f: FileEntry) => (
+          // A removed row has no file left to delete (only a rebuild clears it).
+          render: (_: unknown, f: FileEntry) => f.index_state === "removed" ? null : (
             <Popconfirm
               title={t("files.deleteFileTitle", { name: f.name })}
               okText={t("common.delete")}
               okButtonProps={{ danger: true }}
               onConfirm={() => onDelete(f.name)}
             >
-              <Button danger size="small" disabled={frozen}>{t("common.delete")}</Button>
+              {/* A neutral link per row, red only in the confirmation: a
+                  column of red buttons shouted over the table (R4-38). */}
+              <Button type="link" size="small" style={{ padding: 0 }} disabled={frozen}>{t("common.delete")}</Button>
             </Popconfirm>
           ),
         }]
@@ -111,6 +122,7 @@ export default function FilesTable({ files, canEdit, frozen = false, selected, o
       columns={columns}
       rowSelection={rowSelection}
       pagination={false}
+      locale={emptyText ? { emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyText} /> } : undefined}
     />
   );
 }

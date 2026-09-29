@@ -7,6 +7,7 @@ import type { TestResult, TestRun } from "../../api/types";
 import { runResults } from "../../api/queries";
 import { methodLabel } from "./methods";
 import { sentenceDiff } from "./sentenceDiff";
+import { formatShortDateTime } from "../../i18n/format";
 import type { DiffSegment } from "./sentenceDiff";
 
 // One side of the comparison: which run the result came from. The label
@@ -17,8 +18,9 @@ export interface DiffSide {
   resultId: string;
 }
 
-function runLabel(run: TestRun, t: TFunction): string {
-  return `#${run.index_job_id ?? run.id} · ${methodLabel(run.method, t)} · ${run.started_at?.slice(5, 10) ?? "—"}`;
+function runLabel(run: TestRun, t: TFunction, lang: string): string {
+  const started = run.started_at ? formatShortDateTime(run.started_at, lang) : "—";
+  return `#${run.index_job_id ?? run.id} · ${methodLabel(run.method, t)} · ${started}`;
 }
 
 // antd red-1 / green-1: a tint, not a strike — prose context stays readable
@@ -71,7 +73,7 @@ export default function RunDiff({ open, left, right, onClose }: {
   left: DiffSide | null;
   right: DiffSide | null;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const useSideResults = (side: DiffSide | null) =>
     useQuery({
       ...runResults(side?.run.id ?? ""),
@@ -111,8 +113,8 @@ export default function RunDiff({ open, left, right, onClose }: {
             <Tag color="green">{t("workbench.diffRightOnly")}</Tag>
           </Space>
           <div style={{ display: "flex", gap: 16 }}>
-            <Pane label={runLabel(left!.run, t)} result={lr} segments={segments} side="left" />
-            <Pane label={runLabel(right!.run, t)} result={rr} segments={segments} side="right" />
+            <Pane label={runLabel(left!.run, t, i18n.language)} result={lr} segments={segments} side="left" />
+            <Pane label={runLabel(right!.run, t, i18n.language)} result={rr} segments={segments} side="right" />
           </div>
         </>
       )}

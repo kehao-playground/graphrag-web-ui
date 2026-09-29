@@ -233,7 +233,7 @@ test("a removed row offers no selection and no actions", async () => {
   renderPanel();
   const removedRow = (await screen.findByText("gone.md")).closest("tr")!;
   expect(within(removedRow).queryByRole("checkbox")).not.toBeInTheDocument();
-  expect(within(removedRow).queryByRole("button", { name: "刪除" })).not.toBeInTheDocument();
+  expect(within(removedRow).queryByRole("button", { name: /刪\s*除/ })).not.toBeInTheDocument();
 });
 
 test("a failed preflight stays quiet: no toast, the listing still renders", async () => {
@@ -368,4 +368,30 @@ test("deleting a selected row drops it from the selection", async () => {
   await screen.findByText("文件已刪除");
   await waitFor(() => expect(screen.getByRole("button", { name: "刪除所選" })).toBeDisabled());
   expect(screen.getByRole("button", { name: "標記所選…" })).toBeDisabled();
+});
+
+// --- empty states (R4-30)
+
+test("an empty project says where to add documents", async () => {
+  renderPanel({ body: { ...FILES_BODY, files: [], usage_bytes: 0 } });
+  expect(await screen.findByText("尚無文件，將檔案拖曳到上方區域即可上傳。")).toBeInTheDocument();
+});
+
+test("a filter matching nothing says so, not 'no documents'", async () => {
+  renderPanel({ route: "/?state=skipped" });
+  expect(await screen.findByText("沒有符合篩選條件的文件。")).toBeInTheDocument();
+  expect(screen.queryByText(/尚無文件/)).not.toBeInTheDocument();
+});
+
+test("row delete is a quiet link; red is kept for the confirmation (R4-38)", async () => {
+  renderPanel();
+  const row = (await screen.findByText("notes.txt")).closest("tr")!;
+  const del = within(row).getByRole("button", { name: /刪\s*除/ });
+  expect(del).not.toHaveClass("ant-btn-dangerous");
+});
+
+test("the tags column keeps its header on one line (R4-32)", async () => {
+  renderPanel();
+  const header = await screen.findByRole("columnheader", { name: "標籤" });
+  expect(header).toHaveStyle({ whiteSpace: "nowrap" });
 });

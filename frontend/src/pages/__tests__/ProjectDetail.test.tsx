@@ -204,6 +204,12 @@ test("sidebar badges come from /health, not from a client-side count", async () 
   expect(await screen.findByText("3")).toBeInTheDocument()
 })
 
+test("the pending-documents badge is gold, not an error red (R4-38)", async () => {
+  renderApp({ route: "/projects/p1/overview", health: { files: { new: 2, modified: 1 } } })
+  const count = await screen.findByText("3")
+  expect(count.closest(".ant-badge-count")).toHaveClass("ant-badge-color-gold")
+})
+
 test("the jobs badge marks a running job", async () => {
   renderApp({ route: "/projects/p1/overview", health: { active_job: { id: "j1", type: "index" } } })
   // the link exists before /health resolves; the badge is what arrives late
