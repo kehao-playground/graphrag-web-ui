@@ -297,6 +297,17 @@ async def revoke_all_for_user(session: AsyncSession, user_id: uuid.UUID) -> None
     await session.commit()
 
 
+async def change_password(session: AsyncSession, user: User, new_password: str) -> None:
+    """A user's own change (the caller has verified the current password).
+    Revokes every refresh token, this login's included; the admin reset is
+    users.reset_password."""
+    user.password_hash = await hash_password(new_password)
+    user.must_change_password = False
+    await audit(session, user.id, "user.password_changed", "user", str(user.id))
+    # commits, flushing the user mutation and the audit row with it
+    await revoke_all_for_user(session, user.id)
+
+
 _DUMMY_HASH = _ph.hash("dummy-for-constant-time")
 
 
@@ -376,3 +387,4 @@ async def bootstrap_admin(session: AsyncSession) -> None:
         payload={"email": s.bootstrap_admin_email, "origin": "bootstrap"},
     )
     await session.commit()
+    logger.info("bootstrap admin %s created (password change forced at first login)", admin.email)

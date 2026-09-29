@@ -2,6 +2,7 @@
 Owns the transaction boundary; raises domain errors the API layer maps."""
 
 import asyncio
+import logging
 import shutil
 import uuid
 from collections.abc import Sequence
@@ -14,10 +15,13 @@ from graphrag_ui.adapters import jobs_repo
 from graphrag_ui.adapters.models import Job, Project, User
 from graphrag_ui.config import get_settings
 from graphrag_ui.domain.jobs import build_argv
+from graphrag_ui.services.audit import audit
 from graphrag_ui.services.errors import CodedServiceError, JobConflictError
 from graphrag_ui.services.project_lock import active_job, lock_project
 from graphrag_ui.services.projects import ws_path
 from graphrag_ui.services.settings import check_workspace_settings
+
+logger = logging.getLogger(__name__)
 
 
 class DiskWatermarkError(CodedServiceError, RuntimeError):
@@ -52,17 +56,51 @@ async def enqueue(
         job = await jobs_repo.insert_job(
             session, project_id=project.id, type=type, method=method, argv=argv, queued_by=actor.id
         )
+        # Decision D3: every state-changing route audits. Rolled back with
+        # the insert when the one-active-job index refuses it.
+        await audit(
+            session,
+            actor.id,
+            "job.enqueued",
+            "project",
+            project_id,
+            {"job_id": str(job.id), "type": type, "method": method},
+        )
         await session.commit()
     except IntegrityError:
         # jobs_one_active_per_project partial unique index fired: another
         # active job won the race. Never check-then-insert (spec §5).
         await session.rollback()
         raise JobConflictError(project_id) from None
+    logger.info(
+        "job enqueued id=%s project=%s type=%s method=%s by=%s",
+        job.id,
+        project_id,
+        type,
+        method,
+        actor.id,
+    )
     return job
 
 
-async def cancel(session: AsyncSession, job: Job) -> bool:
-    return await jobs_repo.request_cancel(session, job.id)
+async def cancel(session: AsyncSession, job: Job, actor: User) -> bool:
+    """False when the job is already terminal: nothing changed, nothing is
+    audited. request_cancel commits its own write, so the audit row follows
+    in a second transaction (decision D3)."""
+    job_id, job_type, project_id = job.id, job.type, str(job.project_id)
+    if not await jobs_repo.request_cancel(session, job_id):
+        return False
+    await audit(
+        session,
+        actor.id,
+        "job.cancelled",
+        "project",
+        project_id,
+        {"job_id": str(job_id), "type": job_type},
+    )
+    await session.commit()
+    logger.info("job cancel requested id=%s type=%s by=%s", job_id, job_type, actor.id)
+    return True
 
 
 async def get(session: AsyncSession, job_id: uuid.UUID) -> Job | None:

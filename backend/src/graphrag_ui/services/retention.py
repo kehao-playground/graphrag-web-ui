@@ -6,6 +6,7 @@ neither is any `baseline` snapshot row; what is reclaimed are files and the
 superseded input hashes, not history."""
 
 import asyncio
+import logging
 import shutil
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -21,6 +22,8 @@ from graphrag_ui.domain.jobs import TERMINAL_STATUSES
 from graphrag_ui.services.projects import ws_path
 
 _BATCH = 500
+
+logger = logging.getLogger(__name__)
 
 
 async def sweep_job_logs(session, now: datetime) -> dict:
@@ -156,6 +159,12 @@ async def sweep_all() -> dict:
         deleted_snapshots = result["deleted_snapshots"]
     pruned = await asyncio.to_thread(
         _prune_all, Path(settings.workspaces_dir).resolve(), settings.update_output_keep_latest
+    )
+    logger.info(
+        "retention sweep: deleted %d job logs, %d start snapshots; pruned %d update_output dirs",
+        deleted_logs,
+        deleted_snapshots,
+        pruned,
     )
     return {
         "deleted_logs": deleted_logs,

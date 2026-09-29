@@ -7,6 +7,7 @@ spec §13 verification table)."""
 import asyncio
 import contextlib
 import json
+import logging
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
@@ -17,6 +18,8 @@ from graphrag_ui.adapters.workspace_env import subprocess_env
 _ERROR_TAIL_CHARS = 4000
 _CANCEL_GRACE_S = 30.0
 _IO_POLL_S = 0.5
+
+logger = logging.getLogger(__name__)
 
 
 def _log_tail(log_path: Path) -> str:
@@ -85,6 +88,8 @@ class IndexRunner:
                 stdout=log,
                 stderr=asyncio.subprocess.STDOUT,
             )
+        # The log file is named by the job id (log_path_for).
+        logger.info("job %s spawned: pid=%d argv=%s", log_path.stem, proc.pid, " ".join(argv))
         cancelled = False
 
         async def _cancel_poll() -> None:

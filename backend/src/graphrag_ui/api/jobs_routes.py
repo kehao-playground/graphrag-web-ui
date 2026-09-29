@@ -130,7 +130,7 @@ def register_jobs_routes(app):
         job = await _job_or_404(db, job_id)
         if not can(user.global_perms, Atom.project_run_jobs, await _job_perms(db, user, job)):
             raise forbidden()
-        if not await jobs_service.cancel(db, job):
+        if not await jobs_service.cancel(db, job, user.user):
             raise ApiError(status.HTTP_409_CONFLICT, "job_already_finished", "job already finished")
         return CancelOut(detail="cancellation requested")
 

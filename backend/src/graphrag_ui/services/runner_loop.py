@@ -50,9 +50,14 @@ async def reconcile_stale() -> int:
     async with get_session_factory()() as s:
         stale = await jobs_repo.find_stale_running(s, cutoff)
         for job in stale:
+            logger.warning(
+                "job %s interrupted: worker %s stopped heartbeating", job.id, job.worker_id
+            )
             await jobs_repo.finish(
                 s, job.id, "failed(interrupted)", error="worker heartbeat timeout; job interrupted"
             )
+    if stale:
+        logger.warning("reconciled %d stale job(s) as failed(interrupted)", len(stale))
     return len(stale)
 
 
@@ -79,7 +84,12 @@ async def _execute(job_id: uuid.UUID) -> None:
             # the epoch bump and the spawn — none of them may run for a job
             # that never started (R2-09).
             await jobs_repo.finish(s, job_id, "cancelled")
+            logger.info(
+                "job finished id=%s type=%s status=cancelled before start", job_id, job_type
+            )
             return
+    logger.info("job started id=%s type=%s project=%s", job_id, job_type, project_id)
+    started = asyncio.get_running_loop().time()
     root = ws_path(project_id)
     hb_stop = asyncio.Event()
     state: dict[str, bool] = {"cancelled": False}
@@ -140,6 +150,14 @@ async def _execute(job_id: uuid.UUID) -> None:
             pass
         except Exception:  # a dead watcher must not block finish()
             logger.warning("watch task ended with an error", exc_info=True)
+    logger.info(
+        "job finished id=%s type=%s status=%s exit=%s duration=%.1fs",
+        job_id,
+        job_type,
+        res.status,
+        res.exit_code,
+        asyncio.get_running_loop().time() - started,
+    )
     async with get_session_factory()() as s:
         job = await jobs_repo.get_job(s, job_id)
         await jobs_repo.finish(
@@ -159,7 +177,11 @@ async def _execute(job_id: uuid.UUID) -> None:
         # Retention (spec §6.3): the merge already consumed older deltas;
         # keep only the newest update_output runs on disk. Each run holds a
         # full copy of output/, so the rmtree runs off the loop (R2-19).
-        await asyncio.to_thread(prune_update_output, root, get_settings().update_output_keep_latest)
+        pruned = await asyncio.to_thread(
+            prune_update_output, root, get_settings().update_output_keep_latest
+        )
+        if pruned:
+            logger.info("job %s: pruned %d old update_output dir(s)", job_id, pruned)
 
 
 async def run_loop(stop: asyncio.Event) -> None:
@@ -183,6 +205,13 @@ async def run_loop(stop: asyncio.Event) -> None:
                 running = await jobs_repo.count_running(s)
                 job = await jobs_repo.claim_next(s, worker_id()) if running < cap else None
             if job is not None:
+                logger.info(
+                    "job claimed id=%s type=%s project=%s worker=%s",
+                    job.id,
+                    job.type,
+                    job.project_id,
+                    job.worker_id,
+                )
                 t = asyncio.create_task(_execute(job.id))
                 _executing.add(t)
                 t.add_done_callback(_executing.discard)

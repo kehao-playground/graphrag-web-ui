@@ -1,6 +1,7 @@
 import asyncio
 import importlib.metadata
 import logging
+import re
 import shutil
 from contextlib import asynccontextmanager, suppress
 
@@ -53,6 +54,51 @@ def _graphrag_version() -> str:
         return importlib.metadata.version("graphrag")
     except importlib.metadata.PackageNotFoundError:
         return "not-installed"
+
+
+_LOG_HANDLER_NAME = "graphrag_ui"
+# Third-party loggers whose INFO lines are per-request noise in the api log
+# (httpx logs every LLM call the in-process query path makes). graphrag's
+# own index output goes to the per-job log file, not through here.
+_QUIET_LOGGERS = ("httpx", "LiteLLM", "LiteLLM Router", "LiteLLM Proxy", "graphrag")
+
+
+_TOKEN_PARAM = re.compile(r"((?:^|[?&])token=)[^&\s]*")
+
+
+class _RedactTokenFilter(logging.Filter):
+    """The SSE routes take the access token as `?token=` (EventSource cannot
+    set headers); uvicorn's access line carries the full path, so the token
+    would land in `docker logs api` (R2-25, decision D5)."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple) and any(
+            isinstance(a, str) and "token=" in a for a in record.args
+        ):
+            record.args = tuple(
+                _TOKEN_PARAM.sub(r"\1[redacted]", a) if isinstance(a, str) else a
+                for a in record.args
+            )
+        return True
+
+
+def configure_logging() -> None:
+    """Root logger at INFO with level and timestamp on every line (decision
+    D7: no LOG_LEVEL knob). uvicorn configures only its own loggers, which
+    do not propagate to the root, so nothing is printed twice. Idempotent:
+    create_app() runs many times in tests."""
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    if not any(h.get_name() == _LOG_HANDLER_NAME for h in root.handlers):
+        handler = logging.StreamHandler()
+        handler.set_name(_LOG_HANDLER_NAME)
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+        root.addHandler(handler)
+    for name in _QUIET_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)
+    access = logging.getLogger("uvicorn.access")
+    if not any(isinstance(f, _RedactTokenFilter) for f in access.filters):
+        access.addFilter(_RedactTokenFilter())
 
 
 async def _retention_loop(stop: asyncio.Event) -> None:
@@ -142,6 +188,7 @@ def _register_must_change_guard(app: FastAPI) -> None:
 
 
 def create_app() -> FastAPI:
+    configure_logging()
     app = FastAPI(title="GraphRAG Web UI", lifespan=lifespan)
     # Starlette types every handler against bare Exception; a handler
     # narrowed to its own exception class cannot satisfy that signature.
