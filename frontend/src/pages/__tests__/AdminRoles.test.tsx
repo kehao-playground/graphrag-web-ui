@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { createQueryClient } from "../../api/queryClient";
@@ -51,14 +51,19 @@ function mountAdminRoles() {
   );
 }
 
-test("lists catalog with usage counts and locks system roles", async () => {
+test("lists the catalog in the reader's language; built-ins carry no actions", async () => {
   mountAdminRoles();
-  await waitFor(() => expect(screen.getByText("user_admin")).toBeInTheDocument());
-  expect(screen.getByText("auditor")).toBeInTheDocument();
-  // system row: edit/delete disabled
-  const buttons = screen.getAllByRole("button");
-  const disabled = buttons.filter((b) => b.hasAttribute("disabled"));
-  expect(disabled.length).toBeGreaterThanOrEqual(2);
+  // Built-ins render their catalog label and description, never the id (R4-18).
+  await waitFor(() => expect(screen.getByText("使用者管理員")).toBeInTheDocument());
+  expect(screen.queryByText("user_admin")).toBeNull();
+  expect(screen.getByText("管理使用者與角色")).toBeInTheDocument();
+  expect(screen.getByText("全域")).toBeInTheDocument();
+  expect(screen.getByText("專案")).toBeInTheDocument();
+  // custom roles keep their own name
+  const customRow = screen.getByText("auditor").closest("tr")!;
+  const builtinRow = screen.getByText("使用者管理員").closest("tr")!;
+  expect(within(customRow).getByRole("button", { name: /編\s*輯/ })).toBeInTheDocument();
+  expect(within(builtinRow).queryByRole("button")).toBeNull();
 });
 
 test("create modal submits scope, name and atoms", async () => {

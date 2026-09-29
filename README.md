@@ -203,6 +203,11 @@ back, newest first, filterable by action and target type, and gated on the
 same `users:manage` right as the two pages above. It is read-only: nothing
 in the trail can be edited or deleted through the API.
 
+Project managers rename a project and edit its description from the
+Members pane, where members are added (as `viewer` by default) and their
+roles changed. With local sign-in, every user changes their own password
+from *Change password* in the sidebar menu.
+
 ## Known caveats
 
 - graphrag is pinned to `==3.1.2` (latest stable). Its `graphrag-vectors` dependency

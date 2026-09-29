@@ -9,6 +9,7 @@ import type { TableProps } from "antd";
 import { sendOk } from "../api/client";
 import { adminRoles } from "../api/queries";
 import type { Role } from "../api/types";
+import { permLabel as permLabelOf, roleDescription, roleLabel } from "../components/labels";
 
 // Display labels only (spec §8): every permission DECISION stays
 // backend-computed; this list never gates anything.
@@ -17,13 +18,6 @@ const ATOMS_BY_SCOPE: Record<string, readonly string[]> = {
   project: ["project:view", "project:edit_content", "project:run_jobs",
             "project:edit_settings", "project:manage"],
 };
-
-// The atom set is the backend's closed catalog, so the template key stays
-// inside typed-t's key union; unknown atoms render their raw name below.
-type PermKey =
-  | "users_manage" | "projects_view_any" | "projects_act_any" | "projects_create"
-  | "project_view" | "project_edit_content" | "project_run_jobs"
-  | "project_edit_settings" | "project_manage";
 
 interface RoleForm {
   scope: "global" | "project";
@@ -41,8 +35,7 @@ export default function AdminRoles() {
   const [createForm] = Form.useForm<RoleForm>();
   const [editForm] = Form.useForm<Omit<RoleForm, "scope">>();
 
-  const permLabel = (atom: string) =>
-    t(`perms.${atom.replace(":", "_") as PermKey}`, atom);
+  const permLabel = (atom: string) => permLabelOf(atom, t);
 
   const roles = useQuery(adminRoles());
 
@@ -100,11 +93,16 @@ export default function AdminRoles() {
   };
 
   const columns: TableProps<Role>["columns"] = [
-    { title: t("common.name"), dataIndex: "name" },
+    // Built-ins speak the catalog (R4-18), the same labels Admin — Users
+    // shows; custom roles keep the name their author gave them.
+    { title: t("common.name"), dataIndex: "name", render: (_, r) => roleLabel(r, t) },
     { title: t("adminRoles.scope"), dataIndex: "scope", width: 90,
-      render: (v: string) => <Tag>{v}</Tag> },
+      render: (v: string) => (
+        <Tag>{v === "global" ? t("adminRoles.scopeGlobalShort")
+          : v === "project" ? t("adminRoles.scopeProjectShort") : v}</Tag>
+      ) },
     { title: t("common.description"), dataIndex: "description",
-      render: (v: string) => v || "—" },
+      render: (_, r) => roleDescription(r, t) || "—" },
     { title: t("adminRoles.permissions"), dataIndex: "permissions",
       render: (v: string[]) => (
         <Space size={4} wrap>
@@ -116,10 +114,11 @@ export default function AdminRoles() {
       render: (v: boolean) => (v ? <Tag color="gold">{t("adminRoles.builtin")}</Tag> : null) },
     { title: t("adminRoles.usage"), width: 110,
       render: (_, r) => `${r.user_count ?? 0} / ${r.member_count ?? 0}` },
+    // Built-ins are immutable: no greyed-out buttons on their rows.
     { title: t("common.actions"), width: 130,
-      render: (_, r) => (
+      render: (_, r) => r.is_system ? null : (
         <Space>
-          <Button size="small" disabled={r.is_system}
+          <Button size="small"
                   onClick={() => {
                     setEditTarget(r);
                     editForm.setFieldsValue({
@@ -135,7 +134,7 @@ export default function AdminRoles() {
             okButtonProps={{ danger: true }}
             okText={t("common.delete")}
             onConfirm={() => remove.mutate(r.id)}>
-            <Button size="small" danger disabled={r.is_system}>
+            <Button size="small" danger>
               {t("common.delete")}
             </Button>
           </Popconfirm>

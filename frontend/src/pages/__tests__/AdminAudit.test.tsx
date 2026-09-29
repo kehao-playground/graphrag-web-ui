@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { createQueryClient } from "../../api/queryClient";
@@ -47,8 +47,24 @@ const ROWS = [
   },
 ];
 
-const { api } = vi.hoisted(() => ({
+const { api, state } = vi.hoisted(() => ({
+  state: { auditStatus: 200 },
   api: vi.fn(async (path: string) => {
+    // Target names resolve from the lists the admin can already read.
+    if (path === "/api/projects") {
+      return new Response(JSON.stringify([
+        { id: "9f8e7d6c-0000-4000-8000-000000000001", name: "Research Corpus" },
+      ]), { status: 200 });
+    }
+    if (path === "/api/users") {
+      return new Response(JSON.stringify([
+        { id: "aaaabbbb-0000-4000-8000-000000000002", email: "new@test.local",
+          display_name: "New", is_active: true },
+      ]), { status: 200 });
+    }
+    if (state.auditStatus !== 200) {
+      return new Response(JSON.stringify({ detail: "forbidden" }), { status: state.auditStatus });
+    }
     const url = new URL(path, "http://x");
     const action = url.searchParams.get("action");
     const rows = action ? ROWS.filter((r) => r.action === action) : ROWS;
@@ -59,6 +75,7 @@ stubFetch(api);
 
 beforeEach(() => {
   api.mockClear();
+  state.auditStatus = 200;
   useAuth.setState({
     authMode: "local",
     accessToken: "t",
@@ -76,11 +93,31 @@ function mountAudit() {
 
 test("renders the log with actions, targets and payloads", async () => {
   mountAudit();
-  await waitFor(() => expect(screen.getByText("file.uploaded")).toBeInTheDocument());
-  expect(screen.getByText("user.created")).toBeInTheDocument();
-  expect(screen.getByText("env.key_set")).toBeInTheDocument();
-  // The payload is what makes a row meaningful — the action alone is not.
-  expect(screen.getByText(/notes\.md/)).toBeInTheDocument();
+  // Actions read as catalog labels, not raw ids (R4-17).
+  await waitFor(() => expect(screen.getByText("上傳文件")).toBeInTheDocument());
+  expect(screen.getByText("建立使用者")).toBeInTheDocument();
+  expect(screen.getByText("設定環境金鑰")).toBeInTheDocument();
+  // Targets name the project or user when the admin can see it; an
+  // unresolvable one keeps its short id.
+  expect(await screen.findByText("Research Corpus")).toBeInTheDocument();
+  expect(await screen.findByText("new@test.local")).toBeInTheDocument();
+  expect(screen.getByText(/ccccdddd/)).toBeInTheDocument();
+  // The payload renders as key: value pairs, not a JSON string.
+  expect(screen.getByText("notes.md")).toBeInTheDocument();
+  expect(screen.queryByText(/"name"/)).toBeNull();
+});
+
+test("an unknown action renders its raw id", async () => {
+  mountAudit();
+  await waitFor(() => expect(screen.getByText("上傳文件")).toBeInTheDocument());
+  expect(screen.queryByText("file.uploaded")).toBeNull();
+});
+
+test("a refused read shows an error, not the empty-filter sentence (R4-17)", async () => {
+  state.auditStatus = 403;
+  mountAudit();
+  expect(await screen.findByText("無法載入稽核記錄")).toBeInTheDocument();
+  expect(screen.queryByText("沒有符合篩選條件的稽核記錄")).toBeNull();
 });
 
 test("distinguishes a system row from one whose actor was deleted", async () => {
@@ -94,8 +131,9 @@ test("distinguishes a system row from one whose actor was deleted", async () => 
 
 test("requests the first page with the configured page size", async () => {
   mountAudit();
-  await waitFor(() => expect(api).toHaveBeenCalled());
-  const url = new URL(api.mock.calls[0][0] as string, "http://x");
+  await waitFor(() => expect(api).toHaveBeenCalledWith(expect.stringMatching(/^\/api\/admin\/audit/), expect.anything()));
+  const call = api.mock.calls.find(([p]) => String(p).startsWith("/api/admin/audit"))!;
+  const url = new URL(call[0] as string, "http://x");
   expect(url.searchParams.get("limit")).toBe("50");
   expect(url.searchParams.get("offset")).toBe("0");
 });
@@ -103,9 +141,14 @@ test("requests the first page with the configured page size", async () => {
 test("the action filter is sent to the server, not applied client-side", async () => {
   const user = userEvent.setup();
   mountAudit();
-  await waitFor(() => expect(screen.getByText("env.key_set")).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByText("設定環境金鑰")).toBeInTheDocument());
 
-  await user.type(screen.getByLabelText("依動作篩選"), "user.created{enter}");
+  // The filter picks from the action catalog (recognition, not recall).
+  await user.click(screen.getByRole("combobox", { name: "依動作篩選" }));
+  // The option list is virtual: search narrows it to the one we want.
+  await user.keyboard("建立使用者");
+  const dropdown = document.querySelector(".ant-select-dropdown") as HTMLElement;
+  await user.click(await within(dropdown).findByText("建立使用者", { selector: ".ant-select-item-option-content" }));
   await waitFor(() => {
     const filtered = api.mock.calls
       .map(([p]) => new URL(p as string, "http://x"))
@@ -114,5 +157,5 @@ test("the action filter is sent to the server, not applied client-side", async (
   });
   // Server-side paging means the row count must come back from the request,
   // so the other actions are gone rather than merely hidden.
-  await waitFor(() => expect(screen.queryByText("env.key_set")).not.toBeInTheDocument());
+  await waitFor(() => expect(screen.queryByText("設定環境金鑰")).not.toBeInTheDocument());
 });

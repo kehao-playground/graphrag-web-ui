@@ -1,15 +1,17 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Outlet, useParams, useOutletContext } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import {
-  Alert, Button, Descriptions, Popconfirm, Select, Space, Spin, Table, Tag, Typography, message,
+  Alert, Button, Descriptions, Form, Input, Modal, Popconfirm, Select, Space, Spin, Table, Tag,
+  Typography, message,
 } from "antd";
 import type { TableProps } from "antd";
-import { sendOk } from "../api/client";
-import { projectById, projectMembers, roleCatalog, usersBrief } from "../api/queries";
-import type { Member, Project, UserBrief } from "../api/types";
-import { roleLabel } from "../components/labels";
+import { ApiRequestError, apiJson, sendOk } from "../api/client";
+import { projectById, projectMembers, projectsList, roleCatalog, usersBrief } from "../api/queries";
+import type { Member, Project } from "../api/types";
+import Forbidden from "../components/Forbidden";
+import { permLabel, roleLabel } from "../components/labels";
 import FilesPanel from "../components/FilesPanel";
 import SettingsPanel from "../components/SettingsPanel";
 import JobsPanel from "../components/JobsPanel";
@@ -21,34 +23,19 @@ import ProjectOverview from "./ProjectOverview";
 
 // The routed panes (spec §4). App nests one <ProjectPane pane=…> per route
 // under /projects/:id; every pane reads this layout through the outlet
-// context, so the queries and permission atoms live here exactly once.
+// context, so the project query and permission atoms live here exactly once.
 export type PaneKey = "overview" | "files" | "jobs" | "tests" | "explore" | "settings" | "members";
 
-// What the layout hands each pane. The members plumbing (columns, add bar)
-// stays in the layout so its hooks run above the layout's early returns;
-// the panes only render.
+// What the layout hands each pane. Pane-specific reads (the members pane's
+// members, users and role catalog) live in the pane itself, so they run
+// only while it is mounted (R1-56).
 export interface ProjectPaneContext {
   projectId: string;
   project: Project;
-  owner: Member | undefined;
   canManage: boolean;
   canEditFiles: boolean;
   canRunJobs: boolean;
   canEditSettings: boolean;
-  members: {
-    columns: TableProps<Member>["columns"];
-    rows: Member[];
-    loading: boolean;
-    roleOptions: { label: string; value: string }[];
-    addableUsers: UserBrief[];
-    usersLoading: boolean;
-    addUserId: string | undefined;
-    setAddUserId: (v: string | undefined) => void;
-    addRole: string | undefined;
-    setAddRole: (v: string | undefined) => void;
-    adding: boolean;
-    addMember: () => void;
-  };
 }
 
 // One heading per pane, so a deep link lands legible. The workbench pane
@@ -64,77 +51,25 @@ const PANE_HEADING = {
   members: "projectDetail.membersTab",
 } as const satisfies Record<Exclude<PaneKey, "overview">, string>;
 
+// Atoms a role change must confirm before granting (R4-16): settings and
+// API keys, and control of the project itself.
+const SENSITIVE_ATOMS = ["project:edit_settings", "project:manage"];
+
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
-  const qc = useQueryClient();
   const { t } = useTranslation();
-  const [addUserId, setAddUserId] = useState<string>();
-  const [addRole, setAddRole] = useState<string>();
-
 
   const project = useQuery({ ...projectById(id ?? ""), enabled: !!id });
-  const members = useQuery({ ...projectMembers(id ?? ""), enabled: !!id });
   // Mounted with the layout, so it watches the job slot whichever pane is
   // open; gated on the project so a 404/403 project never polls.
   useActiveJobWatch(id ?? "", project.isSuccess);
-  const invalidateMembers = () =>
-    qc.invalidateQueries({ queryKey: projectMembers(id ?? "").queryKey });
-
-  // Backend-computed permission atoms (spec §8): my_permissions already
-  // folds in owner, ops act_any and custom project:manage roles, so the UI
-  // never rebuilds a role→permission table. Pending query → empty set.
-  // Computed BEFORE the users query: its `enabled` reads canManage, and
-  // every hook must stay above the early returns further down.
-  const myPerms = new Set(project.data?.my_permissions ?? []);
-  const canManage = myPerms.has("project:manage");
-  const canEditFiles = myPerms.has("project:edit_content");
-  const canRunJobs = myPerms.has("project:run_jobs");
-  const canEditSettings = myPerms.has("project:edit_settings");
-
-  // Member role catalog (GET /api/roles?scope=project) — a hook like the
-  // queries above, so it too lives above the early returns.
-  const rolesQ = useQuery(roleCatalog("project"));
-
-  // owner is not grantable (single-owner policy; the owner row renders locked)
-  const MEMBER_ROLE_OPTIONS = (rolesQ.data ?? [])
-    .filter((r) => r.name !== "owner")
-    .map((r) => ({ label: roleLabel(r, t), value: r.id }));
-
-  // Default the add-member role to the catalog's first grantable option
-  // once it loads; later catalog refreshes keep the current choice.
-  useEffect(() => {
-    setAddRole((cur) => cur ?? MEMBER_ROLE_OPTIONS[0]?.value);
-  }, [MEMBER_ROLE_OPTIONS[0]?.value]);
-
-  // Adding a member needs user_id; GET /api/users is the narrow list every
-  // logged-in user can call, so any project:manage holder can pick users
-  // (the frontend filters out disabled ones)
-  const users = useQuery({ ...usersBrief(), enabled: canManage });
-
-  const putMember = useMutation({
-    mutationFn: ({ userId, roleId }: { userId: string; roleId: string }) => sendOk(
-      `/api/projects/${id}/members/${userId}`, "projectDetail.updateMemberFailed",
-      { method: "PUT", body: JSON.stringify({ role_id: roleId }) },
-    ),
-    onSuccess: () => {
-      setAddUserId(undefined);
-      void invalidateMembers();
-    },
-  });
-
-  const removeMember = useMutation({
-    mutationFn: (userId: string) => sendOk(
-      `/api/projects/${id}/members/${userId}`, "projectDetail.removeMemberFailed", { method: "DELETE" },
-    ),
-    onSuccess: () => {
-      message.success(t("projectDetail.memberRemoved"));
-      void invalidateMembers();
-    },
-  });
 
   if (!id) return <Alert type="warning" showIcon message={t("projectDetail.missingId")} />;
-  if (project.isPending || members.isPending) return <Spin style={{ display: "block", marginTop: 64 }} />;
+  if (project.isPending) return <Spin style={{ display: "block", marginTop: 64 }} />;
   if (project.error || !project.data) {
+    // Refused or unknown: the no-access page, with its way back (R4-37).
+    const status = project.error instanceof ApiRequestError ? project.error.status : 0;
+    if (status === 403 || status === 404) return <Forbidden notFound={status === 404} />;
     return (
       <Alert
         type="error"
@@ -147,76 +82,17 @@ export default function ProjectDetail() {
   }
 
   const p = project.data;
-  const owner = members.data?.find((m) => m.role_name === "owner");
-  const memberIds = new Set(members.data?.map((m) => m.user_id));
-
-  const memberColumns: TableProps<Member>["columns"] = [
-    { title: t("common.email"), dataIndex: "email" },
-    { title: t("common.displayName"), dataIndex: "display_name" },
-    {
-      title: t("common.role"),
-      dataIndex: "role_id",
-      width: 140,
-      render: (_, m) => (
-        <Select
-          size="small"
-          style={{ width: 140 }}
-          value={m.role_id}
-          // owner is filtered out of the grantable catalog, but its locked
-          // row still needs an option — otherwise the Select would render
-          // the raw role uuid instead of a label
-          options={m.role_name === "owner"
-            ? [{ label: t("roles.owner"), value: m.role_id }]
-            : MEMBER_ROLE_OPTIONS}
-          // The owner row is 400-protected on the backend; the UI locks it rather than offer a guaranteed failure
-          disabled={!canManage || m.role_name === "owner"}
-          onChange={(roleId) => putMember.mutate({ userId: m.user_id, roleId })}
-        />
-      ),
-    },
-    {
-      title: t("common.actions"),
-      width: 90,
-      render: (_, m) =>
-        canManage && m.role_name !== "owner" ? (
-          <Popconfirm
-            title={t("projectDetail.removeTitle", { email: m.email })}
-            okText={t("projectDetail.remove")}
-            okButtonProps={{ danger: true }}
-            onConfirm={() => removeMember.mutate(m.user_id)}
-          >
-            <Button danger size="small">{t("projectDetail.remove")}</Button>
-          </Popconfirm>
-        ) : null,
-    },
-  ];
-
-  const addableUsers = (users.data ?? []).filter((u) => u.is_active && !memberIds.has(u.id));
-
+  // Backend-computed permission atoms (spec §8): my_permissions already
+  // folds in owner, ops act_any and custom project:manage roles, so the UI
+  // never rebuilds a role→permission table.
+  const myPerms = new Set(p.my_permissions ?? []);
   const ctx: ProjectPaneContext = {
     projectId: id,
     project: p,
-    owner,
-    canManage,
-    canEditFiles,
-    canRunJobs,
-    canEditSettings,
-    members: {
-      columns: memberColumns,
-      rows: members.data ?? [],
-      loading: members.isFetching,
-      roleOptions: MEMBER_ROLE_OPTIONS,
-      addableUsers,
-      usersLoading: users.isPending,
-      addUserId,
-      setAddUserId,
-      addRole,
-      setAddRole,
-      adding: putMember.isPending,
-      addMember: () => {
-        if (addUserId && addRole) putMember.mutate({ userId: addUserId, roleId: addRole });
-      },
-    },
+    canManage: myPerms.has("project:manage"),
+    canEditFiles: myPerms.has("project:edit_content"),
+    canRunJobs: myPerms.has("project:run_jobs"),
+    canEditSettings: myPerms.has("project:edit_settings"),
   };
 
   return (
@@ -235,9 +111,6 @@ export default function ProjectDetail() {
   );
 }
 
-// The routed pane bodies. App maps each nested route to one <ProjectPane>;
-// the layout's early returns (loading/error) have already run by the time
-// any pane mounts, so each case below renders unconditionally.
 export function ProjectPane({ pane }: { pane: PaneKey }) {
   const ctx = useOutletContext<ProjectPaneContext>();
   const { t } = useTranslation();
@@ -277,59 +150,249 @@ export function ProjectPane({ pane }: { pane: PaneKey }) {
 }
 
 // The project facts the old overview tab showed (spec §4 moves them to
-// the members pane, where ProjectInfoDescriptions now lives).
-function ProjectInfoDescriptions({ p, owner }: { p: Project; owner: Member | undefined }) {
+// the members pane, where ProjectInfoDescriptions now lives). A manager
+// edits the name and description from here (R3-08).
+function ProjectInfoDescriptions({ p, owner, canManage }: {
+  p: Project; owner: Member | undefined; canManage: boolean;
+}) {
   const { t, i18n } = useTranslation();
+  const [editing, setEditing] = useState(false);
   return (
-    <Descriptions
-      title={t("projectDetail.infoTitle")}
-      bordered
-      size="small"
-      column={2}
-      items={[
-        { key: "name", label: t("common.name"), children: p.name },
-        { key: "slug", label: t("projectDetail.slug"), children: p.slug },
-        { key: "description", label: t("common.description"), children: p.description ?? t("common.notApplicable") },
-        { key: "type", label: t("projects.inputFormat"), children: <Tag>{p.input_file_type}</Tag> },
-        { key: "created", label: t("common.createdAt"), children: new Date(p.created_at).toLocaleString(i18n.language) },
-        { key: "owner", label: t("projects.owner"), children: owner ? t("projectDetail.ownerWithNameEmail", { name: owner.display_name, email: owner.email }) : t("common.notApplicable") },
-      ]}
-    />
+    <>
+      <Descriptions
+        title={t("projectDetail.infoTitle")}
+        extra={canManage && (
+          <Button size="small" onClick={() => setEditing(true)}>{t("projectDetail.editInfo")}</Button>
+        )}
+        bordered
+        size="small"
+        column={2}
+        items={[
+          { key: "name", label: t("common.name"), children: p.name },
+          { key: "slug", label: t("projectDetail.slug"), children: p.slug },
+          { key: "description", label: t("common.description"), children: p.description || t("common.notApplicable") },
+          { key: "type", label: t("projects.inputFormat"), children: <Tag>{p.input_file_type}</Tag> },
+          { key: "created", label: t("common.createdAt"), children: new Date(p.created_at).toLocaleString(i18n.language) },
+          { key: "owner", label: t("projects.owner"), children: owner ? t("projectDetail.ownerWithNameEmail", { name: owner.display_name, email: owner.email }) : t("common.notApplicable") },
+        ]}
+      />
+      {canManage && <EditProjectModal p={p} open={editing} onClose={() => setEditing(false)} />}
+    </>
   );
 }
 
-// The old overview tab's member management, now its own routed pane
-// (spec §4: members + project info). All state and mutations stay in the
-// layout's context; this component only renders them.
+interface ProjectInfoForm { name: string; description?: string }
+
+function EditProjectModal({ p, open, onClose }: { p: Project; open: boolean; onClose: () => void }) {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const [form] = Form.useForm<ProjectInfoForm>();
+
+  const save = useMutation({
+    mutationFn: (v: ProjectInfoForm) => apiJson<Project>(
+      `/api/projects/${p.id}`, "projectDetail.updateProjectFailed",
+      { method: "PATCH", body: JSON.stringify({ name: v.name.trim(), description: v.description ?? "" }) },
+    ),
+    onSuccess: (updated) => {
+      // The PATCH answers the full project (my_permissions included), so
+      // the layout's heading updates without a refetch; the list refetches.
+      qc.setQueryData(projectById(p.id).queryKey, updated);
+      void qc.invalidateQueries({ queryKey: projectsList().queryKey, exact: true });
+      message.success(t("projectDetail.projectUpdated"));
+      onClose();
+    },
+  });
+
+  return (
+    <Modal
+      title={t("projectDetail.editInfoTitle")}
+      open={open}
+      okText={t("common.save")}
+      cancelText={t("common.cancel")}
+      confirmLoading={save.isPending}
+      onCancel={onClose}
+      onOk={() => form.validateFields().then((v) => save.mutate(v))}
+      destroyOnHidden
+    >
+      <Form
+        form={form}
+        layout="vertical"
+        initialValues={{ name: p.name, description: p.description ?? "" }}
+        preserve={false}
+      >
+        <Form.Item
+          name="name"
+          label={t("common.name")}
+          rules={[
+            { required: true, whitespace: true, message: t("projects.nameRequired") },
+            { max: 200, message: t("projects.nameMax") },
+          ]}
+        >
+          <Input />
+        </Form.Item>
+        <Form.Item name="description" label={t("common.description")}>
+          <Input.TextArea rows={3} />
+        </Form.Item>
+      </Form>
+    </Modal>
+  );
+}
+
+type PutMember = { userId: string; roleId: string; email?: string };
+
+// Members and project info (spec §4). Its reads run only while the pane is
+// mounted (R1-56): the users list and role catalog are for the add bar and
+// the role selects, nothing else in the project needs them.
 function MembersPane({ ctx }: { ctx: ProjectPaneContext }) {
   const { t } = useTranslation();
-  const m = ctx.members;
+  const qc = useQueryClient();
+  const [modal, modalHolder] = Modal.useModal();
+  const { projectId: id, canManage } = ctx;
+  const [addUserId, setAddUserId] = useState<string>();
+  const [pickedRole, setPickedRole] = useState<string>();
+
+  const members = useQuery(projectMembers(id));
+  const rolesQ = useQuery(roleCatalog("project"));
+  // Adding a member needs user_id; GET /api/users is the narrow list every
+  // logged-in user can call, so any project:manage holder can pick users
+  // (the frontend filters out disabled ones)
+  const users = useQuery({ ...usersBrief(), enabled: canManage });
+  const invalidateMembers = () => qc.invalidateQueries({ queryKey: projectMembers(id).queryKey });
+
+  // owner is not grantable (single-owner policy; the owner row renders locked)
+  const grantable = (rolesQ.data ?? []).filter((r) => r.name !== "owner");
+  const roleOptions = grantable.map((r) => ({ label: roleLabel(r, t), value: r.id }));
+  const roleById = new Map((rolesQ.data ?? []).map((r) => [r.id, r] as const));
+
+  // The add-member role defaults to the least privileged built-in, viewer
+  // (R4-16), until the manager picks one.
+  const addRole = pickedRole
+    ?? (grantable.find((r) => r.is_system && r.name === "viewer") ?? grantable[0])?.id;
+
+  const putMember = useMutation({
+    mutationFn: ({ userId, roleId }: PutMember) => sendOk(
+      `/api/projects/${id}/members/${userId}`, "projectDetail.updateMemberFailed",
+      { method: "PUT", body: JSON.stringify({ role_id: roleId }) },
+    ),
+    onSuccess: (_, v) => {
+      if (v.email) {
+        message.success(t("projectDetail.roleChanged", { email: v.email }));
+      } else {
+        message.success(t("projectDetail.memberAdded"));
+        setAddUserId(undefined);
+      }
+      void invalidateMembers();
+    },
+  });
+
+  const removeMember = useMutation({
+    mutationFn: (userId: string) => sendOk(
+      `/api/projects/${id}/members/${userId}`, "projectDetail.removeMemberFailed", { method: "DELETE" },
+    ),
+    onSuccess: () => {
+      message.success(t("projectDetail.memberRemoved"));
+      void invalidateMembers();
+    },
+  });
+
+  // A change that grants settings/keys or project control asks first
+  // (R4-16); any other change applies at once. Both end in a toast.
+  const changeRole = (m: Member, roleId: string) => {
+    const next = roleById.get(roleId);
+    const had = new Set(roleById.get(m.role_id)?.permissions ?? []);
+    const gained = (next?.permissions ?? []).filter((a) => SENSITIVE_ATOMS.includes(a) && !had.has(a));
+    const apply = () => putMember.mutateAsync({ userId: m.user_id, roleId, email: m.email });
+    if (!next || gained.length === 0) {
+      void apply().catch(() => {});
+      return;
+    }
+    modal.confirm({
+      title: t("projectDetail.roleChangeTitle", { email: m.email, role: roleLabel(next, t) }),
+      content: t("projectDetail.roleChangeBody", {
+        perms: next.permissions.map((a) => permLabel(a, t)).join(t("common.listSeparator")),
+      }),
+      okText: t("projectDetail.roleChangeOk"),
+      cancelText: t("common.cancel"),
+      // A failed PUT toasts through the mutation cache; the dialog closes.
+      onOk: () => apply().catch(() => {}),
+    });
+  };
+
+  const rows = members.data ?? [];
+  const owner = rows.find((m) => m.role_name === "owner");
+  const memberIds = new Set(rows.map((m) => m.user_id));
+  const addableUsers = (users.data ?? []).filter((u) => u.is_active && !memberIds.has(u.id));
+
+  const columns: TableProps<Member>["columns"] = [
+    { title: t("common.email"), dataIndex: "email" },
+    { title: t("common.displayName"), dataIndex: "display_name" },
+    {
+      title: t("common.role"),
+      dataIndex: "role_id",
+      width: 140,
+      render: (_, m) => (
+        <Select
+          size="small"
+          style={{ width: 140 }}
+          value={m.role_id}
+          // owner is filtered out of the grantable catalog, but its locked
+          // row still needs an option — otherwise the Select would render
+          // the raw role uuid instead of a label
+          options={m.role_name === "owner"
+            ? [{ label: t("roles.owner"), value: m.role_id }]
+            : roleOptions}
+          // The owner row is 400-protected on the backend; the UI locks it rather than offer a guaranteed failure
+          disabled={!canManage || m.role_name === "owner"}
+          onChange={(roleId) => changeRole(m, roleId)}
+        />
+      ),
+    },
+    {
+      title: t("common.actions"),
+      width: 90,
+      render: (_, m) =>
+        canManage && m.role_name !== "owner" ? (
+          <Popconfirm
+            title={t("projectDetail.removeTitle", { email: m.email })}
+            okText={t("projectDetail.remove")}
+            okButtonProps={{ danger: true }}
+            onConfirm={() => removeMember.mutate(m.user_id)}
+          >
+            <Button danger size="small">{t("projectDetail.remove")}</Button>
+          </Popconfirm>
+        ) : null,
+    },
+  ];
+
   return (
     <>
-      <ProjectInfoDescriptions p={ctx.project} owner={ctx.owner} />
-      {ctx.canManage && (
+      {modalHolder}
+      <ProjectInfoDescriptions p={ctx.project} owner={owner} canManage={canManage} />
+      {canManage && (
         <Space style={{ marginBottom: 16 }} title={t("projectDetail.addMember")}>
           <Select
             showSearch
             optionFilterProp="label"
             placeholder={t("projectDetail.selectUser")}
             style={{ minWidth: 240 }}
-            value={m.addUserId}
-            options={m.addableUsers.map((u) => ({ label: t("projectDetail.ownerWithNameEmail", { name: u.display_name, email: u.email }), value: u.id }))}
-            onChange={m.setAddUserId}
-            loading={m.usersLoading}
+            value={addUserId}
+            options={addableUsers.map((u) => ({ label: t("projectDetail.ownerWithNameEmail", { name: u.display_name, email: u.email }), value: u.id }))}
+            onChange={setAddUserId}
+            loading={users.isPending}
           />
           <Select
             style={{ width: 140 }}
-            value={m.addRole}
-            options={m.roleOptions}
-            onChange={m.setAddRole}
+            value={addRole}
+            options={roleOptions}
+            onChange={setPickedRole}
           />
           <Button
             type="primary"
-            disabled={!m.addUserId || !m.addRole}
-            loading={m.adding}
-            onClick={m.addMember}
+            disabled={!addUserId || !addRole}
+            loading={putMember.isPending && !putMember.variables?.email}
+            onClick={() => {
+              if (addUserId && addRole) putMember.mutate({ userId: addUserId, roleId: addRole });
+            }}
           >
             {t("projectDetail.add")}
           </Button>
@@ -338,9 +401,9 @@ function MembersPane({ ctx }: { ctx: ProjectPaneContext }) {
       <Table
         rowKey="user_id"
         size="small"
-        loading={m.loading}
-        dataSource={m.rows}
-        columns={m.columns}
+        loading={members.isFetching}
+        dataSource={rows}
+        columns={columns}
         pagination={false}
       />
     </>

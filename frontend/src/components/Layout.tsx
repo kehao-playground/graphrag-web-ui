@@ -1,15 +1,17 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Layout as AntLayout, Menu, Select, Typography } from "antd";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../stores/auth";
+import ChangePasswordModal from "./ChangePasswordModal";
 import ErrorBoundary from "./ErrorBoundary";
 
 export default function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, logout } = useAuth();
+  const { user, logout, authMode } = useAuth();
   const { t, i18n } = useTranslation();
+  const [changingPassword, setChangingPassword] = useState(false);
 
   useEffect(() => {
     document.documentElement.lang = i18n.language;
@@ -55,8 +57,16 @@ export default function Layout() {
           theme="dark"
           mode="inline"
           selectable={false}
-          items={[{ key: "logout", label: t("layout.logout") }]}
-          onClick={() => { logout().catch(() => {}).finally(() => navigate("/login")); }}
+          items={[
+            // The proxy IdP owns passwords (spec §6.3); local accounts
+            // change their own here (RBAC §4.1 baseline, R3-09).
+            ...(authMode === "proxy" ? [] : [{ key: "password", label: t("layout.changePassword") }]),
+            { key: "logout", label: t("layout.logout") },
+          ]}
+          onClick={({ key }) => {
+            if (key === "password") setChangingPassword(true);
+            else logout().catch(() => {}).finally(() => navigate("/login"));
+          }}
         />
         {/* Language dropdown pinned to the very bottom-left corner, with
             the free space between logout and it absorbing the stretch.
@@ -84,6 +94,13 @@ export default function Layout() {
           <Outlet />
         </ErrorBoundary>
       </AntLayout.Content>
+      <ChangePasswordModal
+        open={changingPassword}
+        title={t("login.selfChangeTitle")}
+        onCancel={() => setChangingPassword(false)}
+        onDone={() => setChangingPassword(false)}
+        onSignedOut={() => { setChangingPassword(false); navigate("/login"); }}
+      />
     </AntLayout>
   );
 }

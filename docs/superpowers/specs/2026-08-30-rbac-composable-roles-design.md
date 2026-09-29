@@ -399,14 +399,22 @@ payloads switch from role strings to role ids + names. `user.updated` and
 - **Auth store / `Layout`**: user shape carries `roles` +
   `permissions`; the Admin Users nav item renders on
   `permissions.includes("users:manage")`; a new Admin Roles entry
-  (`/admin/roles`) under the same condition.
+  (`/admin/roles`) under the same condition. The `/admin/*` routes are
+  also guarded by the same atom (`RequirePermission`): a typed URL
+  renders a 403 page with a way back to the project list instead of the
+  page, and a refused or unknown project renders the same page (R4-37).
+  In local mode the user menu offers *Change password* (§4.1 baseline);
+  the backend revokes every refresh token on a change, so the form signs
+  in again with the new password (R3-09).
 - **AdminUsers**: role single-select → **global-role multi-select**
   (ids, from `GET /api/roles?scope=global`), in both the create modal
   (`UserCreateIn.roles`) and the row editor; self-row role editing
   locked (backend enforces).
 - **New AdminRoles page**: table grouped by scope; create/edit modal
-  with atom checkboxes (grouped, scope-filtered); system roles locked
-  (view only); delete handles `409 role_in_use`. The `project:manage`
+  with atom checkboxes (grouped, scope-filtered); system roles are view
+  only — their rows carry no actions and render the catalog's name and
+  description (`roles.*`, `roleDescriptions.*`), not the seed's English;
+  delete handles `409 role_in_use`. The `project:manage`
   checkbox carries an inline warning that it grants project deletion and
   member management to any member holding the role (§10).
 - **ProjectDetail / Projects**: every action button switches to
@@ -416,7 +424,17 @@ payloads switch from role strings to role ids + names. `user.updated` and
   dry-run, env key set/delete → `project:edit_settings`; members,
   project name/description edit, delete project → `project:manage`. Member role `Select`
   options come from `GET /api/roles?scope=project` minus the built-in
-  `owner` (owner not grantable; owner row locked, as today).
+  `owner` (owner not grantable; owner row locked, as today). The
+  add-member role defaults to `viewer`; a role change that grants
+  `project:edit_settings` or `project:manage` the member did not have
+  asks for confirmation, and every add or change ends in a toast (R4-16).
+  The members pane edits the project's name and description
+  (`PATCH /api/projects/{pid}`, R3-08).
+- **AdminAudit**: actions render catalog labels (`auditActions.*`, raw id
+  for an action the catalog lacks) and filter from that catalog; targets
+  name the project or user when the reader can see it; payloads render
+  as key: value lines; a failed read is an error, not the empty state
+  (R4-17).
 - **i18n**: zh-TW + en-US strings for new pages, atoms, and role names
   (`roles.user_admin` … `roles.owner`, `perms.usersManage` …).
 - `types.generated.ts` regenerated via `npm run gen:types`.

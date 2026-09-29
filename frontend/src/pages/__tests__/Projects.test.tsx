@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, vi } from "vitest";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { createQueryClient } from "../../api/queryClient";
@@ -22,7 +22,8 @@ const apiMock = vi.fn(async (path: string) => {
   // can pin BOTH the URL shape and that nothing else was requested.
   if (path.startsWith("/api/projects/health")) {
     healthRequests.push(path);
-    return new Response(JSON.stringify(healthBody), { status: 200 });
+    const status = (healthBody.__status as number | undefined) ?? 200;
+    return new Response(JSON.stringify(healthBody), { status });
   }
   return new Response(JSON.stringify(projectsBody), { status: 200 });
 });
@@ -122,4 +123,23 @@ test("a project whose last index attempt failed is flagged; a cancel is not", as
   };
   renderProjects();
   expect(await screen.findAllByText("最近一次索引失敗")).toHaveLength(1);
+});
+
+test("more than 200 projects ask for health in chunks of 200 (R3-35)", async () => {
+  projectsBody = Array.from({ length: 201 }, (_, i) => ({
+    ...PROJECTS_BODY[0], id: `q${i}`, name: `Project ${i}`,
+  }));
+  healthBody = { projects: {} };
+  renderProjects();
+  expect(await screen.findByText("Project 200")).toBeInTheDocument();
+  await waitFor(() => expect(healthRequests).toHaveLength(2));
+  expect(healthRequests[0].split("=")[1].split(",")).toHaveLength(200);
+  expect(healthRequests[1]).toBe("/api/projects/health?ids=q200");
+});
+
+test("a failed health batch says so in the column (R3-35)", async () => {
+  healthBody = { __status: 500 };
+  renderProjects();
+  expect(await screen.findByText("Research Corpus")).toBeInTheDocument();
+  expect(await screen.findAllByText("健康狀態無法取得")).toHaveLength(3);
 });

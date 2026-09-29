@@ -40,7 +40,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       # oxlint existed as a script long before this gate did. --max-warnings
-      # (in package.json) ratchets the six pre-existing React warnings: a new
+      # (in package.json) ratchets the pre-existing React warnings (three left): a new
       # one fails CI, fixing one keeps passing.
       - run: npm run lint
       - run: npm test

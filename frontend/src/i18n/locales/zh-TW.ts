@@ -103,6 +103,7 @@ export default {
     createdAt: "建立時間",
     notApplicable: "—",
     loading: "載入中…",
+    listSeparator: "、",
   },
   // Built-in role names (backend seed, spec §7): shown wherever a catalog
   // entry renders; custom roles fall back to their raw name.
@@ -129,6 +130,9 @@ export default {
     newPasswordInvalid: "新密碼不符合規定(至少 8 個字元)",
     emailRequired: "請輸入電子郵件",
     networkError: "無法連線到伺服器，請檢查網路後再試一次",
+    passwordChanged: "密碼已變更",
+    changeFailed: "變更密碼失敗（{{status}}）",
+    selfChangeTitle: "變更密碼",
   },
   projects: {
     loadFailed: "載入專案失敗({{status}})",
@@ -152,6 +156,7 @@ export default {
     nameRequired: "請輸入名稱",
     nameMax: "名稱最長 200 字",
     inputFormatRequired: "請選擇輸入格式",
+    healthUnavailable: "健康狀態無法取得",
   },
   projectDetail: {
     loadMembersFailed: "載入成員失敗({{status}})",
@@ -182,6 +187,15 @@ export default {
     addMember: "新增成員",
     selectUser: "選擇使用者",
     add: "新增",
+    memberAdded: "已新增成員",
+    roleChanged: "已變更 {{email}} 的角色",
+    roleChangeTitle: "將 {{email}} 改為「{{role}}」？",
+    roleChangeBody: "這個角色可以：{{perms}}。",
+    roleChangeOk: "變更",
+    editInfo: "編輯專案資訊",
+    editInfoTitle: "編輯專案資訊",
+    projectUpdated: "專案資訊已更新",
+    updateProjectFailed: "更新專案失敗（{{status}}）",
   },
 
   // The knowledge-base health overview (spec §9.3): one action card that
@@ -275,6 +289,18 @@ export default {
     nameRequired: "請輸入名稱",
     deleteConfirm: "刪除角色 {{name}}？",
     manageWarning: "project:manage 會讓持有此角色的成員可以改名、刪除專案與管理成員。",
+    scopeGlobalShort: "全域",
+    scopeProjectShort: "專案",
+  },
+  // Built-in role descriptions (backend seed): the seed's English text
+  // is for the API; the page renders these instead.
+  roleDescriptions: {
+    user_admin: "管理使用者與角色",
+    ops: "操作所有專案",
+    viewer: "唯讀存取",
+    maintainer: "整理文件與執行索引",
+    editor: "維護者權限，加上設定與 API 金鑰",
+    owner: "專案的完整控制權",
   },
   adminAudit: {
     title: "稽核記錄",
@@ -291,6 +317,49 @@ export default {
     loadFailed: "載入稽核記錄失敗（{{status}}）",
     empty: "沒有符合篩選條件的稽核記錄",
     retention: "每次變更都會寫入記錄;此處的內容無法透過介面編輯或刪除。",
+    loadFailedTitle: "無法載入稽核記錄",
+    targetProject: "專案",
+    targetUser: "使用者",
+    targetRole: "角色",
+  },
+  // Audit action labels, keyed by the action id with "." spelled "_".
+  // An action missing here renders its raw id.
+  auditActions: {
+    env_key_set: "設定環境金鑰",
+    env_key_deleted: "刪除環境金鑰",
+    file_uploaded: "上傳文件",
+    file_deleted: "刪除文件",
+    file_tagged: "加上標籤",
+    file_untagged: "移除標籤",
+    member_added: "新增成員",
+    member_removed: "移除成員",
+    member_role_changed: "變更成員角色",
+    project_created: "建立專案",
+    project_updated: "更新專案資訊",
+    project_deleted: "刪除專案",
+    question_set_created: "建立題組",
+    question_set_renamed: "重新命名題組",
+    question_set_archived: "封存題組",
+    question_created: "新增問題",
+    question_updated: "修改問題",
+    question_forked: "修改問題（保留舊版）",
+    question_archived: "封存問題",
+    role_created: "建立角色",
+    role_updated: "更新角色",
+    role_deleted: "刪除角色",
+    settings_updated: "更新設定",
+    test_run_enqueued: "執行題組",
+    test_rated: "評分答案",
+    user_created: "建立使用者",
+    user_updated: "更新使用者",
+    user_password_reset: "重設密碼",
+    user_role_promoted: "授予管理角色",
+  },
+  forbidden: {
+    title: "沒有權限檢視此頁面",
+    subtitle: "如需存取，請聯絡專案擁有者或系統管理員。",
+    back: "回到專案列表",
+    notFoundTitle: "找不到這個專案",
   },
   // Permission atom labels (spec §7 catalog): shown in the roles table and
   // the scope-aware checkbox editor — labels only, never a gate.
@@ -308,6 +377,7 @@ export default {
     adminAudit: "管理者 — 稽核",
     language: "語言",
     logout: "登出",
+    changePassword: "變更密碼",
     title: "GraphRAG Web UI",
   },
   errorBoundary: {
