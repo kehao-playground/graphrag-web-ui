@@ -9,6 +9,7 @@ project (R1-71) — and that the start snapshot shares the listing's scan
 """
 
 import asyncio
+import hashlib
 import os
 import time
 import uuid
@@ -24,9 +25,8 @@ from graphrag_ui.adapters.workspace import FakeInitializer
 from graphrag_ui.config import get_settings
 from graphrag_ui.domain.permissions import Atom
 from graphrag_ui.domain.role_catalog import ROLE_ID_VIEWER
-from graphrag_ui.services import files as files_service
+from graphrag_ui.services import file_listing, file_tags, index_snapshots, input_scan
 from graphrag_ui.services import health as health_service
-from graphrag_ui.services import index_snapshots
 from graphrag_ui.services.project_lock import lock_project
 from graphrag_ui.services.projects import list_projects, ws_path
 
@@ -45,14 +45,16 @@ def workspaces(tmp_path, monkeypatch):
 def hash_calls(monkeypatch) -> list[str]:
     """Counts sha256_file calls by file name (the real hash still runs)."""
     calls: list[str] = []
-    real = files_service.sha256_file
+    real = input_scan.sha256_file
 
     def counting(path):
         calls.append(path.name)
         return real(path)
 
-    monkeypatch.setattr(files_service, "sha256_file", counting)
-    # A module that imported the function by name would hash uncounted.
+    monkeypatch.setattr(input_scan, "sha256_file", counting)
+    # add_tags imports it by name; any other module doing so would hash
+    # uncounted.
+    monkeypatch.setattr(file_tags, "sha256_file", counting)
     monkeypatch.setattr(index_snapshots, "sha256_file", counting, raising=False)
     return calls
 
@@ -107,22 +109,22 @@ def _statements(db_session):
 
 async def test_a_second_listing_hashes_nothing_unchanged(db_session, workspaces, hash_calls):
     project = await _project(db_session, await _owner(db_session), {"a.md": "A", "b.md": "B"})
-    first = await files_service.list_files(db_session, project)
+    first = await file_listing.list_files(db_session, project)
     assert sorted(hash_calls) == ["a.md", "b.md"]
 
     hash_calls.clear()
-    second = await files_service.list_files(db_session, project)
+    second = await file_listing.list_files(db_session, project)
     assert hash_calls == []
     assert second["files"] == first["files"]
 
 
 async def test_a_changed_file_is_rehashed_and_the_row_refreshed(db_session, workspaces, hash_calls):
     project = await _project(db_session, await _owner(db_session), {"a.md": "A", "b.md": "B"})
-    await files_service.list_files(db_session, project)
+    await file_listing.list_files(db_session, project)
 
     _write(project, "a.md", "CHANGED", mtime=_OLD + 60)
     hash_calls.clear()
-    listing = await files_service.list_files(db_session, project)
+    listing = await file_listing.list_files(db_session, project)
     assert hash_calls == ["a.md"]
 
     sha = {f["name"]: f["sha256"] for f in listing["files"]}["a.md"]
@@ -145,22 +147,22 @@ async def test_a_racily_recent_file_is_not_trusted_from_the_cache(
     hashed again on every listing until its mtime has settled."""
     project = await _project(db_session, await _owner(db_session), {})
     _write(project, "a.md", "A", mtime=time.time())
-    await files_service.list_files(db_session, project)
+    await file_listing.list_files(db_session, project)
 
     _write(project, "a.md", "B", mtime=os.stat(ws_path(project.id) / "input" / "a.md").st_mtime)
     hash_calls.clear()
-    listing = await files_service.list_files(db_session, project)
+    listing = await file_listing.list_files(db_session, project)
     assert hash_calls == ["a.md"]
-    assert listing["files"][0]["sha256"] == files_service.hashlib.sha256(b"B").hexdigest()
+    assert listing["files"][0]["sha256"] == hashlib.sha256(b"B").hexdigest()
 
 
 async def test_tagging_a_tracked_file_does_not_hash_it(db_session, workspaces, hash_calls):
     owner = await _owner(db_session)
     project = await _project(db_session, owner, {"a.md": "A"})
-    await files_service.list_files(db_session, project)
+    await file_listing.list_files(db_session, project)
 
     hash_calls.clear()
-    await files_service.add_tags(db_session, project, "a.md", ["x"], actor_id=owner.id)
+    await file_tags.add_tags(db_session, project, "a.md", ["x"], actor_id=owner.id)
     assert hash_calls == []
 
 
@@ -171,7 +173,7 @@ async def test_listing_tracked_files_does_not_wait_for_the_project_lock(
     db_session, workspaces, migrated_db
 ):
     project = await _project(db_session, await _owner(db_session), {"a.md": "A"})
-    await files_service.list_files(db_session, project)  # discovers a.md
+    await file_listing.list_files(db_session, project)  # discovers a.md
 
     engine = make_engine(migrated_db)
     factory = make_session_factory(engine)
@@ -179,7 +181,7 @@ async def test_listing_tracked_files_does_not_wait_for_the_project_lock(
         async with factory() as holder, factory() as reader:
             await lock_project(holder, project.id)
             listing = await asyncio.wait_for(
-                files_service.list_files(reader, await reader.get(Project, project.id)), 5
+                file_listing.list_files(reader, await reader.get(Project, project.id)), 5
             )
             await holder.rollback()
     finally:
@@ -190,7 +192,7 @@ async def test_listing_tracked_files_does_not_wait_for_the_project_lock(
 async def test_an_untracked_file_is_still_discovered_under_the_lock(db_session, workspaces):
     project = await _project(db_session, await _owner(db_session), {"a.md": "A"})
     with _statements(db_session) as seen:
-        await files_service.list_files(db_session, project)
+        await file_listing.list_files(db_session, project)
     assert any("FOR UPDATE" in s for s in seen)
     names = (
         await db_session.execute(
@@ -205,7 +207,7 @@ async def test_an_untracked_file_is_still_discovered_under_the_lock(db_session, 
 
 async def test_project_health_reads_the_baseline_once(db_session, workspaces):
     project = await _project(db_session, await _owner(db_session), {"a.md": "A"})
-    await files_service.list_files(db_session, project)
+    await file_listing.list_files(db_session, project)
     with _statements(db_session) as seen:
         await health_service.project_health(db_session, project)
     # Every read of a snapshot row selects its title_recovery column.
@@ -247,7 +249,7 @@ async def test_batch_health_issues_a_fixed_number_of_queries(db_session, workspa
 async def test_the_start_snapshot_reuses_the_listing_hashes(db_session, workspaces, hash_calls):
     owner = await _owner(db_session)
     project = await _project(db_session, owner, {"a.md": "A", ".tmp-x": "partial"})
-    await files_service.list_files(db_session, project)
+    await file_listing.list_files(db_session, project)
     job = Job(
         project_id=project.id,
         type="index",
@@ -263,7 +265,7 @@ async def test_the_start_snapshot_reuses_the_listing_hashes(db_session, workspac
     snap = await index_snapshots.capture_start(db_session, project.id, job.id)
     assert hash_calls == []
     assert await index_snapshots.entries_of(db_session, snap) == {
-        "a.md": files_service.hashlib.sha256(b"A").hexdigest()
+        "a.md": hashlib.sha256(b"A").hexdigest()
     }
 
 

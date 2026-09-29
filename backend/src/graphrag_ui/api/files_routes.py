@@ -21,8 +21,10 @@ from graphrag_ui.api.deps import (
     get_current_user,
 )
 from graphrag_ui.config import get_settings
+from graphrag_ui.services import file_listing, file_preview, file_tags
 from graphrag_ui.services import files as files_service
-from graphrag_ui.services.files import PASSAGE_MAX_BYTES, max_file_bytes
+from graphrag_ui.services.file_preview import PASSAGE_MAX_BYTES
+from graphrag_ui.services.files import max_file_bytes
 
 
 class FileOut(BaseModel):
@@ -195,7 +197,7 @@ def register_files_routes(app):
 
     @router.get("/{pid}/files", response_model=FileListOut)
     async def list_files(project: ProjectView, db: DbSession):
-        listing = await files_service.list_files(db, project)
+        listing = await file_listing.list_files(db, project)
         return FileListOut(
             files=[FileEntryOut(**f) for f in listing["files"]],
             usage_bytes=await files_service.usage_bytes(project),
@@ -217,19 +219,19 @@ def register_files_routes(app):
         project: ProjectEditContent, filename: str, body: TagsIn, db: DbSession, user: CurrentUser
     ):
         # Tags are metadata, not input (spec 8): no 409 while an index runs.
-        await files_service.add_tags(db, project, filename, body.tags, actor_id=user.id)
+        await file_tags.add_tags(db, project, filename, body.tags, actor_id=user.id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @router.delete("/{pid}/files/{filename}/tags", status_code=status.HTTP_204_NO_CONTENT)
     async def remove_tags(
         project: ProjectEditContent, filename: str, body: TagsIn, db: DbSession, user: CurrentUser
     ):
-        await files_service.remove_tags(db, project, filename, body.tags, actor_id=user.id)
+        await file_tags.remove_tags(db, project, filename, body.tags, actor_id=user.id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @router.get("/{pid}/tags", response_model=TagCatalogOut)
     async def list_tags(project: ProjectView, db: DbSession):
-        return TagCatalogOut(tags=[TagOut(**t) for t in await files_service.list_tags(db, project)])
+        return TagCatalogOut(tags=[TagOut(**t) for t in await file_tags.list_tags(db, project)])
 
     @router.post("/{pid}/files:bulk-delete", response_model=BulkDeleteOut)
     async def bulk_delete_files(
@@ -241,7 +243,7 @@ def register_files_routes(app):
 
     @router.get("/{pid}/files/{filename}/preview", response_model=PreviewOut)
     async def get_preview(project: ProjectView, filename: str):
-        return PreviewOut(**await files_service.preview_file(project, filename))
+        return PreviewOut(**await file_preview.preview_file(project, filename))
 
     @router.post("/{pid}/files/{filename}/preview", response_model=PreviewOut)
     async def post_preview(project: ProjectView, filename: str, body: PreviewIn, db: DbSession):
@@ -250,11 +252,11 @@ def register_files_routes(app):
             # result to THIS project and the entry's stored source_name to
             # THIS filename (spec 7.4); any failed binding is one fixed 404.
             assert body.entry_id is not None, "the validator pairs entry_id with result_id"
-            around: str | None = await files_service.resolve_stored_passage(
+            around: str | None = await file_preview.resolve_stored_passage(
                 db, project.id, body.result_id, body.entry_id, filename
             )
         else:
             around = body.passage
-        return PreviewOut(**await files_service.preview_file(project, filename, around=around))
+        return PreviewOut(**await file_preview.preview_file(project, filename, around=around))
 
     app.include_router(router)

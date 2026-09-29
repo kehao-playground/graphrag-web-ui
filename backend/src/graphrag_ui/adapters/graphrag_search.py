@@ -125,7 +125,7 @@ def _anchor_relative_paths(data: dict[str, Any], root: Path) -> dict[str, Any]:
 _CONFIG_INPUTS = ("settings.yaml", ".env")
 # A file modified this recently may be rewritten within the same mtime tick
 # without its (mtime_ns, size) changing, so it is never memoised — git's
-# "racy clean" rule, as in services.files.scan_input.
+# "racy clean" rule, as in services.input_scan.scan_input.
 _RACY_WINDOW_NS = 2_000_000_000
 _MEMO_MAX = 64
 _memo: OrderedDict[Path, tuple[tuple, Any]] = OrderedDict()
