@@ -72,7 +72,7 @@ export default function AdminAudit() {
     {
       title: t("adminAudit.when"),
       dataIndex: "created_at",
-      width: 180,
+      width: 190,
       render: (v: string) => formatDateTime(v, i18n.language),
     },
     {

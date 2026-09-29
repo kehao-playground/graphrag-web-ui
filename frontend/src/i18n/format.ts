@@ -15,9 +15,14 @@ const format = (value: string, lang: string, options: Intl.DateTimeFormatOptions
   return d === null ? value : new Intl.DateTimeFormat(lang, options).format(d);
 };
 
-// Full date and time to the second: tables, drawers, version history.
+// Numeric date and time to the second: tables, drawers, version history.
+// Numeric rather than spelled-out months keeps it to ~165 px, one line in
+// the table date columns in both languages.
 export const formatDateTime = (value: string, lang: string) =>
-  format(value, lang, { dateStyle: "medium", timeStyle: "medium" });
+  format(value, lang, {
+    year: "numeric", month: "numeric", day: "numeric",
+    hour: "numeric", minute: "2-digit", second: "2-digit",
+  });
 
 // Month, day and minute: narrow headers where the year is noise but two
 // runs on the same day must still differ (matrix and diff labels).

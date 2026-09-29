@@ -196,7 +196,8 @@ test("community filter renders for entities/communities/community_reports only; 
   await screen.findByText("doc-1.md");
   expect(screen.queryByRole("spinbutton", { name: "社群" })).not.toBeInTheDocument();
   // graphrag's creation_date renders in the active locale (R4-33).
-  expect(screen.getByText(formatDateTime("2026-08-01 00:18:35 +0000", "zh-TW"))).toBeInTheDocument();
+  // Intl separates date and time with U+2009; the DOM matcher collapses it.
+  expect(screen.getByText(formatDateTime("2026-08-01 00:18:35 +0000", "zh-TW").replace(/\s+/g, " "))).toBeInTheDocument();
 });
 
 test("server pagination: page 2 requests offset = pageSize", async () => {
