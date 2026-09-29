@@ -82,10 +82,16 @@ const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200
 // the layout, the sidebar and the routed panes can hit is enumerated, so
 // a wrong endpoint fails loudly instead of falling through to a
 // same-shaped body.
+// Mutable: the denied-project test answers the project read with a 403.
+let projectStatus = 200;
+
 const api = vi.fn(async (url: string, init?: RequestInit) => {
   if (url === "/api/roles?scope=project") return json(projectRoles);
   if (url === "/api/projects/p1/members" && init?.method !== "PUT") return json(members);
-  if (url === "/api/projects/p1/members/u3" && init?.method === "PUT") return json({});
+  if (/^\/api\/projects\/p1\/members\/u[23]$/.test(url) && init?.method === "PUT") return json({});
+  if (url === "/api/projects/p1" && init?.method === "PATCH") {
+    return json({ ...project, ...JSON.parse(String(init.body)) });
+  }
   if (url === "/api/users") return json(users);
   if (url === "/api/projects/p1/health") return json(healthBody);
   if (url === "/api/projects/p1/files") return json(FILES);
@@ -100,7 +106,11 @@ const api = vi.fn(async (url: string, init?: RequestInit) => {
   if (url === "/api/projects/p1/settings") return json({ content: "input:\n  type: text\n", content_hash: "h1" });
   if (url === "/api/projects/p1/settings/versions") return json([]);
   if (url === "/api/projects/p1/env") return json({ keys: [] });
-  if (url === "/api/projects/p1") return json(project);
+  if (url === "/api/projects/p1") {
+    return projectStatus === 200
+      ? json(project)
+      : new Response(JSON.stringify({ detail: "forbidden" }), { status: projectStatus });
+  }
   throw new Error(`unexpected ${init?.method ?? "GET"} ${url}`);
 });
 stubFetch(api);
@@ -146,6 +156,8 @@ beforeEach(() => {
   // project's my_permissions atoms, not from any role she holds globally
   project.my_permissions = OWNER_PERMS;
   healthBody = HEALTH;
+  projectStatus = 200;
+  api.mockClear();
   useAuth.setState({
     user: { id: "u1", email: "alice@test.local", display_name: "Alice",
             roles: [], permissions: [], is_active: true, must_change_password: false },
@@ -216,9 +228,9 @@ test("owner row stays labeled and locked; add flow submits the picked role_id", 
   const aliceRow = screen.getByText("alice@test.local").closest("tr")!
   expect(within(aliceRow).getByText("擁有者")).toBeInTheDocument()
 
-  // add-member role select: defaults to the catalog's first grantable option
+  // add-member role select: defaults to the least privileged role (R4-16)
   const addBar = screen.getByTitle("新增成員")
-  const roleSelect = (await within(addBar).findByText("編輯者")).closest(".ant-select")!
+  const roleSelect = (await within(addBar).findByText("檢視者")).closest(".ant-select")!
   const combobox = roleSelect.querySelector('input[role="combobox"]')!
   fireEvent.mouseDown(combobox)
   await waitFor(() => {
@@ -229,7 +241,7 @@ test("owner row stays labeled and locked; add flow submits the picked role_id", 
   })
 
   // pick maintainer by label, pick carol, submit → the PUT carries role_id
-  fireEvent.click(await screen.findByText("維護者"))
+  fireEvent.click(await within(document.querySelector(".ant-select-dropdown")! as HTMLElement).findByText("維護者"))
   const userSelect = screen.getByText("選擇使用者").closest(".ant-select")!
   fireEvent.mouseDown(userSelect.querySelector('input[role="combobox"]')!)
   fireEvent.click(await screen.findByText("Carol(carol@test.local)"))
@@ -264,4 +276,94 @@ test("maintainer atoms: no member management, jobs launchable, files editable, s
   unmount()
   renderApp({ route: "/projects/p1/settings", myPermissions: MAINTAINER_PERMS })
   expect(await screen.findByRole("button", { name: "儲存設定" })).toBeDisabled()
+})
+
+// --- F17: members pane, project edit, denied project ---
+
+test("only the members pane asks for members and users (R1-56)", async () => {
+  renderApp({ route: "/projects/p1/overview" })
+  expect(await screen.findByRole("heading", { name: "知識庫健康度" })).toBeInTheDocument()
+  const urls = api.mock.calls.map(([u]) => u)
+  expect(urls).not.toContain("/api/users")
+  expect(urls).not.toContain("/api/projects/p1/members")
+})
+
+test("adding a member confirms with a toast (R4-16)", async () => {
+  renderApp({ route: "/projects/p1/members" })
+  const addBar = await screen.findByTitle("新增成員")
+  const userSelect = within(addBar).getByText("選擇使用者").closest(".ant-select")!
+  fireEvent.mouseDown(userSelect.querySelector('input[role="combobox"]')!)
+  fireEvent.click(await screen.findByText("Carol(carol@test.local)"))
+  fireEvent.click(within(addBar).getByRole("button", { name: /新\s*增/ }))
+  await waitFor(() => expect(api).toHaveBeenCalledWith(
+    "/api/projects/p1/members/u3",
+    expect.objectContaining({ method: "PUT", body: JSON.stringify({ role_id: VIEWER_ID }) }),
+  ))
+  expect(await screen.findByText("已新增成員")).toBeInTheDocument()
+})
+
+function pickRoleFor(email: string, label: string) {
+  const row = screen.getByText(email).closest("tr")!
+  fireEvent.mouseDown(within(row).getByRole("combobox"))
+  const dropdowns = document.querySelectorAll(".ant-select-dropdown")
+  const dd = dropdowns[dropdowns.length - 1] as HTMLElement
+  fireEvent.click(within(dd).getByText(label))
+}
+
+test("a role change that grants settings access asks first (R4-16)", async () => {
+  renderApp({ route: "/projects/p1/members" })
+  await screen.findByText("bob@test.local")
+  pickRoleFor("bob@test.local", "編輯者")
+  // nothing is sent until the confirm is accepted
+  const dialog = await screen.findByRole("dialog")
+  expect(within(dialog).getByText(/編輯設定與金鑰/)).toBeInTheDocument()
+  expect(api).not.toHaveBeenCalledWith("/api/projects/p1/members/u2", expect.anything())
+  fireEvent.click(within(dialog).getByRole("button", { name: /變\s*更/ }))
+  await waitFor(() => expect(api).toHaveBeenCalledWith(
+    "/api/projects/p1/members/u2",
+    expect.objectContaining({ method: "PUT", body: JSON.stringify({ role_id: EDITOR_ID }) }),
+  ))
+  expect(await screen.findByText("已變更 bob@test.local 的角色")).toBeInTheDocument()
+})
+
+test("a role change that grants nothing sensitive applies with a toast (R4-16)", async () => {
+  renderApp({ route: "/projects/p1/members" })
+  await screen.findByText("bob@test.local")
+  pickRoleFor("bob@test.local", "維護者")
+  await waitFor(() => expect(api).toHaveBeenCalledWith(
+    "/api/projects/p1/members/u2",
+    expect.objectContaining({ method: "PUT", body: JSON.stringify({ role_id: MAINTAINER_ID }) }),
+  ))
+  expect(screen.queryByRole("dialog")).toBeNull()
+  expect(await screen.findByText("已變更 bob@test.local 的角色")).toBeInTheDocument()
+})
+
+test("a manager edits the project's name and description (R3-08)", async () => {
+  renderApp({ route: "/projects/p1/members" })
+  fireEvent.click(await screen.findByRole("button", { name: "編輯專案資訊" }))
+  const dialog = await screen.findByRole("dialog")
+  const name = within(dialog).getByLabelText("名稱")
+  fireEvent.change(name, { target: { value: "Renamed" } })
+  fireEvent.change(within(dialog).getByLabelText("描述"), { target: { value: "About it" } })
+  fireEvent.click(within(dialog).getByRole("button", { name: /儲\s*存/ }))
+  await waitFor(() => expect(api).toHaveBeenCalledWith(
+    "/api/projects/p1",
+    expect.objectContaining({
+      method: "PATCH", body: JSON.stringify({ name: "Renamed", description: "About it" }),
+    }),
+  ))
+  expect(await screen.findByRole("heading", { name: "Renamed" })).toBeInTheDocument()
+})
+
+test("the project edit action needs project:manage (R3-08)", async () => {
+  renderApp({ route: "/projects/p1/members", myPermissions: MAINTAINER_PERMS })
+  await screen.findByText("bob@test.local")
+  expect(screen.queryByRole("button", { name: "編輯專案資訊" })).toBeNull()
+})
+
+test("a denied project offers a way back to the list (R4-37)", async () => {
+  projectStatus = 403
+  renderApp({ route: "/projects/p1/overview" })
+  expect(await screen.findByText("沒有權限檢視此頁面")).toBeInTheDocument()
+  expect(screen.getByRole("button", { name: "回到專案列表" })).toBeInTheDocument()
 })

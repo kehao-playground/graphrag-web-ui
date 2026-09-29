@@ -1,19 +1,16 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Alert, Button, Form, Input, Modal, message } from "antd";
+import { Alert, Button, Form, Input, message } from "antd";
 import { useNavigate } from "react-router-dom";
-import { api } from "../api/client";
+import ChangePasswordModal from "../components/ChangePasswordModal";
 import { redirectToProxyLogin, useAuth } from "../stores/auth";
 
 export default function Login() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const login = useAuth((s) => s.login);
-  const setUser = useAuth.setState;
   const [error, setError] = useState(false);
   const [mustChange, setMustChange] = useState(false);
-  const [changeForm] = Form.useForm();
-  const [changing, setChanging] = useState(false);
 
   const authMode = useAuth((s) => s.authMode);
   useEffect(() => {
@@ -39,33 +36,6 @@ export default function Login() {
     else navigate("/");
   };
 
-  const onChangePassword = async (values: { current_password: string; new_password: string }) => {
-    setChanging(true);
-    let r: Response;
-    try {
-      r = await api("/api/auth/change-password", { method: "POST", body: JSON.stringify(values) });
-    } catch {
-      // Without this the button spun forever on a dropped connection
-      message.error(t("login.networkError"));
-      return;
-    } finally {
-      setChanging(false);
-    }
-    if (!r.ok) {
-      // 400 = wrong current password; 422 = new password failed backend
-      // validation (min_length=8) — the two are surfaced separately
-      if (r.status === 400) {
-        changeForm.setFields([{ name: "current_password", errors: [t("login.wrongCurrent")] }]);
-      } else {
-        changeForm.setFields([{ name: "new_password", errors: [t("login.newPasswordInvalid")] }]);
-      }
-      return;
-    }
-    setUser({ user: { ...useAuth.getState().user!, must_change_password: false } });
-    setMustChange(false);
-    navigate("/");
-  };
-
   return (
     <div style={{ maxWidth: 360, margin: "12vh auto" }}>
       <h2>{t("login.pageTitle")}</h2>
@@ -79,25 +49,12 @@ export default function Login() {
         </Form.Item>
         <Button type="primary" htmlType="submit" block>{t("login.submit")}</Button>
       </Form>
-      <Modal
-        title={t("login.changeTitle")}
+      <ChangePasswordModal
         open={mustChange}
-        closable={false}
-        footer={null}
-      >
-        <Form form={changeForm} layout="vertical" onFinish={onChangePassword}>
-          <Form.Item label={t("login.currentPassword")} name="current_password" rules={[{ required: true }]}>
-            <Input.Password />
-          </Form.Item>
-          <Form.Item label={t("login.newPassword")} name="new_password" rules={[
-            { required: true, message: t("login.newPasswordRequired") },
-            { min: 8, message: t("login.newPasswordMin") },
-          ]}>
-            <Input.Password />
-          </Form.Item>
-          <Button type="primary" htmlType="submit" loading={changing} block>{t("common.submit")}</Button>
-        </Form>
-      </Modal>
+        title={t("login.changeTitle")}
+        onDone={() => { setMustChange(false); navigate("/"); }}
+        onSignedOut={() => setMustChange(false)}
+      />
     </div>
   );
 }

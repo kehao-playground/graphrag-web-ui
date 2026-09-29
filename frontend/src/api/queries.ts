@@ -108,14 +108,30 @@ export const projectHealth = (pid: string) => queryOptions({
   ...QUIET,
 });
 
-// One round trip for the whole visible project list (spec §7.5): the ids
-// ride in the key so a changed list refetches; null on failure costs the
-// column, not the page.
+// The batch health route caps one request at 200 ids (health_too_many_ids).
+const HEALTH_BATCH_MAX_IDS = 200;
+
+// One round trip per 200 visible projects (spec §7.5, R3-35): the ids ride
+// in the key so a changed list refetches. A chunk that fails leaves its
+// projects out of the merged map, which the list renders as "health
+// unavailable" — it costs the column, not the page.
 export const projectsHealth = (ids: string) => queryOptions({
   queryKey: ["projects", "health-batch", ids],
-  queryFn: async (): Promise<BatchHealth | null> => {
-    const r = await api(`/api/projects/health?ids=${ids}`);
-    return r.ok ? ((await r.json()) as BatchHealth) : null;
+  queryFn: async (): Promise<BatchHealth> => {
+    const all = ids.split(",");
+    const chunks: string[][] = [];
+    for (let i = 0; i < all.length; i += HEALTH_BATCH_MAX_IDS) {
+      chunks.push(all.slice(i, i + HEALTH_BATCH_MAX_IDS));
+    }
+    const parts = await Promise.all(chunks.map(async (chunk) => {
+      try {
+        const r = await api(`/api/projects/health?ids=${chunk.join(",")}`);
+        return r.ok ? ((await r.json()) as BatchHealth).projects : {};
+      } catch {
+        return {};
+      }
+    }));
+    return { projects: Object.assign({}, ...parts) as BatchHealth["projects"] };
   },
   enabled: ids.length > 0,
   ...EXPENSIVE,

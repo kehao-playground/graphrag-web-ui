@@ -29,8 +29,9 @@ export default function Projects() {
 
   const { data: projects, isPending, error } = useQuery(projectsList());
 
-  // One batch request for the whole visible list (spec §7.5); the per-
-  // project overview owns surfacing errors (see projectsHealth).
+  // Batch requests for the whole visible list (spec §7.5), 200 ids each; a
+  // project whose chunk failed reads "health unavailable" in its cell, and
+  // the per-project overview owns the detail (see projectsHealth).
   const ids = useMemo(() => (projects ?? []).map((p) => p.id).join(","), [projects]);
   const health = useQuery(projectsHealth(ids));
 
@@ -84,8 +85,11 @@ export default function Projects() {
       title: t("projects.indexHealth"),
       width: 160,
       render: (_, p) => {
-        const h = health.data?.projects[p.id];
-        if (!h) return null;
+        if (!health.data) return null;
+        const h = health.data.projects[p.id];
+        if (!h) {
+          return <Typography.Text type="secondary">{t("projects.healthUnavailable")}</Typography.Text>;
+        }
         // Flags, not a score (spec §9.3): the list says what is wrong, the
         // per-project overview enumerates and orders it. `removed` leads
         // because it is the one fault only a full index clears, and a

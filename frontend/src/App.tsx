@@ -9,6 +9,7 @@ import antdZhTW from "antd/locale/zh_TW";
 import { useTranslation } from "react-i18next";
 import Layout from "./components/Layout";
 import ProtectedRoute from "./components/ProtectedRoute";
+import RequirePermission from "./components/RequirePermission";
 import Login from "./pages/Login";
 import Projects from "./pages/Projects";
 import ProjectDetail, { ProjectPane } from "./pages/ProjectDetail";
@@ -42,9 +43,9 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path="settings" element={<ProjectPane pane="settings" />} />
         <Route path="members" element={<ProjectPane pane="members" />} />
       </Route>
-      <Route path="/admin/users" element={<AdminUsers />} />
-      <Route path="/admin/roles" element={<AdminRoles />} />
-      <Route path="/admin/audit" element={<AdminAudit />} />
+      <Route path="/admin/users" element={<RequirePermission atom="users:manage"><AdminUsers /></RequirePermission>} />
+      <Route path="/admin/roles" element={<RequirePermission atom="users:manage"><AdminRoles /></RequirePermission>} />
+      <Route path="/admin/audit" element={<RequirePermission atom="users:manage"><AdminAudit /></RequirePermission>} />
     </Route>
   </>,
 ));

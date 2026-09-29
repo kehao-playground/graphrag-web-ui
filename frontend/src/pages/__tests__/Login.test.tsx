@@ -89,3 +89,8 @@ test("change-password goes through api(): a 401 refreshes and retries (R1-55)", 
   expect(calls).toContain("/api/auth/refresh")
   expect(calls).toContain("Bearer a1")
 })
+
+test("change-password signs in again: the change revoked this login's refresh token (R3-09)", async () => {
+  const calls = await reachChangePassword(async () => new Response(null, { status: 204 }))
+  await waitFor(() => expect(calls.filter((c) => c.includes("/api/auth/login"))).toHaveLength(2))
+})
