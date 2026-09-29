@@ -9,12 +9,14 @@ import asyncio
 import functools
 import hashlib
 import os
+import time
 import uuid
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import NamedTuple, cast
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import Table, bindparam, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.adapters.models import (
@@ -140,8 +142,8 @@ def _dir_size(path: Path) -> int:
 
 
 def sha256_file(path: Path) -> str:
-    """Streaming sha256; used by discovery and by the start snapshot, which
-    both hash files nobody just uploaded."""
+    """Streaming sha256 of a file nobody just uploaded (scan_input on a
+    cache miss, inline discovery in add_tags)."""
     h = hashlib.sha256()
     with path.open("rb") as fh:
         while chunk := fh.read(_CHUNK_BYTES):
@@ -306,6 +308,10 @@ async def _upsert_project_file(
         session.add(row)
     row.sha256 = sha256
     row.size = size
+    # The upload's own hash, but not cached: the renamed file's mtime is
+    # inside the racy window (scan_input), so the next listing re-hashes it
+    # once and caches that.
+    row.mtime_ns = None
     row.uploaded_by = actor_id
     row.uploaded_at = datetime.now(UTC)
     row.discovered_at = None
@@ -397,7 +403,32 @@ async def save_file(
 
 
 async def list_files(session: AsyncSession, project: Project) -> dict:
-    """Rows are input/ UNION the baseline's filenames, sorted by name.
+    """The Documents listing: file_listings for one project plus each
+    on-disk file's tags (a `removed` document has no row and no tags)."""
+    listing = (await file_listings(session, [project]))[project.id]
+    tags: dict[str, list[str]] = {}
+    for file_name, tag_name in (
+        await session.execute(
+            select(ProjectFile.name, FileTag.name)
+            .join(FileTagLink, FileTagLink.file_id == ProjectFile.id)
+            .join(FileTag, FileTag.id == FileTagLink.tag_id)
+            .where(ProjectFile.project_id == project.id)
+            .order_by(FileTag.name)
+        )
+    ).all():
+        tags.setdefault(file_name, []).append(tag_name)
+    for entry in listing["files"]:
+        entry["tags"] = tags.get(entry["name"], []) if entry["size"] is not None else []
+    return listing
+
+
+async def file_listings(
+    session: AsyncSession, projects: Sequence[Project]
+) -> dict[uuid.UUID, dict]:
+    """Per project: rows are input/ UNION the baseline's filenames, sorted
+    by name. One query per table for the whole batch (R1-71), so the
+    project list's batch health costs the same round trips for 1 or 200
+    projects.
 
     Reads the BASELINE SNAPSHOT ROW, never documents.parquet: recovery
     provenance was evaluated when the artifacts were produced, and
@@ -406,130 +437,224 @@ async def list_files(session: AsyncSession, project: Project) -> dict:
     output/documents.parquet, which distinguishes unavailable_not_indexed
     from available.
 
-    Returns {"files": [...], "ingest_check": str, "has_baseline": bool}. A
-    name with no file behind it (a `removed` document) carries NULL
-    size/modified_at/sha256 and no tags rather than invented values.
+    Returns {pid: {"files": [...], "ingest_check": str, "has_baseline":
+    bool, "artifacts_stale": bool}}. A name with no file behind it (a
+    `removed` document) carries NULL size/modified_at/sha256 rather than
+    invented values. artifacts_stale is only meaningful with a baseline: a
+    failed FIRST index bumps the epoch while promoting nothing, which is
+    rule 3's overview case, not artifact wreckage (spec 7.5).
     """
-    # Deferred: index_snapshots imports sha256_file from this module, so a
+    # Deferred: index_snapshots imports scan_input from this module, so a
     # top-level import here would be circular.
-    from graphrag_ui.services.index_snapshots import baseline_entries, baseline_row
+    from graphrag_ui.services.index_snapshots import baseline_rows, entries_by_snapshot
 
-    root = ws_path(project.id)
-    scanned = await asyncio.to_thread(_scan_input, root / "input")
-    row = await baseline_row(session, project.id)
-    baseline = await baseline_entries(session, project.id)
-    await _discover_untracked(session, project, scanned)
-
-    file_rows = (
-        (await session.execute(select(ProjectFile).where(ProjectFile.project_id == project.id)))
-        .scalars()
-        .all()
+    if not projects:
+        return {}
+    ids = [p.id for p in projects]
+    rows = await _file_rows(session, ids)
+    scans = await asyncio.to_thread(
+        lambda: {
+            p.id: scan_input(ws_path(p.id) / "input", cached_scans(rows.get(p.id, {})))
+            for p in projects
+        }
     )
-    name_of = {f.id: f.name for f in file_rows}
-    tags: dict[str, list[str]] = {name: [] for name in name_of.values()}
-    for file_id, tag_name in (
-        await session.execute(
-            select(FileTagLink.file_id, FileTag.name)
-            .join(FileTag, FileTag.id == FileTagLink.tag_id)
-            .where(FileTag.project_id == project.id)
+    await _sync_file_rows(session, scans, rows)
+    baselines = await baseline_rows(session, ids)
+    entries = await entries_by_snapshot(session, [b.id for b in baselines.values()])
+
+    out: dict[uuid.UUID, dict] = {}
+    for project in projects:
+        scanned = scans[project.id]
+        base = baselines.get(project.id)
+        baseline = entries.get(base.id, {}) if base is not None else {}
+        if base is None:
+            check = IngestCheck.unavailable_no_baseline
+        elif base.title_recovery == "unavailable_title_column":
+            check = IngestCheck.unavailable_title_column
+        elif not _documents_parquet_exists(ws_path(project.id)):
+            check = IngestCheck.unavailable_not_indexed
+        else:
+            check = IngestCheck.available
+        attributable = (
+            AttributableTitles.of(base.attributable_titles)
+            if base is not None and check == IngestCheck.available
+            else AttributableTitles.unavailable()
         )
-    ).all():
-        # Links cascade with their file row at the FK level, so a link whose
-        # file is not among this project's loaded rows should not exist; the
-        # guard keeps a stray one from failing the whole listing.
-        if file_id in name_of:
-            tags[name_of[file_id]].append(tag_name)
-    for file_tags in tags.values():
-        file_tags.sort()
-
-    if row is None:
-        check = IngestCheck.unavailable_no_baseline
-    elif row.title_recovery == "unavailable_title_column":
-        check = IngestCheck.unavailable_title_column
-    elif not _documents_parquet_exists(root):
-        check = IngestCheck.unavailable_not_indexed
-    else:
-        check = IngestCheck.available
-    attributable = (
-        AttributableTitles.of(row.attributable_titles)
-        if row is not None and check == IngestCheck.available
-        else AttributableTitles.unavailable()
-    )
-
-    files = []
-    for name in sorted(set(scanned) | set(baseline)):
-        on_disk = scanned.get(name)
-        files.append(
-            {
-                "name": name,
-                "size": on_disk[0] if on_disk else None,
-                "modified_at": on_disk[1] if on_disk else None,
-                "sha256": on_disk[2] if on_disk else None,
-                "index_state": index_state(
-                    name, on_disk[2] if on_disk else None, baseline, attributable
-                ).value,
-                "tags": tags.get(name, []) if on_disk else [],
-            }
-        )
-    return {"files": files, "ingest_check": check.value, "has_baseline": row is not None}
+        files = []
+        for name in sorted(set(scanned) | set(baseline)):
+            on_disk = scanned.get(name)
+            sha = on_disk.sha256 if on_disk else None
+            files.append(
+                {
+                    "name": name,
+                    "size": on_disk.size if on_disk else None,
+                    "modified_at": on_disk.modified_at if on_disk else None,
+                    "sha256": sha,
+                    "index_state": index_state(name, sha, baseline, attributable).value,
+                }
+            )
+        out[project.id] = {
+            "files": files,
+            "ingest_check": check.value,
+            "has_baseline": base is not None,
+            "artifacts_stale": base is not None and base.artifact_epoch != project.artifact_epoch,
+        }
+    return out
 
 
-def _scan_input(input_dir: Path) -> dict[str, tuple[int, str, str]]:
-    """iterdir/stat/sha256 over input/ — {name: (size, modified_at iso,
-    sha256)}. Hashing every file is unbounded (spec A4), so list_files runs
-    this off the event loop via to_thread. Dotfiles are skipped: they are
-    never valid uploads, and the only writer here (save_file) uses
-    dot-prefixed tmp names during atomic writes."""
+class ScannedFile(NamedTuple):
+    """One input/ file as a listing sees it. cache_mtime_ns is the
+    st_mtime_ns the hash may be cached under, or None while the file is
+    inside the racy window (see scan_input)."""
+
+    size: int
+    mtime_ns: int
+    sha256: str
+    cache_mtime_ns: int | None
+
+    @property
+    def modified_at(self) -> str:
+        return datetime.fromtimestamp(self.mtime_ns / 1e9, tz=UTC).isoformat()
+
+
+# Filesystem timestamps are coarse (a kernel tick; seconds on some
+# filesystems): a same-size rewrite inside one tick keeps (size, mtime).
+# A hash is only cached once the file's mtime is older than this window at
+# the moment the scan starts, so any later write necessarily moves mtime —
+# git's "racy clean" rule.
+_RACY_WINDOW_NS = 2_000_000_000
+
+
+def cached_scans(rows: Mapping[str, ProjectFile]) -> dict[str, tuple[int, int, str]]:
+    """{name: (size, mtime_ns, sha256)} for rows whose hash is cached."""
+    return {
+        name: (row.size, row.mtime_ns, row.sha256)
+        for name, row in rows.items()
+        if row.mtime_ns is not None
+    }
+
+
+def scan_input(
+    input_dir: Path, cache: Mapping[str, tuple[int, int, str]] | None = None
+) -> dict[str, ScannedFile]:
+    """iterdir/stat/sha256 over input/ — the ONE definition of what counts
+    as an input file, shared by listings and the start snapshot (R1-96).
+
+    A file whose (size, st_mtime_ns) match its `cache` entry is not read
+    again (R1-69); every other file is hashed, which is unbounded (spec A4),
+    so callers run this off the event loop. The stat precedes the hash: a
+    write racing the hash leaves a stored mtime older than the file's, so
+    the next scan hashes again. Dotfiles are skipped: they are never valid
+    uploads, and the only writer here (save_file) uses dot-prefixed tmp
+    names during atomic writes; graphrag's own scan skips them too.
+    """
     if not input_dir.is_dir():
         return {}
-    entries: dict[str, tuple[int, str, str]] = {}
-    for p in input_dir.iterdir():
+    cache = cache or {}
+    settled_before = time.time_ns() - _RACY_WINDOW_NS
+    entries: dict[str, ScannedFile] = {}
+    for p in sorted(input_dir.iterdir()):
         if not p.is_file() or p.name.startswith("."):
             continue
         st = p.stat()
-        entries[p.name] = (
+        hit = cache.get(p.name)
+        if hit is not None and hit[:2] == (st.st_size, st.st_mtime_ns):
+            sha = hit[2]
+        else:
+            sha = sha256_file(p)
+        entries[p.name] = ScannedFile(
             st.st_size,
-            datetime.fromtimestamp(st.st_mtime, tz=UTC).isoformat(),
-            sha256_file(p),
+            st.st_mtime_ns,
+            sha,
+            st.st_mtime_ns if st.st_mtime_ns < settled_before else None,
         )
     return entries
 
 
-async def _discover_untracked(
-    session: AsyncSession, project: Project, scanned: Mapping[str, tuple[int, str, str]]
-) -> None:
-    """Insert a project_files row for every scanned name that has none.
+async def _file_rows(
+    session: AsyncSession, project_ids: Sequence[uuid.UUID]
+) -> dict[uuid.UUID, dict[str, ProjectFile]]:
+    by_project: dict[uuid.UUID, dict[str, ProjectFile]] = {}
+    for row in (
+        await session.execute(select(ProjectFile).where(ProjectFile.project_id.in_(project_ids)))
+    ).scalars():
+        by_project.setdefault(row.project_id, {})[row.name] = row
+    return by_project
 
-    Files that predate this release have no row and nothing on disk records
-    who uploaded them: discovery runs on the FIRST listing, with
-    uploaded_by/uploaded_at NULL and discovered_at set. The name check runs
-    under the project-row lock and the commit always happens, so concurrent
-    listings cannot double-insert (uq_project_files_project_name backs the
-    check) and the lock is released even when there is nothing to insert.
+
+async def _sync_file_rows(
+    session: AsyncSession,
+    scans: Mapping[uuid.UUID, Mapping[str, ScannedFile]],
+    rows: Mapping[uuid.UUID, Mapping[str, ProjectFile]],
+) -> None:
+    """Write back what the scans learned, and commit only when they learned
+    something (R1-70): a listing over unchanged, tracked files writes
+    nothing and takes no lock.
+
+    Refreshed hashes are one executemany of plain UPDATEs by id, lock-free:
+    a racing writer (upload, delete) at worst leaves a row describing an
+    older state of the file, whose mtime no longer matches, so the next
+    scan re-hashes. Discovery (files that predate this release have no row,
+    and nothing on disk records who uploaded them: uploaded_by/uploaded_at
+    NULL, discovered_at set) re-checks the names under the project-row
+    lock, so concurrent listings cannot double-insert —
+    uq_project_files_project_name backs the check.
     """
-    if not scanned:
-        return
-    await lock_project(session, project.id)
-    known = set(
-        (
-            await session.execute(
-                select(ProjectFile.name).where(ProjectFile.project_id == project.id)
-            )
-        ).scalars()
-    )
-    missing = [name for name in scanned if name not in known]
-    if missing:
+    refreshed: list[dict] = []
+    missing: dict[uuid.UUID, list[str]] = {}
+    for pid, scanned in scans.items():
+        known = rows.get(pid, {})
+        for name, f in scanned.items():
+            row = known.get(name)
+            if row is None:
+                missing.setdefault(pid, []).append(name)
+            elif (row.size, row.mtime_ns, row.sha256) != (f.size, f.cache_mtime_ns, f.sha256):
+                refreshed.append(
+                    {
+                        "b_id": row.id,
+                        "b_sha": f.sha256,
+                        "b_size": f.size,
+                        "b_mtime": f.cache_mtime_ns,
+                    }
+                )
+    if refreshed:
+        # Core UPDATE on the table: an ORM executemany would demand every
+        # id still exist, and a row a concurrent delete removed is fine.
+        table = cast(Table, ProjectFile.__table__)
+        await session.execute(
+            update(table)
+            .where(table.c.id == bindparam("b_id"))
+            .values(
+                sha256=bindparam("b_sha"), size=bindparam("b_size"), mtime_ns=bindparam("b_mtime")
+            ),
+            refreshed,
+        )
+    for pid, names in missing.items():
+        await lock_project(session, pid)
+        tracked = set(
+            (
+                await session.execute(
+                    select(ProjectFile.name).where(
+                        ProjectFile.project_id == pid, ProjectFile.name.in_(names)
+                    )
+                )
+            ).scalars()
+        )
+        now = datetime.now(UTC)
         session.add_all(
             ProjectFile(
-                project_id=project.id,
+                project_id=pid,
                 name=name,
-                sha256=scanned[name][2],
-                size=scanned[name][0],
-                discovered_at=datetime.now(UTC),
+                sha256=scans[pid][name].sha256,
+                size=scans[pid][name].size,
+                mtime_ns=scans[pid][name].cache_mtime_ns,
+                discovered_at=now,
             )
-            for name in missing
+            for name in names
+            if name not in tracked
         )
-    await session.commit()
+    if refreshed or missing:
+        await session.commit()
 
 
 def _documents_parquet_exists(root: Path) -> bool:
@@ -592,27 +717,28 @@ async def add_tags(
     target = ws_path(project.id) / "input" / name
     if not target.is_file():
         raise InputFileNotFoundError(name)
-    # A file nobody listed yet has no project_files row; tags attach to the
-    # row, so discover it inline (the same shape _discover_untracked would
-    # produce on the next listing). The hash is the unbounded walk listing
-    # already does per file (spec A4) — run it off the lock.
-    sha = await asyncio.to_thread(sha256_file, target)
-    size = target.stat().st_size
     unique_tags = sorted(dict.fromkeys(tags))
+    by_name = select(ProjectFile).where(
+        ProjectFile.project_id == project.id, ProjectFile.name == name
+    )
+    # A file nobody listed yet has no project_files row; tags attach to the
+    # row, so discover it inline (the same shape a listing's discovery
+    # produces). Only then is the file hashed — the unbounded read (spec A4)
+    # runs off the lock and off the loop; a tracked file's row already
+    # carries its hash (R1-69).
+    sha: str | None = None
+    if (await session.execute(by_name)).scalar_one_or_none() is None:
+        sha = await asyncio.to_thread(sha256_file, target)
     async with input_mutation(session, project.id, freeze=False):
-        row = (
-            await session.execute(
-                select(ProjectFile).where(
-                    ProjectFile.project_id == project.id, ProjectFile.name == name
-                )
-            )
-        ).scalar_one_or_none()
+        row = (await session.execute(by_name)).scalar_one_or_none()
         if row is None:
+            if sha is None:  # its row vanished since the check: hash now
+                sha = await asyncio.to_thread(sha256_file, target)
             row = ProjectFile(
                 project_id=project.id,
                 name=name,
                 sha256=sha,
-                size=size,
+                size=target.stat().st_size,
                 discovered_at=datetime.now(UTC),
             )
             session.add(row)
