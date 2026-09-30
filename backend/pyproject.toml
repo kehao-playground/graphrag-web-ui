@@ -23,7 +23,7 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0.52",
     # main.py imports starlette.routing.Match directly; fastapi pins it tightly.
     "starlette>=1.6",
-    "uvicorn[standard]>=0.52.4",
+    "uvicorn[standard]>=0.54.0",
 ]
 
 [build-system]
