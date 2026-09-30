@@ -527,7 +527,10 @@ lock, and commit there. This gets the same barrier test as the freeze
 (§10).
 
 `index_job_id` is the last successful index/update job at run start; it
-labels a matrix column ("#12 · 09/02") and is what makes runs comparable.
+is what makes runs comparable. It is not the run's identity — two runs
+share it until the next index — so the UI names a run by method and
+localized start time ("Local · Sep 2, 08:45") and shows the index anchor
+as that label's tooltip (amended by fix wave F29).
 It is nullable for a project queried before any index job row exists.
 
 **Ratings are project-shared, not per-user.** This is a team console; a
@@ -1340,14 +1343,20 @@ the partial answer (amended by fix wave F16).
   (default 5). No virtualization — hundreds of rows × 5 columns is well
   within antd's `Table`; complexity for imagined scale is complexity now
   for a benefit later. "Regressions only" uses the same definition the
-  backend reports in `/health`.
+  backend reports in `/health`. The whole cell is the click target. While
+  a test run holds the project, its banner shows progress and a *Cancel*
+  (same endpoint and confirm as the jobs pane; F29).
 - **Cell → drawer**: the question text as asked, answer, citations,
-  rating, note. Two selected cells → side-by-side diff.
+  rating, note; the drawer title names the run. Two selected cells →
+  side-by-side diff, each side labelled by its run. Drawers and the diff
+  say that `Esc` closes them.
 - **Diff granularity is sentences, not characters.** GraphRAG answers are
   prose; character diffs bury the real change in noise. Sentence splitting
   and comparison are a pure frontend function with unit tests.
 - **Rating must be fast.** With the drawer open, `1`/`2`/`3` rate and
-  advance. Rating 20 answers at three mouse clicks each is how a feature
+  advance. One rating is in flight at a time (a second key before the
+  first `PUT` lands is dropped); a key pressed while the run's results
+  still load is applied once they arrive. Rating 20 answers at three mouse clicks each is how a feature
   goes unused; this is the least visible decision in the slice and the one
   that determines whether it gets used.
 - **Editing a question that has runs** warns that it starts a new version

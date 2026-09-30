@@ -31,6 +31,9 @@ const { api } = vi.hoisted(() => ({
         { id: "c1", scope: "global", name: "new", description: "",
           permissions: [], is_system: false }), { status: 201 });
     }
+    if (path === "/api/admin/roles/c0" && init?.method === "PATCH") {
+      return new Response(null, { status: 204 });
+    }
     throw new Error("unexpected " + path);
   }),
 }));
@@ -76,5 +79,25 @@ test("create modal submits scope, name and atoms", async () => {
   await waitFor(() => {
     const calls = api.mock.calls.filter(([p, i]) => p === "/api/admin/roles" && (i as RequestInit | undefined)?.method === "POST");
     expect(calls.length).toBe(1);
+  });
+});
+
+// R1-113: the edit modal is open exactly while a role is targeted, and
+// saving patches that role.
+test("edit opens the modal with the role's values and patches that role", async () => {
+  const user = userEvent.setup();
+  mountAdminRoles();
+  const row = (await screen.findByText("auditor")).closest("tr")!;
+  await user.click(within(row).getByRole("button", { name: /編\s*輯/ }));
+  const dialog = await screen.findByRole("dialog");
+  const name = within(dialog).getByLabelText(/名稱/);
+  expect(name).toHaveValue("auditor");
+  await user.clear(name);
+  await user.type(name, "auditor2");
+  await user.click(within(dialog).getByRole("button", { name: /^確\s*定$|^OK$/ }));
+  await waitFor(() => {
+    const calls = api.mock.calls.filter(([p, i]) => p === "/api/admin/roles/c0" && (i as RequestInit | undefined)?.method === "PATCH");
+    expect(calls.length).toBe(1);
+    expect(JSON.parse(String((calls[0][1] as RequestInit).body)).name).toBe("auditor2");
   });
 });

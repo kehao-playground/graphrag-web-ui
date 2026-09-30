@@ -40,6 +40,7 @@ export default function FilePreviewDrawer({ projectId, name, locator, highlight,
       open={name !== null}
       onClose={onClose}
       title={name ?? ""}
+      extra={<Typography.Text type="secondary">{t("common.escToClose")}</Typography.Text>}
       width={640}
       destroyOnClose
     >

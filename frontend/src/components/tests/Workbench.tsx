@@ -60,7 +60,7 @@ export default function Workbench({ projectId, canUse, canRunJobs, canEdit }: {
 
   // The question editor (spec §5.3): editing a question referenced by a run
   // forks its lineage; the warning fires BEFORE the editor opens.
-  const [editOpen, setEditOpen] = useState(false);
+  // The editor is open exactly while a question is being edited (R1-113).
   const [editing, setEditing] = useState<Question | null>(null);
   const [editText, setEditText] = useState("");
 
@@ -187,6 +187,28 @@ export default function Workbench({ projectId, canUse, canRunJobs, canEdit }: {
     },
   });
 
+  // A running test run is cancelled where it is watched (R3-21, spec §7.3);
+  // same endpoint and confirm copy as the jobs pane. Other job types are
+  // cancelled from the jobs pane.
+  const cancelRun = useMutation({
+    mutationFn: (jobId: string) => sendOk(`/api/jobs/${jobId}/cancel`, "jobs.cancelFailed",
+      { method: "POST" }),
+    onSuccess: () => {
+      message.success(t("jobs.cancelRequested"));
+      void qc.invalidateQueries({ queryKey: jobsPreflight(projectId).queryKey });
+      void invalidateMatrix();
+    },
+  });
+  const confirmCancelRun = (jobId: string) => {
+    Modal.confirm({
+      title: t("jobs.cancelJobTitle"),
+      okText: t("jobs.confirmCancel"),
+      okButtonProps: { danger: true },
+      cancelText: t("common.cancel"),
+      onOk: () => cancelRun.mutateAsync(jobId),
+    });
+  };
+
   // "Has runs" per the client: the lineage appears in the matrix window
   // with at least one manifested cell. The backend re-checks under the
   // project lock (spec §5.3), so a stale window can only ever under-warn.
@@ -228,7 +250,6 @@ export default function Workbench({ projectId, canUse, canRunJobs, canEdit }: {
   const openEditor = (q: Question) => {
     setEditing(q);
     setEditText(q.text);
-    setEditOpen(true);
   };
 
   const startEdit = (q: Question) => {
@@ -259,7 +280,6 @@ export default function Workbench({ projectId, canUse, canRunJobs, canEdit }: {
     },
     onSuccess: () => {
       message.success(t("workbench.questionUpdated"));
-      setEditOpen(false);
       setEditing(null);
       void qc.invalidateQueries({ queryKey: questionSets(projectId).queryKey });
     },
@@ -362,6 +382,11 @@ export default function Workbench({ projectId, canUse, canRunJobs, canEdit }: {
               description={activeJob.progress
                 ? t("workbench.jobProgress", activeJob.progress)
                 : undefined}
+              action={canRunJobs && activeJob.type === "test_run" && !activeJob.cancel_requested_at && (
+                <Button size="small" danger onClick={() => confirmCancelRun(activeJob.id)}>
+                  {t("workbench.cancelRun")}
+                </Button>
+              )}
             />
           )}
 
@@ -503,14 +528,14 @@ export default function Workbench({ projectId, canUse, canRunJobs, canEdit }: {
           {nameModal()}
 
           <Modal
-            open={editOpen}
+            open={editing !== null}
             title={t("workbench.editQuestion")}
             okText={t("common.save")}
             cancelText={t("common.cancel")}
             okButtonProps={{ disabled: editText.trim().length === 0 }}
             confirmLoading={saveEdit.isPending}
             onOk={() => saveEdit.mutate()}
-            onCancel={() => setEditOpen(false)}
+            onCancel={() => setEditing(null)}
           >
             <Input.TextArea
               aria-label={t("workbench.editQuestion")}
@@ -541,18 +566,13 @@ export default function Workbench({ projectId, canUse, canRunJobs, canEdit }: {
             // fresh state instead of prop-syncing the current result in.
             key={drawerFor ? `${drawerFor.runId}:${drawerFor.resultId}` : "closed"}
             projectId={projectId}
-            runId={drawerFor?.runId ?? null}
+            run={(matrix.data?.runs ?? []).find((r) => r.id === drawerFor?.runId) ?? null}
             resultId={drawerFor?.resultId ?? null}
             onClose={() => setDrawerFor(null)}
             onRated={() => void invalidateMatrix()}
           />
 
-          <RunDiff
-            open={diff !== null}
-            left={diff?.left ?? null}
-            right={diff?.right ?? null}
-            onClose={() => setDiff(null)}
-          />
+          <RunDiff pair={diff} onClose={() => setDiff(null)} />
         </>
       )}
     </Space>

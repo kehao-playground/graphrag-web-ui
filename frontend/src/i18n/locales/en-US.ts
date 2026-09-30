@@ -90,6 +90,7 @@ const enUS = {
     dry_run_failed: "Settings check failed",
   },
   common: {
+    escToClose: "Press Esc to close",
     nameWithEmail: "{{name}} ({{email}})",
     appName: "GraphRAG Web UI",
     delete: "Delete",
@@ -554,6 +555,9 @@ const enUS = {
     cancelled: "Query cancelled",
   },
   workbench: {
+    // F29: run identity, workbench cancel.
+    runAnchor: "Index version #{{id}}",
+    cancelRun: "Cancel run",
     modeMatrix: "Rating matrix",
     modeAdhoc: "Ad-hoc query",
     loadSetsFailed: "Failed to load question sets ({{status}})",

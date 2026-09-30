@@ -6,9 +6,10 @@ import { MemoryRouter } from "react-router-dom";
  import { QueryClientProvider } from "@tanstack/react-query";
 import { createQueryClient } from "../../api/queryClient";
  import Workbench from "../tests/Workbench";
-import { MATRIX, SETS, QUESTIONS, PREFLIGHT, RESULTS_RUN3, RESULTS_RUN4, cellLabel } from "./workbenchFixtures";
+import {
+  MATRIX, SETS, QUESTIONS, PREFLIGHT, RESULTS_RUN3, RESULTS_RUN4, cellLabel, runLabel,
+} from "./workbenchFixtures";
 import { stubFetch } from "../../testing/stubFetch";
-import { formatShortDateTime } from "../../i18n/format";
 
 // Same mock discipline as FilesPanel/JobsPanel tests: branch by URL (and
 // method for POST/PUT/PATCH) so a wrong endpoint or body cannot silently
@@ -18,6 +19,9 @@ let setsBody: { sets: { id: string; name: string; created_at: string }[] } = SET
 let matrixBody: Record<string, unknown> = MATRIX;
 // Every rating PUT the drawer fired, in order.
 let rated: { resultId: string; score: string; note?: string }[] = [];
+// Held open by a test to keep a rating PUT or the results GET in flight.
+let putGate: Promise<void> = Promise.resolve();
+let resultsGate: Promise<void> = Promise.resolve();
 let postResponse: () => Response = () =>
   new Response(JSON.stringify({ ...MATRIX.runs[0], id: "run-9" }), { status: 201 });
 const apiMock = vi.fn(async (path: string, init?: RequestInit) => {
@@ -39,8 +43,12 @@ const apiMock = vi.fn(async (path: string, init?: RequestInit) => {
   if (path === "/api/projects/p1/question-sets/s1/questions") return json(QUESTIONS);
   if (path === "/api/projects/p1/question-sets/s-new/questions") return json({ questions: [] });
   if (path === "/api/test-runs/run-3/results") return json(RESULTS_RUN3);
-  if (path === "/api/test-runs/run-4/results") return json(RESULTS_RUN4);
+  if (path === "/api/test-runs/run-4/results") {
+    await resultsGate;
+    return json(RESULTS_RUN4);
+  }
   if (path.startsWith("/api/test-results/") && init?.method === "PUT") {
+    await putGate;
     const body = JSON.parse(String(init.body)) as { score: string; note: string };
     rated.push({ resultId: path.split("/")[3], score: body.score, note: body.note });
     return json({ score: body.score, note: body.note, rated_by: "u1", rated_at: "2026-09-09T00:00:00Z" });
@@ -48,6 +56,7 @@ const apiMock = vi.fn(async (path: string, init?: RequestInit) => {
   if (path === "/api/projects/p1/test-runs" && init?.method === "POST") return postResponse();
   if (path === "/api/projects/p1/test-runs") return json(matrixBody);
   if (path === "/api/projects/p1/jobs/preflight") return json(preflightBody);
+  if (path === "/api/jobs/j2/cancel" && init?.method === "POST") return new Response(null, { status: 204 });
   return json({});
 });
 function json(body: unknown) {
@@ -69,6 +78,8 @@ beforeEach(() => {
   setsBody = SETS;
   matrixBody = MATRIX;
   rated = [];
+  putGate = Promise.resolve();
+  resultsGate = Promise.resolve();
   apiMock.mockClear();
 });
 
@@ -239,9 +250,66 @@ test("two selected cells open the side-by-side diff", async () => {
   expect(await screen.findByRole("heading", { name: /並排比較/ })).toBeInTheDocument();
   // zh-TW: 需附發票。 exists only in run-3's answer; run-4 dropped it.
   expect(await screen.findByText("需附發票。")).toBeInTheDocument();
-  // Run labels localize their start time (R1-54), whatever the runner's TZ.
-  expect(screen.getByText(`#13 · 區域 · ${formatShortDateTime("2026-09-03T10:00:00Z", "zh-TW")}`)).toBeInTheDocument();
-  expect(screen.getByText(`#14 · 區域 · ${formatShortDateTime("2026-09-04T10:00:00Z", "zh-TW")}`)).toBeInTheDocument();
+  // Sides are named like the matrix columns — method and localized start
+  // time (R1-54, R4-27) — not by the index job id both runs may share.
+  const dialog = screen.getByRole("dialog");
+  expect(within(dialog).getByText(runLabel(3))).toBeInTheDocument();
+  expect(within(dialog).getByText(runLabel(4))).toBeInTheDocument();
+  expect(within(dialog).queryByText(/#1[34]/)).not.toBeInTheDocument();
+  // Esc closes it, and the title says so (R4-41).
+  expect(within(dialog).getByText("按 Esc 關閉")).toBeInTheDocument();
+});
+
+// R4-27: the drawer says which run the result belongs to.
+test("the result drawer names its run", async () => {
+  renderWorkbench();
+  await userEvent.click(await screen.findByLabelText(cellLabel("Q1 保固期多長", 4)));
+  expect(await screen.findByText(`檢視結果 · ${runLabel(4)}`)).toBeInTheDocument();
+  expect(screen.getByText("按 Esc 關閉")).toBeInTheDocument();
+});
+
+// R1-111 / R2-30: a second key before the first rating lands is ignored,
+// so result N is not rated twice and N+1 is not skipped.
+test("a rating key pressed while a rating is in flight is ignored", async () => {
+  let release!: () => void;
+  putGate = new Promise((r) => { release = r; });
+  renderWorkbench();
+  await userEvent.click(await screen.findByLabelText(cellLabel("Q1 保固期多長", 4)));
+  await screen.findByText("第 1 / 4 題");
+  await userEvent.keyboard("1");
+  await userEvent.keyboard("2");
+  release();
+  await screen.findByText("第 2 / 4 題");
+  expect(rated).toEqual([{ resultId: "r1", score: "good", note: "" }]);
+  expect(sent("PUT")).toHaveLength(1);
+});
+
+// R4-41: a key pressed before the run's results arrive rates once they do.
+test("a rating key pressed while results load is applied when they land", async () => {
+  let release!: () => void;
+  resultsGate = new Promise((r) => { release = r; });
+  renderWorkbench();
+  await userEvent.click(await screen.findByLabelText(cellLabel("Q1 保固期多長", 4)));
+  await screen.findByText(`檢視結果 · ${runLabel(4)}`);
+  await userEvent.keyboard("3");
+  expect(rated).toEqual([]);
+  release();
+  await screen.findByText("第 2 / 4 題");
+  expect(rated).toEqual([{ resultId: "r1", score: "poor", note: "" }]);
+});
+
+// R3-21: a running test run is cancellable where it is watched.
+test("a running test run can be cancelled from the workbench", async () => {
+  renderWorkbench({ activeJob: { id: "j2", type: "test_run", progress: { done: 3, total: 20 } } });
+  await userEvent.click(await screen.findByRole("button", { name: "取消執行" }));
+  await userEvent.click(await screen.findByRole("button", { name: "確定取消" }));
+  await waitFor(() => expect(sent("POST")).toContainEqual(["/api/jobs/j2/cancel", null]));
+});
+
+test("another job type's banner offers no cancel", async () => {
+  renderWorkbench({ activeJob: { id: "j1", type: "index" } });
+  await screen.findByText(/索引任務正在進行/);
+  expect(screen.queryByRole("button", { name: "取消執行" })).not.toBeInTheDocument();
 });
 
 // --- question-set lifecycle and the first-visit landing (R1-02, R3-23, R4-03)

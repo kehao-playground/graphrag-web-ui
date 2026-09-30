@@ -73,7 +73,7 @@ cd backend && uv run --with pip-audit pip-audit --desc --skip-editable --ignore-
 
 # frontend (Node 24; jsdom+undici need >=22; explore graph renders via
 # react-sigma + graphology, lazy-loaded as a separate build chunk)
-cd frontend && npm test                 # vitest run (341 tests)
+cd frontend && npm test                 # vitest run (350 tests)
 cd frontend && npm run lint             # oxlint, ratcheted at 1 warning
 cd frontend && npx tsc -b --noEmit
 cd frontend && npm run build

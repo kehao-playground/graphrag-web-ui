@@ -1,3 +1,5 @@
+import { formatShortDateTime } from "../../i18n/format";
+
 // Shared MatrixOut / SetListOut / QuestionListOut fixtures for the
 // workbench suite (Task 7): one file so RatingMatrix.test and
 // Workbench.test mount the exact same project state. 4 runs oldest first,
@@ -104,11 +106,16 @@ export const RESULTS_RUN4 = {
   ],
 };
 
-// The matrix cell aria-label contract (Task 8): question text × column,
-// the column named by the run's index version anchor — what selection
-// targets and the diff labels echo.
+// A run's identity in the UI (R4-27): localized method + start time, the
+// same string the matrix column, the diff side and the drawer title use.
+export function runLabel(runIndex1to4: number): string {
+  return `區域 · ${formatShortDateTime(`2026-09-0${runIndex1to4}T10:00:00Z`, "zh-TW")}`;
+}
+
+// The matrix cell aria-label contract (Task 8): question text × run label —
+// what selection targets.
 export function cellLabel(questionText: string, runIndex1to4: number): string {
-  return `${questionText} × #${10 + runIndex1to4}`;
+  return `${questionText} × ${runLabel(runIndex1to4)}`;
 }
 
 export const SETS = {

@@ -345,7 +345,7 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
           ),
         }}
       />
-      <JobLogViewer jobId={logJobId} open={logJobId !== null} title={logTitle} onClose={() => setLogJobId(null)} />
+      <JobLogViewer jobId={logJobId} title={logTitle} onClose={() => setLogJobId(null)} />
     </Space>
   );
 }
