@@ -1,26 +1,19 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import type { TFunction } from "i18next";
-import { Alert, Modal, Skeleton, Space, Tag, Typography } from "antd";
+import { Alert, Modal, Skeleton, Space, Tag, Tooltip, Typography } from "antd";
 import type { TestResult, TestRun } from "../../api/types";
 import { runResults } from "../../api/queries";
-import { methodLabel } from "./methods";
+import { runAnchor, runLabel } from "./methods";
 import { sentenceDiff } from "./sentenceDiff";
-import { formatShortDateTime } from "../../i18n/format";
 import type { DiffSegment } from "./sentenceDiff";
 
-// One side of the comparison: which run the result came from. The label
-// names the run the way the matrix columns do — index anchor, method, date —
-// because that anchor (spec §5.3) is what makes two runs comparable.
+// One side of the comparison: which run the result came from. The side is
+// labelled the way the matrix column is (R4-27) — method and start time —
+// with the run's index anchor (spec §5.3) as the label's tooltip.
 export interface DiffSide {
   run: TestRun;
   resultId: string;
-}
-
-function runLabel(run: TestRun, t: TFunction, lang: string): string {
-  const started = run.started_at ? formatShortDateTime(run.started_at, lang) : "—";
-  return `#${run.index_job_id ?? run.id} · ${methodLabel(run.method, t)} · ${started}`;
 }
 
 // antd red-1 / green-1: a tint, not a strike — prose context stays readable
@@ -28,20 +21,22 @@ function runLabel(run: TestRun, t: TFunction, lang: string): string {
 const LEFT_ONLY = { background: "#fff1f0" };
 const RIGHT_ONLY = { background: "#f6ffed" };
 
-function Pane({ label, result, segments, side }: {
-  label: string;
+function Pane({ run, result, segments, side }: {
+  run: TestRun;
   result: TestResult;
   segments: DiffSegment[];
   side: "left" | "right";
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   // Classic side-by-side alignment: each pane keeps the shared sentences and
   // its own; the other side's sentences simply do not appear here.
   const other = side === "left" ? "right" : "left";
   const shown = segments.filter((s) => s.side !== other);
   return (
     <div style={{ flex: 1, minWidth: 0 }}>
-      <Typography.Text strong>{label}</Typography.Text>
+      <Tooltip title={runAnchor(run, t)}>
+        <Typography.Text strong>{runLabel(run, t, i18n.language)}</Typography.Text>
+      </Tooltip>
       <Typography.Paragraph type="secondary" style={{ whiteSpace: "pre-wrap" }}>
         {result.question_text}
       </Typography.Paragraph>
@@ -66,14 +61,16 @@ function Pane({ label, result, segments, side }: {
 // The side-by-side diff (spec §9.2): two selected cells, answers compared at
 // sentence granularity. Fetches both runs' result lists through the query
 // the drawer uses, so opening a diff right after rating through the drawer
-// costs no extra request. Errors render in the modal, not as a toast.
-export default function RunDiff({ open, left, right, onClose }: {
-  open: boolean;
+// costs no extra request. Errors render in the modal, not as a toast. The
+// modal is open exactly while a pair is set.
+export default function RunDiff({ pair, onClose }: {
+  pair: { left: DiffSide; right: DiffSide } | null;
   onClose: () => void;
-  left: DiffSide | null;
-  right: DiffSide | null;
 }) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
+  const open = pair !== null;
+  const left = pair?.left ?? null;
+  const right = pair?.right ?? null;
   const useSideResults = (side: DiffSide | null) =>
     useQuery({
       ...runResults(side?.run.id ?? ""),
@@ -97,9 +94,14 @@ export default function RunDiff({ open, left, right, onClose }: {
       footer={null}
       width={920}
       title={
-        <Typography.Title level={4} style={{ marginTop: 0 }}>
-          {t("workbench.compareTitle")}
-        </Typography.Title>
+        <Space align="baseline" size="middle">
+          <Typography.Title level={4} style={{ marginTop: 0 }}>
+            {t("workbench.compareTitle")}
+          </Typography.Title>
+          <Typography.Text type="secondary" style={{ fontWeight: "normal" }}>
+            {t("common.escToClose")}
+          </Typography.Text>
+        </Space>
       }
     >
       {lq.error || rq.error ? (
@@ -113,8 +115,8 @@ export default function RunDiff({ open, left, right, onClose }: {
             <Tag color="green">{t("workbench.diffRightOnly")}</Tag>
           </Space>
           <div style={{ display: "flex", gap: 16 }}>
-            <Pane label={runLabel(left!.run, t, i18n.language)} result={lr} segments={segments} side="left" />
-            <Pane label={runLabel(right!.run, t, i18n.language)} result={rr} segments={segments} side="right" />
+            <Pane run={left!.run} result={lr} segments={segments} side="left" />
+            <Pane run={right!.run} result={rr} segments={segments} side="right" />
           </div>
         </>
       )}

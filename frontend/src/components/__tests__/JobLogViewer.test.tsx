@@ -51,7 +51,7 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 test("appends log chunks and passes the access token as a query param", async () => {
-  render(<JobLogViewer jobId="j1" open onClose={() => {}} />);
+  render(<JobLogViewer jobId="j1" onClose={() => {}} />);
   const es = MockEventSource.instances[0]!;
   expect(es.url).toBe("/api/jobs/j1/logs?token=test-token");
   es.emit("log", JSON.stringify("hello "));
@@ -63,7 +63,7 @@ test("chunks arriving in one frame are written to the DOM once (R1-85)", async (
   const frames: FrameRequestCallback[] = [];
   vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => frames.push(cb));
   vi.stubGlobal("cancelAnimationFrame", () => {});
-  render(<JobLogViewer jobId="j1" open onClose={() => {}} />);
+  render(<JobLogViewer jobId="j1" onClose={() => {}} />);
   frames.length = 0; // the Drawer's own open animation
   const es = MockEventSource.instances[0]!;
   for (const c of ["a", "b", "c"]) es.emit("log", JSON.stringify(c));
@@ -75,21 +75,21 @@ test("chunks arriving in one frame are written to the DOM once (R1-85)", async (
 });
 
 test("done event closes the stream", () => {
-  render(<JobLogViewer jobId="j1" open onClose={() => {}} />);
+  render(<JobLogViewer jobId="j1" onClose={() => {}} />);
   const es = MockEventSource.instances[0]!;
   es.emit("done", JSON.stringify({ offset: 10, status: "succeeded" }));
   expect(es.close).toHaveBeenCalled();
 });
 
 test("unmount closes the EventSource", () => {
-  const { unmount } = render(<JobLogViewer jobId="j1" open onClose={() => {}} />);
+  const { unmount } = render(<JobLogViewer jobId="j1" onClose={() => {}} />);
   const es = MockEventSource.instances[0]!;
   unmount();
   expect(es.close).toHaveBeenCalled();
 });
 
 test("follows the tail until the reader scrolls up, and Follow resumes it (R3-19)", async () => {
-  render(<JobLogViewer jobId="j1" open onClose={() => {}} />);
+  render(<JobLogViewer jobId="j1" onClose={() => {}} />);
   const es = MockEventSource.instances[0]!;
   const pre = logPre();
   layout(pre, 500);
@@ -110,7 +110,7 @@ test("follows the tail until the reader scrolls up, and Follow resumes it (R3-19
 });
 
 test("Pause stops following without scrolling", async () => {
-  render(<JobLogViewer jobId="j1" open onClose={() => {}} />);
+  render(<JobLogViewer jobId="j1" onClose={() => {}} />);
   const es = MockEventSource.instances[0]!;
   const pre = logPre();
   layout(pre, 500);
@@ -122,7 +122,7 @@ test("Pause stops following without scrolling", async () => {
 });
 
 test("a dropped connection the browser retries shows a notice until data flows again", async () => {
-  render(<JobLogViewer jobId="j1" open onClose={() => {}} />);
+  render(<JobLogViewer jobId="j1" onClose={() => {}} />);
   const es = MockEventSource.instances[0]!;
   es.fail(0); // CONNECTING: native reconnect with Last-Event-ID
   expect(screen.getByText(/正在重新連線/)).toBeInTheDocument();
@@ -137,7 +137,7 @@ test("a refused reconnect says so and Reconnect resumes at the last offset with 
     return "fresh-token";
   });
   useAuth.setState({ refresh });
-  render(<JobLogViewer jobId="j1" open onClose={() => {}} />);
+  render(<JobLogViewer jobId="j1" onClose={() => {}} />);
   const es = MockEventSource.instances[0]!;
   es.emit("log", JSON.stringify("first part\n"), "11");
   await waitFor(() => expect(logPre().textContent).toBe("first part\n"));
@@ -158,11 +158,11 @@ test("a refused reconnect says so and Reconnect resumes at the last offset with 
 });
 
 test("reopening the drawer replays the log from the start", async () => {
-  const { rerender } = render(<JobLogViewer jobId="j1" open onClose={() => {}} />);
+  const { rerender } = render(<JobLogViewer jobId="j1" onClose={() => {}} />);
   MockEventSource.instances[0]!.emit("log", JSON.stringify("old\n"), "4");
   await waitFor(() => expect(logPre().textContent).toBe("old\n"));
-  rerender(<JobLogViewer jobId="j1" open={false} onClose={() => {}} />);
-  rerender(<JobLogViewer jobId="j1" open onClose={() => {}} />);
+  rerender(<JobLogViewer jobId={null} onClose={() => {}} />);
+  rerender(<JobLogViewer jobId="j1" onClose={() => {}} />);
   const es = MockEventSource.instances[1]!;
   expect(es.url).toBe("/api/jobs/j1/logs?token=test-token");
   expect(logPre().textContent).toBe("");

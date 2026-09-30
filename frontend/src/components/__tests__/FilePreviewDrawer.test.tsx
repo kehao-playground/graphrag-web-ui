@@ -43,3 +43,10 @@ test("the head window has no header, and words wrap without splitting", async ()
   expect(pre.style.wordBreak).toBe("normal");
   expect(screen.queryByText(/引用段落/)).not.toBeInTheDocument();
 });
+
+// R4-41: the drawer says how to leave it from the keyboard.
+test("the drawer header hints that Esc closes it", async () => {
+  body = { text: "x", offset: 0, total_size: 1, match: false };
+  open();
+  expect(await screen.findByText("按 Esc 關閉")).toBeInTheDocument();
+});

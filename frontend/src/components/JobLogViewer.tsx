@@ -18,9 +18,9 @@ type StreamState = "live" | "reconnecting" | "lost";
 // Chunks are buffered and appended to the <pre> as text nodes once per
 // animation frame (R1-85): a multi-MB index log never re-renders or
 // re-joins as a whole. The <pre> has no React children; the stream owns it.
-export default function JobLogViewer({ jobId, open, title, onClose }: {
+// The drawer is open exactly while a job id is set (R1-113).
+export default function JobLogViewer({ jobId, title, onClose }: {
   jobId: string | null;
-  open: boolean;
   // The caller's identity line for the job; the generic title otherwise.
   title?: string;
   onClose: () => void;
@@ -57,7 +57,7 @@ export default function JobLogViewer({ jobId, open, title, onClose }: {
   }, []);
 
   useEffect(() => {
-    if (!open || !jobId) return;
+    if (!jobId) return;
     const resume = resumeRef.current;
     resumeRef.current = false;
     if (!resume) {
@@ -91,7 +91,7 @@ export default function JobLogViewer({ jobId, open, title, onClose }: {
       frameRef.current = null;
       flush();
     };
-  }, [open, jobId, attempt, flush]);
+  }, [jobId, attempt, flush]);
 
   const reconnect = async () => {
     // The usual cause is an expired access token: get a fresh one first.
@@ -126,7 +126,7 @@ export default function JobLogViewer({ jobId, open, title, onClose }: {
     );
 
   return (
-    <Drawer title={title ?? t("jobs.logsTitle")} open={open} onClose={onClose} size="large" extra={followButton}
+    <Drawer title={title ?? t("jobs.logsTitle")} open={jobId !== null} onClose={onClose} size="large" extra={followButton}
       afterOpenChange={onOpenChange}>
       <Space orientation="vertical" style={{ width: "100%" }}>
         {stream === "reconnecting" && <Typography.Text type="secondary">{t("jobs.logReconnecting")}</Typography.Text>}

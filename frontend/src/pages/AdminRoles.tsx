@@ -29,8 +29,8 @@ interface RoleForm {
 export default function AdminRoles() {
   const qc = useQueryClient();
   const { t } = useTranslation();
-  const [editOpen, setEditOpen] = useState(false);
-  const [editTarget, setEditTarget] = useState<Role>();
+  // The edit modal is open exactly while a role is targeted (R1-113).
+  const [editTarget, setEditTarget] = useState<Role | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [createForm] = Form.useForm<RoleForm>();
   const [editForm] = Form.useForm<Omit<RoleForm, "scope">>();
@@ -51,7 +51,7 @@ export default function AdminRoles() {
     mutationFn: ({ id, v }: { id: string; v: Omit<RoleForm, "scope"> }) =>
       sendOk(`/api/admin/roles/${id}`, "adminRoles.saveFailed",
         { method: "PATCH", body: JSON.stringify(v) }),
-    onSuccess: () => { setEditOpen(false); void invalidate(); },
+    onSuccess: () => { setEditTarget(null); void invalidate(); },
   });
 
   const remove = useMutation({
@@ -125,7 +125,6 @@ export default function AdminRoles() {
                       name: r.name, description: r.description,
                       permissions: r.permissions,
                     });
-                    setEditOpen(true);
                   }}>
             {t("adminRoles.edit")}
           </Button>
@@ -186,8 +185,8 @@ export default function AdminRoles() {
         </Form>
       </Modal>
 
-      <Modal title={t("adminRoles.edit")} open={editOpen}
-             onCancel={() => setEditOpen(false)}
+      <Modal title={t("adminRoles.edit")} open={editTarget !== null}
+             onCancel={() => setEditTarget(null)}
              onOk={() => editForm.submit()}
              confirmLoading={patch.isPending}>
         <Form form={editForm} layout="vertical" initialValues={{ permissions: [] }}

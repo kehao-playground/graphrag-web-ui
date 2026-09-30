@@ -95,6 +95,7 @@ export default {
     dry_run_failed: "設定檢查失敗",
   },
   common: {
+    escToClose: "按 Esc 關閉",
     nameWithEmail: "{{name}}（{{email}}）",
     appName: "GraphRAG Web UI",
     delete: "刪除",
@@ -546,6 +547,9 @@ export default {
     cancelled: "已取消查詢",
   },
   workbench: {
+    // F29: run identity, workbench cancel.
+    runAnchor: "索引版本 #{{id}}",
+    cancelRun: "取消執行",
     modeMatrix: "評分矩陣",
     modeAdhoc: "臨時查詢",
     loadSetsFailed: "載入題組失敗（{{status}}）",

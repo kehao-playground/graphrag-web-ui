@@ -7,7 +7,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { createQueryClient } from "../../api/queryClient";
 import Workbench from "../tests/Workbench";
 import RatingMatrix from "../tests/RatingMatrix";
-import { MATRIX, SETS, QUESTIONS, PREFLIGHT } from "./workbenchFixtures";
+import { MATRIX, SETS, QUESTIONS, PREFLIGHT, cellLabel, runLabel } from "./workbenchFixtures";
 import { stubFetch } from "../../testing/stubFetch";
 
 // Same mock discipline as FilesPanel/JobsPanel tests: branch by URL so a
@@ -112,8 +112,43 @@ test("completed cells are pickable by question × column; cancelled ones are not
   );
   // Selection (Task 8) aims at question × run, so every completed cell is
   // labelled with both (spec §9.2 "Cell → drawer").
-  expect(screen.getByLabelText("Q3 退貨流程幾天 × #13")).toBeInTheDocument();
+  expect(screen.getByLabelText(cellLabel("Q3 退貨流程幾天", 3))).toBeInTheDocument();
   // The run-4 placeholder was cancelled before asking: not an answer, and
   // nothing for a drawer or diff to show → not pickable.
-  expect(screen.queryByLabelText("Q5 企業採購窗口 × #14")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText(cellLabel("Q5 企業採購窗口", 4))).not.toBeInTheDocument();
+});
+
+// R4-28: the whole cell is the target, not just the tag inside it.
+test("clicking the cell outside its tag picks the result", async () => {
+  const onCell = vi.fn();
+  render(
+    <RatingMatrix
+      runs={MATRIX.runs}
+      rows={MATRIX.rows}
+      regressionsOnly={false}
+      onRegressionsOnly={() => {}}
+      onCell={onCell}
+    />,
+  );
+  const target = screen.getByLabelText(cellLabel("Q3 退貨流程幾天", 4));
+  expect(target.tagName).toBe("TD");
+  await userEvent.click(target);
+  expect(onCell).toHaveBeenCalledWith(MATRIX.runs[3], MATRIX.rows[1], MATRIX.rows[1].cells[3]);
+});
+
+// R4-27: columns are named by method and start time; the index anchor
+// stays reachable as a tooltip.
+test("a run column names method and time, with the index anchor on hover", async () => {
+  render(
+    <RatingMatrix
+      runs={MATRIX.runs}
+      rows={MATRIX.rows}
+      regressionsOnly={false}
+      onRegressionsOnly={() => {}}
+    />,
+  );
+  const header = screen.getByText(runLabel(3));
+  expect(screen.queryByText(/#13/)).not.toBeInTheDocument();
+  await userEvent.hover(header);
+  expect(await screen.findByText("索引版本 #13")).toBeInTheDocument();
 });

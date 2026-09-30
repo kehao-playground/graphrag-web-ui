@@ -1,11 +1,11 @@
 import { useMemo } from "react";
+import type { TdHTMLAttributes } from "react";
 import { useTranslation } from "react-i18next";
-import { Checkbox, Table, Tag, Typography } from "antd";
+import { Checkbox, Table, Tag, Tooltip, Typography } from "antd";
 import type { TableProps } from "antd";
 import type { MatrixCell, MatrixRow, TestRun } from "../../api/types";
-import { methodLabel } from "./methods";
+import { runAnchor, runLabel } from "./methods";
 import { regressedLineages } from "./ratings";
-import { formatShortDateTime } from "../../i18n/format";
 
 // The lineage's current wording: the newest cell that actually asked it
 // (spec §5.3 — each cell carries the text as asked).
@@ -61,53 +61,51 @@ export default function RatingMatrix({ runs, rows, regressionsOnly, onRegression
 
   // One row per lineage, one column per run — no virtualization (spec
   // §9.2): hundreds of rows × 5 columns is well within antd's Table.
-  // Column label: localized method + the run's start in the active locale
-  // (month, day and time, so two runs on one day still differ).
+  // Column label: the run label (method + start in the active locale, so
+  // two runs on one day still differ); the index anchor is its tooltip.
   const columns: TableProps<MatrixRow>["columns"] = [
     {
       title: t("workbench.questionColumn"),
       key: "question",
       render: (_, row) => rowQuestionText(row),
     },
-    ...runs.map((run, i) => ({
-      title: `${methodLabel(run.method, t)} · ${run.started_at ? formatShortDateTime(run.started_at, i18n.language) : "—"}`,
-      key: run.id,
-      render: (_: unknown, row: MatrixRow) => {
-        const cell = row.cells[i] ?? null;
-        const content = <CellView cell={cell} />;
+    ...runs.map((run, i) => {
+      const label = runLabel(run, t, i18n.language);
+      return {
+        title: <Tooltip title={runAnchor(run, t)}><span>{label}</span></Tooltip>,
+        key: run.id,
+        render: (_: unknown, row: MatrixRow) => <CellView cell={row.cells[i] ?? null} />,
+        // The whole cell is the click target (R4-28), not just its tag.
         // Only a completed cell picks a result (Task 8): a null cell was
         // never asked, an unfilled placeholder was cancelled — neither has
         // an answer for the drawer or the diff to show.
-        if (!cell || !cell.completed || !onCell) return content;
-        const pick = () => onCell(run, row, cell);
-        // Selection aims at question × column, so every pickable cell is
-        // labelled with both (spec §9.2). The column names the run's index
-        // anchor, exactly what the diff's side labels echo.
-        const label = `${rowQuestionText(row)} × #${run.index_job_id ?? run.id}`;
-        const selected = cell.result_id === selectedResultId;
-        return (
-          <span
-            role="button"
-            tabIndex={0}
-            aria-pressed={selected}
-            aria-label={label}
-            style={{
+        onCell: (row: MatrixRow): TdHTMLAttributes<HTMLTableCellElement> => {
+          const cell = row.cells[i] ?? null;
+          if (!cell || !cell.completed || !onCell) return {};
+          const pick = () => onCell(run, row, cell);
+          const selected = cell.result_id === selectedResultId;
+          return {
+            role: "button",
+            tabIndex: 0,
+            "aria-pressed": selected,
+            // Selection aims at question × column, so every pickable cell
+            // is labelled with both (spec §9.2).
+            "aria-label": `${rowQuestionText(row)} × ${label}`,
+            style: {
               cursor: "pointer",
-              ...(selected ? { outline: "2px solid #1677ff", outlineOffset: 2 } : null),
-            }}
-            onClick={pick}
-            onKeyDown={(e) => {
+              ...(selected ? { outline: "2px solid #1677ff", outlineOffset: -2 } : null),
+            },
+            onClick: pick,
+            onKeyDown: (e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
                 pick();
               }
-            }}
-          >
-            {content}
-          </span>
-        );
-      },
-    })),
+            },
+          };
+        },
+      };
+    }),
   ];
 
   if (runs.length === 0) {
