@@ -1,6 +1,6 @@
 # Node 24 matches CI and the toolchain floor in AGENTS.md (vite 8 / vitest 4
 # / TS 6); building on an older major is drift waiting to bite.
-FROM node:24-alpine AS build
+FROM node:26-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json .npmrc ./
 RUN npm ci
