@@ -20,7 +20,7 @@ dependencies = [
     "python-dotenv>=1.1.0",
     "python-multipart>=0.0.32",
     "pyyaml>=6.0.3",
-    "sqlalchemy[asyncio]>=2.0.52",
+    "sqlalchemy[asyncio]>=2.1.1",
     # main.py imports starlette.routing.Match directly; fastapi pins it tightly.
     "starlette>=1.6",
     "uvicorn[standard]>=0.52.4",
