@@ -6,10 +6,10 @@ import {
   Alert, Button, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message,
 } from "antd";
 import type { TableProps } from "antd";
-import { sendOk } from "../api/client";
+import { apiJson, sendOk } from "../api/client";
 import { jobsPreflight, projectHealth, projectJobs, projectJobsKey } from "../api/queries";
 import { JobStatusColor } from "../api/types";
-import type { Job } from "../api/types";
+import type { CacheClear, Job } from "../api/types";
 import { i18n } from "../i18n";
 import { jobStatusLabel, jobTypeLabel, jobTypeShortLabel } from "./labels";
 import JobLogViewer from "./JobLogViewer";
@@ -109,6 +109,18 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
     },
   });
 
+  // The launch warning's way out (R3-25); the backend refuses while a job
+  // is active, and the button is hidden then anyway.
+  const clearCache = useMutation({
+    mutationFn: () => apiJson<CacheClear>(
+      `/api/projects/${projectId}/cache:clear`, "jobs.clearCacheFailed", { method: "POST" },
+    ),
+    onSuccess: (r) => {
+      message.success(t("jobs.cacheCleared", { freed: humanBytes(r.freed_bytes) }));
+      void invalidateJobs();
+    },
+  });
+
   // Elapsed time on active rows ticks once a second, only while one runs.
   const [now, setNow] = useState(() => Date.now());
   const rows = jobs.data?.items ?? [];
@@ -131,11 +143,14 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
 
   // Cost guardrail: double confirm naming the scope and the billing, then
   // last-run cost + cache/disk watermarks.
+  const pf = preflight.data;
+  const cacheOver = !!pf && pf.cache_bytes > pf.cache_quota_mb * 1024 * 1024;
+  // Enqueue refuses above the quota (409 quota_exceeded), so Start does too.
+  const overQuota = !!pf && pf.usage_bytes > pf.project_quota_mb * 1024 * 1024;
+
   const confirmLaunch = () => {
-    const pf = preflight.data;
     const scope = scopeLine();
     const last = pf?.last_run ?? null;
-    const cacheOver = !!pf && pf.cache_bytes > pf.cache_quota_mb * 1024 * 1024;
     const diskLow = !!pf && pf.disk_free_mb < pf.disk_watermark_mb;
     Modal.confirm({
       title: t("jobs.confirmTitle", { type: typeLabel(type) }),
@@ -244,6 +259,34 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
           message={t("jobs.activeJobNotice", { type: jobTypeLabel(activeJob.type, t) })}
         />
       )}
+      {overQuota && pf && (
+        <Alert
+          type="error"
+          showIcon
+          message={t("jobs.overQuota", {
+            used: humanBytes(pf.usage_bytes), quota: humanBytes(pf.project_quota_mb * 1024 * 1024),
+          })}
+        />
+      )}
+      {cacheOver && pf && (
+        <Alert
+          type="warning"
+          showIcon
+          message={t("jobs.cacheOverNotice", {
+            used: humanBytes(pf.cache_bytes), quota: humanBytes(pf.cache_quota_mb * 1024 * 1024),
+          })}
+          action={canEdit && !activeJob && (
+            <Popconfirm
+              title={t("jobs.clearCacheConfirm")}
+              okText={t("jobs.clearCache")}
+              cancelText={t("common.cancel")}
+              onConfirm={() => clearCache.mutate()}
+            >
+              <Button size="small" loading={clearCache.isPending}>{t("jobs.clearCache")}</Button>
+            </Popconfirm>
+          )}
+        />
+      )}
       <Space wrap>
         <Select
           aria-label={t("jobs.type")}
@@ -263,7 +306,7 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
         />
         <Button
           type="primary"
-          disabled={!canEdit || activeJob !== null || cliMissing}
+          disabled={!canEdit || activeJob !== null || cliMissing || overQuota}
           loading={startJob.isPending}
           onClick={confirmLaunch}
         >

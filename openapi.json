@@ -406,6 +406,20 @@
         "title": "BulkDeleteOut",
         "type": "object"
       },
+      "CacheClearOut": {
+        "description": "What POST /projects/{pid}/cache:clear deleted.",
+        "properties": {
+          "freed_bytes": {
+            "title": "Freed Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "freed_bytes"
+        ],
+        "title": "CacheClearOut",
+        "type": "object"
+      },
       "CancelOut": {
         "properties": {
           "detail": {
@@ -1553,6 +1567,14 @@
                 "type": "null"
               }
             ]
+          },
+          "project_quota_mb": {
+            "title": "Project Quota Mb",
+            "type": "integer"
+          },
+          "usage_bytes": {
+            "title": "Usage Bytes",
+            "type": "integer"
           }
         },
         "required": [
@@ -1560,6 +1582,8 @@
           "last_run",
           "cache_bytes",
           "cache_quota_mb",
+          "usage_bytes",
+          "project_quota_mb",
           "disk_free_mb",
           "disk_watermark_mb",
           "graphrag"
@@ -4560,6 +4584,62 @@
           }
         ],
         "summary": "Get Row Detail"
+      }
+    },
+    "/api/projects/{pid}/cache:clear": {
+      "post": {
+        "description": "Empty the project's graphrag cache/ (the launch warning's action).\n409 job_conflict while any job is queued or running.",
+        "operationId": "clear_cache_api_projects__pid__cache_clear_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CacheClearOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorOut"
+                }
+              }
+            },
+            "description": "Client Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Clear Cache"
       }
     },
     "/api/projects/{pid}/dry-run": {

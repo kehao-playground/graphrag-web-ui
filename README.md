@@ -152,7 +152,7 @@ healthy.
    - `BOOTSTRAP_ADMIN_PASSWORD` — at least 12 characters and not the `.env.example`
      placeholder; the API refuses to start otherwise
 
-   All 16 base variables and their defaults are documented in
+   All 18 base variables and their defaults are documented in
    [`.env.example`](.env.example); the opt-in proxy-auth overlay adds its
    own set (see [OAuth2-Proxy authentication](#oauth2-proxy-authentication-optional)).
 3. **Start** — `docker compose up --build -d`. The UI is at `http://localhost:8080`.
@@ -239,6 +239,24 @@ from *Change password* in the sidebar menu.
   `frontend/.npmrc` (`legacy-peer-deps=true`), and the Dockerfile must copy it
   into the build stage before `npm ci`. If you touch the copy steps, keep
   `.npmrc` with `package.json`.
+- **`docker compose up` reports every container running, but
+  `http://localhost:8080` refuses connections** — another process holds host
+  port 8080 (for example a `kubefwd` session on a loopback alias), so the
+  published port never binds and nothing says so. Check with
+  `lsof -nP -iTCP:8080 -sTCP:LISTEN`, then publish on another port with a
+  one-service override file passed as a second `-f`:
+
+  ```yaml
+  # compose.port.yml — keep it outside the repo or untracked
+  services:
+    web:
+      ports: !override ["18080:8080"]
+  ```
+
+  `docker compose -f docker-compose.yml -f compose.port.yml up -d` — the UI
+  is then on `http://localhost:18080`. With the proxy-auth overlay, override
+  the `auth` service's port instead and set `OAUTH2_PROXY_REDIRECT_URL` to
+  match.
 - **"LiteLLM:WARNING … could not pre-load bedrock/sagemaker response stream
   shape" topping every index job log** — harmless: graphrag's LLM layer
   (litellm) probes for its optional AWS (botocore) integrations at import.
@@ -278,15 +296,130 @@ npm run screenshots   # writes docs/assets/screenshots/{en,zh}/
 
 ## Deployment
 
+- [`docker-compose.yml`](docker-compose.yml) — single-host deployment; the same 18
+  variables (`DATABASE_URL` and `WORKSPACES_DIR` are fixed inside the compose file, the
+  rest come from `.env`). Services restart on their own after a reboot or a crash, the
+  api has a health check, and the web container waits for it.
 - [`deploy/helm/graphrag-ui`](deploy/helm/graphrag-ui) — Helm chart;
   [`values.yaml`](deploy/helm/graphrag-ui/values.yaml) documents every environment variable,
-  and `NOTES.txt` prints an install-time quickstart. The bundled PostgreSQL defaults to the
-  frozen `bitnamilegacy/postgresql:16.6.0` mirror (Bitnami's 2025 registry reorg removed the
-  public semver tags): it pulls, but gets no further patches — for production set
-  `externalDatabase.url` or point `postgresql.image.*` at a maintained source.
-- [`docker-compose.yml`](docker-compose.yml) — single-host deployment; same 16 variables
-  (`DATABASE_URL` and `WORKSPACES_DIR` are fixed inside the compose file, the rest
-  come from `.env`).
+  and `NOTES.txt` prints an install-time quickstart. The ingress sends every path,
+  `/api` included, to the web Service, whose nginx proxies the api. Install one release
+  per namespace (the web nginx reaches the api through a Service named `api`). The
+  workspace PVC takes `persistence.storageClassName` or a `persistence.existingClaim`.
+  The bundled PostgreSQL defaults to the frozen `bitnamilegacy/postgresql:16.6.0`
+  mirror (Bitnami's 2025 registry reorg removed the public semver tags): it pulls, but
+  gets no further patches — for production set `externalDatabase.url` or point
+  `postgresql.image.*` at a maintained source.
+
+**Images.** No registry publishes the two images; build them and push them to yours,
+then point the chart at them:
+
+```
+docker build -t registry.example.com/graphrag-ui/api:0.1.0 backend
+docker build -t registry.example.com/graphrag-ui/web:0.1.0 frontend
+docker push registry.example.com/graphrag-ui/api:0.1.0
+docker push registry.example.com/graphrag-ui/web:0.1.0
+helm upgrade --install graphrag deploy/helm/graphrag-ui -n graphrag --create-namespace \
+  --set api.image.repository=registry.example.com/graphrag-ui/api --set api.image.tag=0.1.0 \
+  --set web.image.repository=registry.example.com/graphrag-ui/web --set web.image.tag=0.1.0 \
+  --set jwtSecret=$(openssl rand -hex 32) …
+```
+
+## Operations
+
+### Upgrading
+
+1. **Back up first** (next section), at a moment when no job is running — an upgrade
+   stops the api, and a job it was running is marked `failed(interrupted)` at the
+   next start and has to be run again.
+2. **Compose:** `git pull`, then `docker compose up -d --build`. **Helm:** build and push
+   the new images, then `helm upgrade` with the new tags. The chart uses the
+   `Recreate` strategy, so the old pod stops before the new one starts: expect a short
+   outage.
+3. **Watch the migration.** The api runs `alembic upgrade head` before it starts
+   listening: `docker compose logs -f api` (or `kubectl logs -f deploy/<release>-graphrag-ui-api`)
+   shows one `Running upgrade …` line per revision, then `Application startup complete`.
+   The chart's startup probe gives a migration up to 5 minutes.
+4. **If the migration fails,** the api exits and is restarted in a loop (compose) or
+   CrashLoopBackOffs (Helm), and the previous version is already stopped. Fix forward,
+   or roll back: restore the database and the workspaces taken in step 1, then start the
+   previous images. `alembic downgrade` is **not** a rollback path — some revisions are
+   one-way (the RBAC migration's downgrade loses custom roles; the failed-question
+   scrub cannot restore the text it removed).
+
+### Backup and restore
+
+Back up two things **from the same moment**: the PostgreSQL database (users, roles,
+projects, members, jobs, audit trail, index snapshots) and the workspaces volume
+(documents, `settings.yaml`, each project's `.env` with its model keys, index output and
+job logs). Stop the api and web while you take them, so no job or upload writes between
+the two.
+
+Compose — the volume names carry the compose project name (the directory name unless
+you pass `-p`; `docker volume ls` shows them):
+
+```
+# back up
+docker compose stop api web
+docker compose exec -T postgres pg_dump -U graphrag -Fc graphrag > graphrag-$(date +%F).dump
+docker run --rm -v graphrag-web-ui_workspaces:/data:ro -v "$PWD":/backup alpine \
+  tar czf /backup/workspaces-$(date +%F).tgz -C /data .
+docker compose start api web
+
+# restore (replaces everything in both)
+docker compose stop api web
+docker compose exec -T postgres pg_restore -U graphrag -d graphrag --clean --if-exists < graphrag-YYYY-MM-DD.dump
+docker run --rm -v graphrag-web-ui_workspaces:/data -v "$PWD":/backup:ro alpine \
+  sh -c 'rm -rf /data/* && tar xzf /backup/workspaces-YYYY-MM-DD.tgz -C /data && chown -R 10001:10001 /data'
+docker compose start api web
+```
+
+Helm — the database: your managed database's backups when `externalDatabase.url` is
+set; for the bundled one,
+`kubectl exec -n <ns> <release>-postgresql-0 -- env PGPASSWORD=<password> pg_dump -U graphrag -Fc graphrag > graphrag.dump`.
+The workspaces PVC: a `VolumeSnapshot` where the storage class's CSI driver supports
+it; otherwise stream it out of the api pod while no job runs,
+`kubectl exec -n <ns> deploy/<release>-graphrag-ui-api -- tar czf - -C /data/workspaces . > workspaces.tgz`.
+
+### Logs
+
+- **The api log** (`docker compose logs api`, `kubectl logs`) has one timestamped line
+  per job step — enqueued, claimed, started, spawned (with the process id), cancel
+  requested, and finished with status, exit code and duration — plus a warning for
+  each job found interrupted at startup and the totals of the daily retention sweep.
+  Health-check requests are left out of the access log, and the SSE access token is
+  replaced by `[redacted]`.
+- **A job's own output** (graphrag's log) is on the Jobs page, live while it runs; on
+  disk it is `logs/jobs/<job id>.log` in the project's workspace. Log files are kept
+  `JOB_LOG_RETENTION_DAYS` (30) days after success and `JOB_LOG_FAILED_RETENTION_DAYS`
+  (90) after a failure; the job row keeps the error tail for good.
+- **Who did what** is in *Admin — Audit*: job starts and cancels, uploads, settings and
+  key changes, member and role changes, password changes, cache clears.
+
+### Sizing
+
+- **Memory.** The indexing subprocess, the api and the query cache share one limit:
+  2 GiB in both compose (`mem_limit`) and the chart. One job's indexing peak measured
+  about 566 MiB, and the query cache is capped by `QUERY_CACHE_MB` (1024). Each extra
+  concurrent job (`MAX_CONCURRENT_JOBS`, default 2) adds roughly one more indexing
+  peak, which grows with the corpus — raise the limit or lower `QUERY_CACHE_MB`. When
+  the limit is hit the container is killed; running jobs end `failed(interrupted)`,
+  and exit code 137 is marked as a likely out-of-memory.
+- **Disk.** Per project: documents plus index output up to `PROJECT_QUOTA_MB` (5000),
+  graphrag's cache (a warning above `CACHE_QUOTA_MB`, 2048; *Clear cache* on the Jobs
+  page empties it — the next index then pays the model again for what was cached),
+  the `update_output/` runs kept by `UPDATE_OUTPUT_KEEP_LATEST` (2), and job logs.
+  A job is refused when the volume has less than `DISK_WATERMARK_MB` (2048) free or
+  the project is over its quota.
+
+### Session lifetimes
+
+With local sign-in, `ACCESS_TOKEN_MINUTES` (default 15) sets the access token's
+lifetime and `REFRESH_TOKEN_DAYS` (default 7) the refresh token's, renewed on every
+use; a sign-in's chain of refresh tokens ends 30 days after it started regardless.
+The access token is also what a live-log or streamed-answer URL carries, so a shorter
+one narrows that window too. Proxy mode issues no tokens; oauth2-proxy's cookie
+settings apply instead.
 
 ## OAuth2-Proxy authentication (optional)
 

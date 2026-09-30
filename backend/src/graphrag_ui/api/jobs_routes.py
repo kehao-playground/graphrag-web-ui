@@ -28,6 +28,7 @@ from graphrag_ui.api.deps import (
 )
 from graphrag_ui.api.errors import ApiError
 from graphrag_ui.api.schemas import (
+    CacheClearOut,
     CancelOut,
     JobCreateIn,
     JobOut,
@@ -117,6 +118,13 @@ def register_jobs_routes(app):
         body["active_job"] = job_out(body["active_job"]) if body["active_job"] else None
         body["graphrag"] = app.state.graphrag_version
         return body
+
+    @router.post("/projects/{pid}/cache:clear", response_model=CacheClearOut)
+    async def clear_cache(project: ProjectRunJobs, db: DbSession, user: CurrentUser):
+        """Empty the project's graphrag cache/ (the launch warning's action).
+        409 job_conflict while any job is queued or running."""
+        freed = await jobs_service.clear_cache(db, project, user.user)
+        return CacheClearOut(freed_bytes=freed)
 
     @router.get("/jobs/{job_id}", response_model=JobOut)
     async def get_job(job_id: uuid.UUID, db: DbSession, user: CurrentUser):

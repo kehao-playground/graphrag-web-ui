@@ -108,7 +108,42 @@ proxyAuth:
   re-login), and ending the IdP's own session is oauth2-proxy/provider
   configuration, not the app's.
 
-## Manual smoke runbook (requires a real IdP)
+## Test IdP (local verification)
+
+[`deploy/test-idp/`](../deploy/test-idp) runs the overlay against
+[Dex](https://dexidp.io/) with one static user, so the whole proxy flow can
+be checked on a laptop without a real provider. Every value in it is public
+test data — never deploy it. From the repo root:
+
+```
+docker compose -p graphrag-idp \
+  --env-file .env --env-file deploy/test-idp/test-idp.env \
+  -f docker-compose.yml -f docker-compose.proxy-auth.yml \
+  -f deploy/test-idp/docker-compose.test-idp.yml up -d --build
+```
+
+Open `http://localhost:8080`, choose *Sign in with OpenID Connect*, and sign in
+as `admin@example.com` / `test-idp-password`; `PROXY_ADMIN_EMAILS` grants that
+user `user_admin` + `ops`. `-p graphrag-idp` keeps the test on its own volumes,
+away from a local-login stack's data. `docker compose -p graphrag-idp … down -v`
+removes it.
+
+The issuer must be a single URL that both the browser and oauth2-proxy reach
+(`http://localhost:5556/dex`, checked against the token's `iss`): Dex is
+published on host port 5556, and a small `socat` forwarder owns the network
+namespace oauth2-proxy runs in, so `localhost:5556` inside the proxy reaches
+Dex too. When host port 8080 is taken, publish the forwarder's port elsewhere
+(`dex-loopback: ports: !override ["18080:4180"]` in a further `-f` file) and set
+`OAUTH2_PROXY_REDIRECT_URL=http://localhost:18080/oauth2/callback`; Dex accepts
+callbacks on 8080 and 18080.
+
+Behind a corporate proxy: Docker injects the client's
+`~/.docker/config.json` `proxies` into every container, oauth2-proxy included.
+The overlay sets `NO_PROXY=web` on the `auth` service so the upstream hop to
+the web container stays inside the compose network (without it every page is
+a 502 from the corporate proxy); calls to a real IdP still use the proxy.
+
+## Manual smoke runbook (requires a real IdP or the test IdP)
 
 Run against the compose overlay once it is up:
 
@@ -123,4 +158,5 @@ Run against the compose overlay once it is up:
 5. SSE: enqueue an index job and open its live log (or run a query once
    indexed); frames flow through auth → web → api without stalling.
 6. UI logout → lands on oauth2-proxy's own sign-in page (no auto
-   re-login).
+   re-login), fetched from the network rather than a cached app page
+   (verified on the test IdP, F25: `docs/superpowers/reviews/assets/f25-03-*.jpg`).

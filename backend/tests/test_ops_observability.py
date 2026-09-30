@@ -122,6 +122,32 @@ def test_uvicorn_access_log_redacts_the_sse_token():
     assert plain.getMessage() == "/api/projects?limit=5"
 
 
+def test_uvicorn_access_log_drops_successful_probes():
+    """F24-03: healthchecks every 10 s must not bury the job lines."""
+    configure_logging()
+    access = logging.getLogger("uvicorn.access")
+    fmt = '%s - "%s %s HTTP/%s" %d'
+
+    def kept(path: str, status: int) -> bool:
+        rec = access.makeRecord(
+            "uvicorn.access",
+            logging.INFO,
+            __file__,
+            1,
+            fmt,
+            ("127.0.0.1:5", "GET", path, "1.1", status),
+            None,
+        )
+        return all(f.filter(rec) for f in access.filters)
+
+    assert not kept("/api/health", 200)
+    assert not kept("/api/ready", 200)
+    # a failing probe is exactly what an operator wants to see
+    assert kept("/api/ready", 503)
+    assert kept("/api/healthz-not-a-probe", 200)
+    assert kept("/api/projects/health", 200)
+
+
 async def test_job_lifecycle_is_logged(client, app, caplog):
     _, alice, _ = await _setup_users(client, app)
     pid = await _project(client, alice)

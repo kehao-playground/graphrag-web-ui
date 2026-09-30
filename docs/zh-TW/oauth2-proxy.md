@@ -97,7 +97,38 @@ proxyAuth:
   IdP 工作階段會默默重新登入），而 IdP 自身工作階段的結束屬於
   oauth2-proxy/供應商設定，不是應用的職責。
 
-## 手動冒煙測試（需要真實 IdP）
+## 測試用 IdP（本機驗證）
+
+[`deploy/test-idp/`](../../deploy/test-idp) 讓 overlay 接上只有一位靜態使用者的
+[Dex](https://dexidp.io/)，不需要真實的身分提供者，就能在筆電上走完整個 proxy
+流程。裡面每個值都是公開的測試資料——切勿用於部署。在 repo 根目錄執行：
+
+```
+docker compose -p graphrag-idp \
+  --env-file .env --env-file deploy/test-idp/test-idp.env \
+  -f docker-compose.yml -f docker-compose.proxy-auth.yml \
+  -f deploy/test-idp/docker-compose.test-idp.yml up -d --build
+```
+
+開啟 `http://localhost:8080`，選「Sign in with OpenID Connect」，以
+`admin@example.com` / `test-idp-password` 登入；`PROXY_ADMIN_EMAILS` 會授予此使用者
+`user_admin` + `ops`。`-p graphrag-idp` 讓測試使用自己的 volume，不會碰到本機登入
+模式堆疊的資料。移除時執行 `docker compose -p graphrag-idp … down -v`。
+
+issuer 必須是瀏覽器與 oauth2-proxy 都連得到的同一個網址（`http://localhost:5556/dex`，
+會與權杖的 `iss` 比對）：Dex 發布在主機 5556 埠，另有一個小型 `socat` 轉送容器擁有
+oauth2-proxy 所在的網路命名空間，因此 proxy 內的 `localhost:5556` 也會連到 Dex。主機的
+8080 埠被占用時，把轉送容器的埠發布到別處（在另一個 `-f` 檔寫
+`dex-loopback: ports: !override ["18080:4180"]`），並設定
+`OAUTH2_PROXY_REDIRECT_URL=http://localhost:18080/oauth2/callback`；Dex 接受 8080 與
+18080 兩個回呼埠。
+
+在公司 proxy 後方：Docker 會把用戶端 `~/.docker/config.json` 的 `proxies` 注入每個
+容器，oauth2-proxy 也不例外。overlay 在 `auth` 服務設定 `NO_PROXY=web`，讓轉往 web
+容器的上游請求留在 compose 網路內（少了它，每個頁面都會是公司 proxy 回的 502）；
+對真實 IdP 的呼叫仍走 proxy。
+
+## 手動冒煙測試（需要真實 IdP 或測試用 IdP）
 
 在 compose overlay 啟動後執行：
 
@@ -111,4 +142,6 @@ proxyAuth:
    不是附加）。
 5. SSE：排入一項索引工作並開啟其即時日誌（或索引完成後執行查詢）；
    訊框經 auth → web → api 順暢流動不卡住。
-6. UI 登出 → 停在 oauth2-proxy 自己的登入頁（不會自動重新登入）。
+6. UI 登出 → 停在 oauth2-proxy 自己的登入頁（不會自動重新登入），且該頁取自網路，
+   而非快取的應用頁面（修正波 F25 於測試用 IdP 驗證：
+   `docs/superpowers/reviews/assets/f25-03-*.jpg`）。

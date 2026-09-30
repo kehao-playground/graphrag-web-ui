@@ -59,7 +59,7 @@ export const AUDIT_ACTIONS = [
   "project.created", "project.updated", "project.deleted",
   "member.added", "member.role_changed", "member.removed",
   "file.uploaded", "file.deleted", "file.tagged", "file.untagged",
-  "settings.updated", "env.key_set", "env.key_deleted",
+  "settings.updated", "env.key_set", "env.key_deleted", "cache.cleared",
   "question_set.created", "question_set.renamed", "question_set.archived",
   "question.created", "question.updated", "question.forked", "question.archived",
   "job.enqueued", "job.cancelled",

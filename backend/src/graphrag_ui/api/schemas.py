@@ -202,11 +202,20 @@ class PreflightOut(BaseModel):
     last_run: LastRunOut | None
     cache_bytes: int
     cache_quota_mb: int
+    # input/ + output/ against PROJECT_QUOTA_MB; enqueue refuses above it.
+    usage_bytes: int
+    project_quota_mb: int
     disk_free_mb: int
     disk_watermark_mb: int
     # /api/ready's value (installed version or "not-installed"), so the
     # launch dialog can refuse a job the CLI cannot run (spec §10).
     graphrag: str
+
+
+class CacheClearOut(BaseModel):
+    """What POST /projects/{pid}/cache:clear deleted."""
+
+    freed_bytes: int
 
 
 class AuditEntryOut(BaseModel):

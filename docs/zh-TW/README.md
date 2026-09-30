@@ -139,7 +139,7 @@ flowchart LR
    - `BOOTSTRAP_ADMIN_PASSWORD` —— 至少 12 字元，且不可沿用 `.env.example`
      的佔位值；否則 API 會拒絕啟動
 
-   全部 16 個基礎變數與其預設值皆記錄於
+   全部 18 個基礎變數與其預設值皆記錄於
    [`.env.example`](../../.env.example)；選用的 proxy-auth overlay 另有
    專屬變數（見[OAuth2-Proxy 驗證](#oauth2-proxy-驗證選用)）。
 3. **啟動** —— `docker compose up --build -d`。UI 位於 `http://localhost:8080`。
@@ -217,6 +217,22 @@ flowchart LR
   `frontend/.npmrc`（`legacy-peer-deps=true`）容忍 typescript 6 ↔
   openapi-typescript 的 peer 衝突，Dockerfile 必須在 `npm ci` 前把它複製進
   build stage。若你調整複製步驟，請讓 `.npmrc` 跟著 `package.json` 一起。
+- **`docker compose up` 顯示所有容器都在執行，但 `http://localhost:8080`
+  拒絕連線** —— 主機的 8080 埠已被其他程序占用（例如在 loopback 別名上執行的
+  `kubefwd`），發布的埠因此從未綁定，且沒有任何訊息。以
+  `lsof -nP -iTCP:8080 -sTCP:LISTEN` 確認，再用只含一個服務的覆寫檔（作為第二個
+  `-f` 傳入）改發布到其他埠：
+
+  ```yaml
+  # compose.port.yml —— 放在 repo 外，或不要加入版本控制
+  services:
+    web:
+      ports: !override ["18080:8080"]
+  ```
+
+  `docker compose -f docker-compose.yml -f compose.port.yml up -d` —— UI 便在
+  `http://localhost:18080`。使用 proxy-auth overlay 時，改覆寫 `auth` 服務的埠，並把
+  `OAUTH2_PROXY_REDIRECT_URL` 設成相符的網址。
 - **每份 index 工作日誌開頭的「LiteLLM:WARNING … could not pre-load
   bedrock/sagemaker response stream shape」** —— 無害：graphrag 的 LLM 層
   （litellm）會在 import 時探測選用的 AWS（botocore）整合。兩個 graphrag
@@ -254,14 +270,117 @@ npm run screenshots   # 寫入 docs/assets/screenshots/{en,zh}/
 
 ## 部署
 
-- [`deploy/helm/graphrag-ui`](../../deploy/helm/graphrag-ui) — Helm chart;
-  [`values.yaml`](../../deploy/helm/graphrag-ui/values.yaml) 記錄了每個環境變數，
-  且 `NOTES.txt` 會在安裝時印出快速開始指引。內建的 PostgreSQL 預設使用已凍結的
-  `bitnamilegacy/postgresql:16.6.0` 鏡像（Bitnami 2025 年 registry 重組後，公開的
-  semver 標籤已不存在）：拉得到，但不再有安全更新 —— 正式環境請設定
-  `externalDatabase.url`，或把 `postgresql.image.*` 指向持續維護的來源。
-- [`docker-compose.yml`](../../docker-compose.yml) —— 單機部署；同樣的 16 個變數
+- [`docker-compose.yml`](../../docker-compose.yml) —— 單機部署；同樣的 18 個變數
   （`DATABASE_URL` 與 `WORKSPACES_DIR` 固定寫在 compose 檔內，其餘來自 `.env`）。
+  重開機或當機後服務會自行重新啟動，api 有健康檢查，web 容器會等它就緒。
+- [`deploy/helm/graphrag-ui`](../../deploy/helm/graphrag-ui) —— Helm chart；
+  [`values.yaml`](../../deploy/helm/graphrag-ui/values.yaml) 記錄了每個環境變數，
+  且 `NOTES.txt` 會在安裝時印出快速開始指引。ingress 把所有路徑（含 `/api`）送往
+  web Service，由其 nginx 反向代理 api。每個 namespace 只安裝一個 release（web 的
+  nginx 透過名為 `api` 的 Service 連到 api）。工作區 PVC 可指定
+  `persistence.storageClassName` 或 `persistence.existingClaim`。內建的 PostgreSQL
+  預設使用已凍結的 `bitnamilegacy/postgresql:16.6.0` 鏡像（Bitnami 2025 年 registry
+  重組後，公開的 semver 標籤已不存在）：拉得到，但不再有安全更新 —— 正式環境請設定
+  `externalDatabase.url`，或把 `postgresql.image.*` 指向持續維護的來源。
+
+**映像檔。** 兩個映像檔沒有發布在任何 registry；請自行建置、推送到你的 registry，
+再讓 chart 指向它們：
+
+```
+docker build -t registry.example.com/graphrag-ui/api:0.1.0 backend
+docker build -t registry.example.com/graphrag-ui/web:0.1.0 frontend
+docker push registry.example.com/graphrag-ui/api:0.1.0
+docker push registry.example.com/graphrag-ui/web:0.1.0
+helm upgrade --install graphrag deploy/helm/graphrag-ui -n graphrag --create-namespace \
+  --set api.image.repository=registry.example.com/graphrag-ui/api --set api.image.tag=0.1.0 \
+  --set web.image.repository=registry.example.com/graphrag-ui/web --set web.image.tag=0.1.0 \
+  --set jwtSecret=$(openssl rand -hex 32) …
+```
+
+## 維運
+
+### 升級
+
+1. **先備份**（見下一節），並挑沒有任務在執行的時候——升級會停止 api，它正在執行的
+   任務會在下次啟動時標為 `failed(interrupted)`，需要重新執行。
+2. **Compose：** `git pull` 後執行 `docker compose up -d --build`。**Helm：** 建置並推送
+   新映像檔，再以新標籤執行 `helm upgrade`。chart 採用 `Recreate` 策略，舊 pod 停止後
+   新 pod 才啟動：會有短暫中斷。
+3. **觀察遷移。** api 在開始監聽前會執行 `alembic upgrade head`：
+   `docker compose logs -f api`（或 `kubectl logs -f deploy/<release>-graphrag-ui-api`）
+   每個 revision 顯示一行 `Running upgrade …`，接著是 `Application startup complete`。
+   chart 的 startup probe 給遷移最多 5 分鐘。
+4. **遷移失敗時，** api 會結束並被反覆重啟（compose）或進入 CrashLoopBackOff（Helm），
+   而舊版本已經停止。可以往前修正，或回復：還原第 1 步備份的資料庫與工作區，再啟動
+   舊版映像檔。`alembic downgrade` **不是**回復手段——部分 revision 是單向的（RBAC
+   遷移的 downgrade 會遺失自訂角色；清除失敗問題文字的遷移無法還原被移除的內容）。
+
+### 備份與還原
+
+**在同一時間點**備份兩樣東西：PostgreSQL 資料庫（使用者、角色、專案、成員、任務、
+稽核紀錄、索引快照），以及工作區 volume（文件、`settings.yaml`、各專案存放模型金鑰的
+`.env`、索引輸出與任務日誌）。備份期間停止 api 與 web，避免任務或上傳在兩者之間寫入。
+
+Compose —— volume 名稱帶有 compose 專案名稱（未指定 `-p` 時為目錄名稱；
+`docker volume ls` 可列出）：
+
+```
+# 備份
+docker compose stop api web
+docker compose exec -T postgres pg_dump -U graphrag -Fc graphrag > graphrag-$(date +%F).dump
+docker run --rm -v graphrag-web-ui_workspaces:/data:ro -v "$PWD":/backup alpine \
+  tar czf /backup/workspaces-$(date +%F).tgz -C /data .
+docker compose start api web
+
+# 還原（兩者的內容都會被取代）
+docker compose stop api web
+docker compose exec -T postgres pg_restore -U graphrag -d graphrag --clean --if-exists < graphrag-YYYY-MM-DD.dump
+docker run --rm -v graphrag-web-ui_workspaces:/data -v "$PWD":/backup:ro alpine \
+  sh -c 'rm -rf /data/* && tar xzf /backup/workspaces-YYYY-MM-DD.tgz -C /data && chown -R 10001:10001 /data'
+docker compose start api web
+```
+
+Helm —— 資料庫：設定了 `externalDatabase.url` 時，使用託管資料庫自身的備份；內建
+資料庫則執行
+`kubectl exec -n <ns> <release>-postgresql-0 -- env PGPASSWORD=<password> pg_dump -U graphrag -Fc graphrag > graphrag.dump`。
+工作區 PVC：storage class 的 CSI driver 支援時使用 `VolumeSnapshot`；否則在沒有任務
+執行時，從 api pod 串流匯出：
+`kubectl exec -n <ns> deploy/<release>-graphrag-ui-api -- tar czf - -C /data/workspaces . > workspaces.tgz`。
+
+### 日誌
+
+- **api 日誌**（`docker compose logs api`、`kubectl logs`）對任務的每個步驟記一行帶時間
+  的紀錄——排入、領取、開始、產生子程序（含 process id）、要求取消，以及結束時的狀態、
+  結束代碼與耗時——另外，啟動時發現被中斷的每個任務會記一則警告，每日保留清理也會
+  記下總數。健康檢查的請求不進存取日誌，SSE 存取權杖以 `[redacted]` 取代。
+- **任務本身的輸出**（graphrag 的日誌）在「任務」頁，執行中即時顯示；在磁碟上是專案
+  工作區的 `logs/jobs/<job id>.log`。日誌檔在成功後保留 `JOB_LOG_RETENTION_DAYS`（30）
+  天、失敗後保留 `JOB_LOG_FAILED_RETENTION_DAYS`（90）天；任務紀錄會永久保留錯誤
+  結尾。
+- **誰做了什麼**記錄在「管理 —— 稽核」：任務的啟動與取消、上傳、設定與金鑰變更、成員
+  與角色變更、密碼變更、清除快取。
+
+### 資源規劃
+
+- **記憶體。** 索引子程序、api 與查詢快取共用同一個上限：compose（`mem_limit`）與
+  chart 都是 2 GiB。單一任務的索引峰值實測約 566 MiB，查詢快取上限為
+  `QUERY_CACHE_MB`（1024）。每多一個同時執行的任務（`MAX_CONCURRENT_JOBS`，預設 2）
+  大約再多一次索引峰值，且會隨語料增長——請提高上限，或降低 `QUERY_CACHE_MB`。
+  超過上限時容器會被終止；執行中的任務以 `failed(interrupted)` 結束，結束代碼 137
+  會標註為疑似記憶體不足。
+- **磁碟。** 每個專案：文件加上索引輸出，上限為 `PROJECT_QUOTA_MB`（5000）；graphrag
+  的快取（超過 `CACHE_QUOTA_MB`（2048）時會警告，可在「任務」頁用「清除快取」清空——
+  之後的索引會對原本快取的內容重新付費呼叫模型）；依 `UPDATE_OUTPUT_KEEP_LATEST`（2）
+  保留的 `update_output/` 執行結果；以及任務日誌。volume 可用空間低於
+  `DISK_WATERMARK_MB`（2048），或專案超過配額時，任務會被拒絕。
+
+### 工作階段有效期
+
+本機登入模式下，`ACCESS_TOKEN_MINUTES`（預設 15）設定存取權杖的有效期，
+`REFRESH_TOKEN_DAYS`（預設 7）設定更新權杖的有效期，每次使用都會順延；一次登入的
+更新權杖鏈無論如何在登入 30 天後結束。即時日誌與串流回答的網址帶的也是存取權杖，
+縮短它同時縮小了這段暴露時間。proxy 模式不發權杖，改由 oauth2-proxy 的 cookie 設定
+決定。
 
 ## OAuth2-Proxy 驗證（選用）
 

@@ -17,6 +17,7 @@ from graphrag_ui.config import get_settings
 from graphrag_ui.domain.jobs import build_argv
 from graphrag_ui.services.audit import audit
 from graphrag_ui.services.errors import CodedServiceError, JobConflictError
+from graphrag_ui.services.files import QuotaExceededError, quota_bytes, usage_bytes
 from graphrag_ui.services.project_lock import active_job, lock_project
 from graphrag_ui.services.projects import ws_path
 from graphrag_ui.services.settings import check_workspace_settings
@@ -28,6 +29,12 @@ class DiskWatermarkError(CodedServiceError, RuntimeError):
     """Free space on the workspaces volume is below the watermark."""
 
     code = "disk_watermark"
+
+
+class ProjectOverQuotaError(QuotaExceededError):
+    """input/ + output/ already above the project quota at enqueue (spec §10):
+    an index would only grow output/. The upload path's error, answered 409
+    rather than 413 — the request is not what is too large."""
 
 
 async def enqueue(
@@ -48,6 +55,8 @@ async def enqueue(
     free = (await asyncio.to_thread(shutil.disk_usage, ws_root)).free
     if free < settings.disk_watermark_mb * 1024 * 1024:
         raise DiskWatermarkError(str(free))
+    if await usage_bytes(project) > quota_bytes():
+        raise ProjectOverQuotaError(settings.project_quota_mb)
     try:
         # Same lock the file/settings/.env mutations take (spec 5.2b): a
         # mutation already holding it makes this wait until its rename has
@@ -120,6 +129,41 @@ async def list_for_project(
     )
 
 
+def _empty_dir(path: Path) -> None:
+    """Delete everything under path, keep path itself. Sync: runs in a
+    to_thread hop."""
+    if path.is_dir():
+        for child in path.iterdir():
+            if child.is_dir() and not child.is_symlink():
+                shutil.rmtree(child)
+            else:
+                child.unlink()
+
+
+async def clear_cache(session: AsyncSession, project: Project, actor: User) -> int:
+    """Empty the project's graphrag cache/ (R3-25): the launch warning's
+    way out. Refused while any job is active — an index or update writes
+    the cache, a test run reads through it. The rows are flushed before
+    the irreversible delete, and committed after it."""
+    project_id = str(project.id)
+    await lock_project(session, project.id)
+    if await active_job(session, project.id) is not None:
+        await session.rollback()
+        raise JobConflictError(project_id)
+    cache = ws_path(project.id) / "cache"
+    freed = await asyncio.to_thread(_tree_bytes, cache)
+    await audit(session, actor.id, "cache.cleared", "project", project_id, {"freed_bytes": freed})
+    await session.flush()
+    try:
+        await asyncio.to_thread(_empty_dir, cache)
+    except Exception:
+        await session.rollback()
+        raise
+    await session.commit()
+    logger.info("cache cleared project=%s freed=%d by=%s", project_id, freed, actor.id)
+    return freed
+
+
 def _tree_bytes(path: Path) -> int:
     # Sync on purpose: preflight runs it inside one to_thread hop (spec A4).
     if not path.exists():
@@ -149,6 +193,8 @@ async def preflight(session: AsyncSession, project: Project) -> dict:
         "last_run": last_run,
         "cache_bytes": await asyncio.to_thread(_tree_bytes, root / "cache"),
         "cache_quota_mb": settings.cache_quota_mb,
+        "usage_bytes": await usage_bytes(project),
+        "project_quota_mb": settings.project_quota_mb,
         "disk_free_mb": (await asyncio.to_thread(shutil.disk_usage, ws_root)).free // (1024 * 1024),
         "disk_watermark_mb": settings.disk_watermark_mb,
     }

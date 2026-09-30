@@ -1,10 +1,11 @@
-# GraphRAG Web UI Helm values(spec §8.2)
+# GraphRAG Web UI Helm values (spec §8.2). Upgrades, backup/restore, logs and
+# sizing: the README's "Operations" section.
 # All environment differences go through env vars (spec §8.3), sharing the
 # same variable names as docker-compose:
 # DATABASE_URL / WORKSPACES_DIR / JWT_SECRET / BOOTSTRAP_ADMIN_EMAIL / BOOTSTRAP_ADMIN_PASSWORD /
 # UPLOAD_MAX_FILE_MB / PROJECT_QUOTA_MB / MAX_CONCURRENT_JOBS / JOB_LOG_RETENTION_DAYS /
 # JOB_LOG_FAILED_RETENTION_DAYS / UPDATE_OUTPUT_KEEP_LATEST / CACHE_QUOTA_MB / DISK_WATERMARK_MB /
-# QUERY_CACHE_MB / QUERY_RATE_LIMIT_PER_HOUR / GRAPH_NODE_LIMIT
+# QUERY_CACHE_MB / QUERY_RATE_LIMIT_PER_HOUR / GRAPH_NODE_LIMIT / ACCESS_TOKEN_MINUTES / REFRESH_TOKEN_DAYS
 
 api:
   image: {}            # repository/tag, e.g. { repository: registry.example.com/graphrag-ui/api, tag: "0.1.0" }; empty = default name for local testing
@@ -54,8 +55,9 @@ web:
 networkPolicy:
   enabled: true        # restricts who may reach the api pod; inert on a CNI
                        # that does not enforce NetworkPolicy
-  extraIngressFrom: [] # e.g. the ingress-controller namespace:
-                       # - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: ingress-nginx } }
+  extraIngressFrom: [] # further peers allowed to reach the api pod directly (monitoring, a debug pod);
+                       # not needed for the chart's ingress, which routes /api through the web Service.
+                       # e.g. - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: monitoring } }
 
 ingress:
   enabled: false
@@ -87,6 +89,9 @@ postgresql:
 
 persistence:
   size: 50Gi           # workspace PVC (ReadWriteOnce), mounted at the api's /data/workspaces
+  storageClassName: "" # empty = the cluster's default StorageClass; "-" = none (static binding)
+  existingClaim: ""    # name of a PVC to mount instead of creating one (size/storageClassName then unused);
+                       # it must be ReadWriteOnce or better and writable by fsGroup 10001
 
 jwtSecret: ""          # REQUIRED via --set or existingSecret; >= 32 chars and not a
                        # placeholder, validated by the api at startup (a pod that got
@@ -103,6 +108,8 @@ bootstrapAdmin:
   password: ""         # >= 12 chars and not the .env.example placeholder — validated by the
                        # api at startup like jwtSecret (a no-op in proxy mode)
 
+accessTokenMinutes: 15 # ACCESS_TOKEN_MINUTES — access token lifetime (local login mode)
+refreshTokenDays: 7    # REFRESH_TOKEN_DAYS — refresh token sliding lifetime; a sign-in's chain ends at 30 days regardless
 uploadMaxFileMb: 50    # UPLOAD_MAX_FILE_MB — single-file upload limit in MiB; exceed → 413
                        # (also sizes the ingress proxy-body-size annotation, see ingress.annotations)
 projectQuotaMb: 5000   # PROJECT_QUOTA_MB — per-project storage quota in MiB (input/+output/); exceed → 413

@@ -245,7 +245,8 @@ GraphRAG 的 `input.type` 是單一型別 + `input.file_pattern`(regex),一個 r
   - `terminationGracePeriodSeconds` 拉長(預設 120)+ preStop hook,讓進行中的任務有機會收尾或乾淨地標記中斷
   - **資源**:indexing 子程序、API、查詢 DataFrame 快取共用同一個容器 limit。limits 須依 indexing 峰值抓(values 提供建議值與調整說明);OOM 時 exit code 137 會被特判並回報
 - `web` Deployment + Service
-- Ingress:**SSE 需要 buffering 關閉**(nginx annotation `nginx.ingress.kubernetes.io/proxy-buffering: "off"`、長 read timeout)
+- Ingress:**SSE 需要 buffering 關閉**(nginx annotation `nginx.ingress.kubernetes.io/proxy-buffering: "off"`、長 read timeout)。所有路徑(含 `/api`)一律送往 web Service,由其 nginx 反代 api——api 的 NetworkPolicy 只放行 web 與 oauth2-proxy,ingress 直連 api 在強制 NetworkPolicy 的 CNI 上會逾時(修正波 F25,R3-16)
+- 工作區 PVC:`persistence.storageClassName` / `persistence.existingClaim`;web 的 nginx 以名為 `api` 的 ExternalName Service 連 api,因此每個 namespace 只能裝一個 release,`NOTES.txt` 會說明(R3-30)
 - Postgres:values 可切換 — 內建(dependency chart)或外部 DB(連線字串)
 - 健康:`/api/health` 作 liveness、`/api/ready` 作 readiness;另有 `startupProbe`(`/api/health`,5 s × 60 次),容器啟動時的 alembic migration 最長可跑 5 分鐘,期間 liveness 不介入(修正波 F24,R3-29)
 
@@ -257,7 +258,7 @@ GraphRAG 的 `input.type` 是單一型別 + `input.file_pattern`(regex),一個 r
 
 ### 8.4 Auth 細節
 
-- access token 有效期 15 分鐘;refresh token 7 天,**輪替式**(每次 refresh 換發並作廢舊的)
+- access token 有效期 15 分鐘;refresh token 7 天,**輪替式**(每次 refresh 換發並作廢舊的)。兩者可由 `ACCESS_TOKEN_MINUTES` / `REFRESH_TOKEN_DAYS` 調整(兩種部署同名,修正波 F25,R1-62);30 天家族上限不可調
 - refresh token 以「家族」(一次登入的輪替鏈)計:7 天為滑動期限,每次輪替順延,但**整個家族自登入起最多 30 天**,期滿須重新登入(修正波 F6,決策 D4)
 - 已作廢的 refresh token 在作廢後 30 秒內再次出示、且其接替者尚未被使用時,視為良性重送(多分頁同時 refresh),回傳同一個接替者;超出此寬限或接替者已被使用,才視為重放並撤銷該使用者所有 refresh token(修正波 F6,R2-05)
 - refresh token 存 DB(hash),支援登出與 admin 停用帳號時即刻撤銷
@@ -308,9 +309,9 @@ backend/
 | 對象 | 政策 |
 |---|---|
 | job 日誌 | 保留 N 天(預設 30),超過清除;失敗任務的日誌延長保留 |
-| `cache/` | 每專案上限(可設定),超過時提示手動清理 |
+| `cache/` | 每專案上限(可設定),超過時於任務頁警告並提供「清除快取」:`POST /api/projects/{id}/cache:clear`(`project:run_jobs`,有任務進行中回 409 `job_conflict`,寫 `cache.cleared` 稽核,回傳釋出位元組;修正波 F25,R3-25)。清除後下次索引會對原快取內容重新呼叫模型並計費,介面文案須說明 |
 | `update_output/` | update 會留下 `<timestamp>/{delta,previous}` 目錄(原始碼確認);成功 merge 後依保留政策清除舊 timestamp 目錄 |
-| `input/` + `output/` | 每專案儲存配額,上傳與啟動任務前預檢 |
+| `input/` + `output/` | 每專案儲存配額,上傳與啟動任務前預檢:上傳超額回 413,啟動任務時已超額回 409 `quota_exceeded`(同一錯誤碼,狀態碼不同,因為不是請求本身過大);preflight 提供 `usage_bytes` / `project_quota_mb`,任務頁超額時停用啟動(修正波 F25,R3-25) |
 | 磁碟水位 | readiness 檢查,低於門檻時拒絕新任務並告警 |
 
 **備份**:PostgreSQL 定期 dump;workspace PVC 依部署環境的快照機制(Helm values 文件說明,不自行實作)。

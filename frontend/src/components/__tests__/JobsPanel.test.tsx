@@ -42,6 +42,8 @@ const PREFLIGHT = {
   },
   cache_bytes: 1024,
   cache_quota_mb: 512,
+  usage_bytes: 10 * 1024 * 1024,
+  project_quota_mb: 5000,
   disk_free_mb: 50000,
   disk_watermark_mb: 2048,
   graphrag: "3.1.2",
@@ -79,6 +81,9 @@ const apiMock = vi.fn(async (path: string, init?: RequestInit) => {
   }
   if (path === "/api/projects/p1/health") {
     return new Response(JSON.stringify(HEALTH), { status: 200 });
+  }
+  if (path === "/api/projects/p1/cache:clear" && init?.method === "POST") {
+    return new Response(JSON.stringify({ freed_bytes: 600 * 1024 * 1024 }), { status: 200 });
   }
   if (path === "/api/jobs/j1/cancel" && init?.method === "POST") {
     return new Response(JSON.stringify({ detail: "cancellation requested" }), { status: 202 });
@@ -191,16 +196,53 @@ test("canEdit=false: launch disabled, no 取消, 日誌 still available", async 
 
 
 test("modal warns when cache exceeds quota and disk is under watermark", async () => {
-  postResponse = () => new Response(JSON.stringify(job({ id: "j9" })), { status: 201 });
-  PREFLIGHT.cache_bytes = 600 * 1024 * 1024;
-  PREFLIGHT.disk_free_mb = 1000;
+  preflightResponse = () => new Response(JSON.stringify({
+    ...PREFLIGHT, cache_bytes: 600 * 1024 * 1024, disk_free_mb: 1000,
+  }), { status: 200 });
   mount(true);
   const user = userEvent.setup();
   await waitFor(() => expect(apiMock).toHaveBeenCalledWith("/api/projects/p1/jobs/preflight", expect.anything()));
   await user.click(await screen.findByRole("button", { name: "開始索引" }));
   // Binary units through humanBytes, like every other size (R1-54).
-  expect(await screen.findByText(/快取已超過上限（600 MiB \/ 512 MiB）/)).toBeInTheDocument();
+  expect(await screen.findByText(/快取已超過上限（600 MiB \/ 512 MiB），建議先用本頁/)).toBeInTheDocument();
   expect(screen.getByText(/磁碟水位不足/)).toBeInTheDocument();
+});
+
+// R3-25: the cache warning has a way to act on it, on the pane itself.
+test("an over-quota cache offers Clear cache, which POSTs and reports the space freed", async () => {
+  preflightResponse = () => new Response(JSON.stringify({
+    ...PREFLIGHT, cache_bytes: 600 * 1024 * 1024,
+  }), { status: 200 });
+  mount(true);
+  const user = userEvent.setup();
+  expect(await screen.findByText(/下次索引會對原本快取的內容重新呼叫模型/)).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "清除快取" }));
+  // The Popconfirm's OK button carries the same label; it renders last.
+  await waitFor(() => expect(screen.getAllByRole("button", { name: "清除快取" })).toHaveLength(2));
+  await user.click(screen.getAllByRole("button", { name: "清除快取" })[1]);
+  await waitFor(() => expect(apiMock).toHaveBeenCalledWith(
+    "/api/projects/p1/cache:clear", expect.objectContaining({ method: "POST" }),
+  ));
+  expect(await screen.findByText("已清除快取（釋出 600 MiB）")).toBeInTheDocument();
+});
+
+test("Clear cache is not offered without run rights or while a job runs", async () => {
+  preflightResponse = () => new Response(JSON.stringify({
+    ...PREFLIGHT, cache_bytes: 600 * 1024 * 1024,
+  }), { status: 200 });
+  mount(false);
+  expect(await screen.findByText(/下次索引會對原本快取的內容重新呼叫模型/)).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "清除快取" })).not.toBeInTheDocument();
+});
+
+// R3-25: enqueue refuses a project over its quota, so the pane says so first.
+test("a project over its storage quota shows an error and disables Start", async () => {
+  preflightResponse = () => new Response(JSON.stringify({
+    ...PREFLIGHT, usage_bytes: 6 * 1024 * 1024 * 1024, project_quota_mb: 5000,
+  }), { status: 200 });
+  mount(true);
+  expect(await screen.findByText(/專案儲存空間超過配額（6(\.0)? GiB \/ 4\.9 GiB）/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "開始索引" })).toBeDisabled();
 });
 
 test("the list asks for index and update jobs only", async () => {

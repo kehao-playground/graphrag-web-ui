@@ -38,6 +38,8 @@ services:
       # ⚠ Must be a real routable domain, never .local — login validation rejects special-use domains
       BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:?}
       BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:?}
+      ACCESS_TOKEN_MINUTES: ${ACCESS_TOKEN_MINUTES:-15}  # access token lifetime (default 15)
+      REFRESH_TOKEN_DAYS: ${REFRESH_TOKEN_DAYS:-7}       # refresh token sliding lifetime (default 7; family cap 30 d)
       UPLOAD_MAX_FILE_MB: ${UPLOAD_MAX_FILE_MB:-50}    # single-file upload limit, MiB (default 50)
       PROJECT_QUOTA_MB: ${PROJECT_QUOTA_MB:-5000}      # per-project storage quota, MiB (default 5000)
       MAX_CONCURRENT_JOBS: ${MAX_CONCURRENT_JOBS:-2}   # concurrent indexing jobs; 0 disables the runner
