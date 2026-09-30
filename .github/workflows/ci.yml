@@ -45,15 +45,20 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
+      # `npm run screenshots` needs a live stack, so CI only parses it; the
+      # labels come from the catalogs, so copy changes cannot break it (R1-25)
+      - run: node --check scripts/capture-screens.mjs
       # spec A5.2 contract gate: committed types.generated.ts must match openapi.json
       - run: npm run gen:types
       - run: git diff --exit-code src/api/types.generated.ts
 
   audit:
-    # Advisory-only: a fresh CVE in a transitive dep must not block an
-    # unrelated PR, but it has to be visible. Dependabot opens the bumps.
+    # Required (decision D8). An advisory that cannot be fixed yet and is not
+    # reachable here is accepted by id in the dated list below, with its
+    # reason; everything else fails the build. Dependabot opens the bumps
+    # for declared dependencies; transitive ones are raised through
+    # [tool.uv] override-dependencies in backend/pyproject.toml (nltk).
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.1.0
@@ -63,7 +68,13 @@ jobs:
       # not on PyPI and can never be audited. NOT --strict: it escalates every
       # unauditable/skipped dependency into an error, so it fails on that same
       # local project either way. A real advisory still exits non-zero.
-      - run: uv run --with pip-audit pip-audit --desc --skip-editable
+      # Accepted advisories (review each when nltk releases):
+      # - PYSEC-2026-3740 (2026-09-30, F26): nltk model-path sandbox bypass
+      #   (TransitionParser, AveragedPerceptron save/load); no fixed release.
+      #   graphrag never passes a caller-controlled model path to these APIs.
+      - run: >-
+          uv run --with pip-audit pip-audit --desc --skip-editable
+          --ignore-vuln PYSEC-2026-3740
         working-directory: backend
       - uses: actions/setup-node@v7
         with:
@@ -106,7 +117,7 @@ jobs:
       # The overlay's oauth2-proxy upstream must point at the port the web
       # nginx actually listens on: the image moved 80 -> 8080 once and the
       # overlay silently 502'd for weeks (R3-02). The full compose smoke
-      # (R2-15) will exercise it for real; this keeps the two files honest.
+      # (the smoke job) exercises it for real; this keeps the two files honest.
       - name: proxy-auth overlay upstream matches the web nginx listen port
         run: |
           port=$(sed -n 's/^ *listen \([0-9][0-9]*\);.*/\1/p' frontend/nginx.conf)
@@ -115,6 +126,22 @@ jobs:
       # Guards the compose image builds: catches Dockerfile drift that unit
       # tests never see (e.g. missing .npmrc once broke `npm ci` in-container)
       - run: docker compose build
+
+  smoke:
+    # Boots the shipped stack and sends real requests through the web nginx
+    # (R2-15): sign-in, project create, a 2 MiB upload past nginx's 1 MiB
+    # default body cap, /api/ready; then the proxy-auth overlay against the
+    # test IdP, expecting 401 on /api/*. See .github/scripts/compose-smoke.sh.
+    runs-on: ubuntu-latest
+    env:
+      BOOTSTRAP_ADMIN_EMAIL: ci@example.com
+      BOOTSTRAP_ADMIN_PASSWORD: ci-bootstrap-not-a-real-secret
+      JWT_SECRET: ci-jwt-secret-0123456789abcdef0123456789abcdef
+    steps:
+      - uses: actions/checkout@v7
+      - run: cp .env.example .env
+      - run: .github/scripts/compose-smoke.sh local
+      - run: .github/scripts/compose-smoke.sh proxy
 
   helm:
     runs-on: ubuntu-latest
@@ -180,3 +207,27 @@ jobs:
           helm template deploy/helm/graphrag-ui --set ingress.enabled=true --set ingress.host=graphrag.example.com \
               --set proxyAuth.enabled=true --set 'proxyAuth.emailDomains={example.com}' \
             | grep -q 'auth-signin: https://graphrag.example.com/oauth2/start'
+      # Spec 2026-08-27 deploy checks: the Ingress count per value set, and
+      # auth-signin on the app Ingress only (the /api Ingress must answer 401).
+      - name: proxy-auth value sets render the expected Ingresses
+        run: |
+          check() {  # <ingresses> <ships oauth2-proxy: 0|1> <helm args...>
+            want=$1 ships=$2; shift 2
+            out=$(helm template deploy/helm/graphrag-ui --set ingress.enabled=true \
+              --set ingress.host=graphrag.example.com "$@")
+            test "$(echo "$out" | grep -c '^kind: Ingress')" = "$want"
+            test "$(echo "$out" | grep -c 'auth-signin' || true)" = "$(( want > 1 ? 1 : 0 ))"
+            proxies=$(echo "$out" | grep -c 'name: release-name-graphrag-ui-oauth2-proxy$' || true)
+            if [ "$ships" = 1 ] && [ "$proxies" = 0 ]; then echo "no oauth2-proxy: $*"; exit 1; fi
+            if [ "$ships" = 0 ] && [ "$proxies" != 0 ]; then echo "oauth2-proxy rendered: $*"; exit 1; fi
+            if [ "$want" -gt 1 ]; then
+              # the one auth-signin sits on the app Ingress (named without a suffix)
+              echo "$out" | awk '/^kind: Ingress/ {i=1} /^---/ {i=0; n=""}
+                i && /^  name:/ {n=$2} i && /auth-signin/ {print n}' \
+                | grep -qx 'release-name-graphrag-ui'
+            fi
+            echo "ok $want ingress(es): $*"
+          }
+          check 1 0
+          check 3 1 --set proxyAuth.enabled=true --set 'proxyAuth.emailDomains={example.com}'
+          check 2 0 --set proxyAuth.enabled=true --set proxyAuth.external.url=https://sso.example.com

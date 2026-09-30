@@ -6,7 +6,7 @@
 //      (JWT_SECRET, BOOTSTRAP_ADMIN_EMAIL, BOOTSTRAP_ADMIN_PASSWORD).
 //   2. `npx playwright install chromium` once after installing devDeps.
 //
-// Run from frontend/:  npm run screenshots
+// Run from frontend/:  npm run screenshots   (Node >= 22.18: imports the .ts catalogs)
 //
 // Environment:
 //   BASE_URL          target front door            (default http://localhost:8080)
@@ -23,6 +23,8 @@
 import { mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
+import enUS from "../src/i18n/locales/en-US.ts";
+import zhTW from "../src/i18n/locales/zh-TW.ts";
 
 const BASE_URL = process.env.BASE_URL ?? "http://localhost:8080";
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? process.env.BOOTSTRAP_ADMIN_EMAIL;
@@ -34,34 +36,12 @@ const ANALYST = {
 };
 const OUT_ROOT = fileURLToPath(new URL("../../docs/assets/screenshots/", import.meta.url));
 // Two captures per run: zh/ (the product's primary interface) feeds
-// docs/zh-TW/README.md, en/ feeds README.md. All UI text comes from the
-// locale dictionaries — keep these labels in sync with src/i18n/locales/.
+// docs/zh-TW/README.md, en/ feeds README.md. Every UI label is read from
+// the locale catalogs themselves (Node 24 strips the TypeScript), so a
+// copy change cannot silently break a locator (R1-25).
 const LOCALES = [
-  {
-    locale: "zh-TW", outDir: `${OUT_ROOT}zh/`,
-    labels: {
-      email: "電子郵件", password: "密碼", signIn: "登入系統",
-      changeTitle: "首次登入請修改密碼", currentPassword: "目前密碼",
-      newPassword: "新密碼", submit: "送出", filesTab: "檔案",
-      settingsTab: "設定", adminUsers: "管理者 — 使用者",
-      adminRoles: "管理者 — 角色", newUser: "建立使用者",
-      createUserModal: "建立使用者", rolesPlaceholder: "選擇角色",
-      opsRole: "系統維運", cancel: "取消", closeModal: "關閉",
-    },
-  },
-  {
-    locale: "en-US", outDir: `${OUT_ROOT}en/`,
-    labels: {
-      email: "Email", password: "Password", signIn: "Sign in",
-      changeTitle: "Change your password before continuing",
-      currentPassword: "Current password", newPassword: "New password",
-      submit: "Submit", filesTab: "Files", settingsTab: "Settings",
-      adminUsers: "Admin — Users", adminRoles: "Admin — Roles",
-      newUser: "New user", createUserModal: "Create user",
-      rolesPlaceholder: "Select roles",
-      opsRole: "Ops", cancel: "Cancel", closeModal: "Close",
-    },
-  },
+  { locale: "zh-TW", outDir: `${OUT_ROOT}zh/`, t: zhTW },
+  { locale: "en-US", outDir: `${OUT_ROOT}en/`, t: enUS },
 ];
 
 const CORPUS = [
@@ -212,7 +192,7 @@ async function seed() {
   return { token, project, effectivePassword };
 }
 
-async function capture({ effectivePassword }, { locale, outDir, labels }) {
+async function capture({ effectivePassword, project }, { locale, outDir, t }) {
   await mkdir(outDir, { recursive: true });
   const browser = await chromium.launch();
   const context = await browser.newContext({
@@ -224,27 +204,32 @@ async function capture({ effectivePassword }, { locale, outDir, labels }) {
     timezoneId: "Asia/Taipei",
   });
   const page = await context.newPage();
-  // antd motion (tab ink bar, table fade-in) needs a beat before the shutter,
-  // or screenshots catch half-rendered low-opacity tables / mid-slide ink bars.
+  // antd motion (table fade-in, modal zoom) needs a beat before the shutter,
+  // or screenshots catch half-rendered low-opacity tables.
   const settle = (ms = 700) => page.waitForTimeout(ms);
   const shot = (name, opts = {}) =>
     page.screenshot({ path: `${outDir}${name}.png`, ...opts });
+  // Panes are routes (spec §4): navigate by URL rather than through the
+  // sidebar, whose layout is not what these shots are about.
+  const open = (path) => page.goto(`${BASE_URL}${path}`, { waitUntil: "networkidle" });
 
-  await page.goto(`${BASE_URL}/`, { waitUntil: "networkidle" });
-  await page.getByLabel(labels.email).waitFor({ timeout: 15000 });
+  await open("/");
+  await page.getByLabel(t.common.email).waitFor({ timeout: 15000 });
   await settle(400);
   await shot("login");
   console.log(`capture: ${locale} login.png`);
 
-  await page.getByLabel(labels.email).fill(ADMIN_EMAIL);
-  await page.getByLabel(labels.password).fill(effectivePassword);
-  await page.getByRole("button", { name: labels.signIn }).click();
+  await page.getByLabel(t.common.email).fill(ADMIN_EMAIL);
+  await page.getByLabel(t.login.passwordLabel).fill(effectivePassword);
+  await page.getByRole("button", { name: t.login.submit }).click();
 
-  const modal = page.getByTitle(labels.changeTitle);
+  // seed() already cleared must_change_password; this covers an admin
+  // whose flag was set again between the seed and the browser run.
+  const modal = page.getByRole("dialog", { name: t.login.changeTitle });
   if (await modal.isVisible().catch(() => false)) {
-    await modal.getByLabel(labels.currentPassword).fill(effectivePassword);
-    await modal.getByLabel(labels.newPassword).fill(ADMIN_NEW_PASSWORD);
-    await modal.getByRole("button", { name: labels.submit }).click();
+    await modal.getByLabel(t.login.currentPassword).fill(effectivePassword);
+    await modal.getByLabel(t.login.newPassword).fill(ADMIN_NEW_PASSWORD);
+    await modal.getByRole("button", { name: t.common.submit }).click();
     console.log(`capture: ${locale} bootstrap password changed via UI`);
   }
 
@@ -254,49 +239,48 @@ async function capture({ effectivePassword }, { locale, outDir, labels }) {
   await shot("projects");
   console.log(`capture: ${locale} projects.png`);
 
-  await page.getByRole("button", { name: PROJECT_NAME }).click();
-  await page.getByRole("tab", { name: labels.filesTab }).click();
+  await open(`/projects/${project.id}/files`);
   await page.getByText("q3-report.txt").waitFor({ timeout: 15000 });
   await settle();
   await shot("project-files");
   console.log(`capture: ${locale} project-files.png`);
 
-  await page.getByRole("tab", { name: labels.settingsTab }).click();
+  await open(`/projects/${project.id}/settings`);
   await page.getByRole("cell", { name: "GRAPHRAG_API_KEY" }).waitFor({ timeout: 15000 });
   await settle();
-  // The env table sits below the YAML editor: full page so it is not cut.
+  // Environment variables above, the YAML editor below: full page so
+  // neither is cut.
   await shot("project-settings", { fullPage: true });
   console.log(`capture: ${locale} project-settings.png`);
-  await page.getByRole("menuitem", { name: labels.adminUsers }).click();
+
+  await open("/admin/users");
   await page.getByText(ANALYST.email).waitFor({ timeout: 15000 });
   await settle();
   // Open the create modal so the shot shows the roles multi-select, not
-  // just the table (the new-model UI centerpiece). antd modal titles are
-  // plain text and the Select placeholder is a div — wait on the dialog
-  await page.getByRole("button", { name: labels.newUser }).click();
-  await page.getByRole("dialog").waitFor({ timeout: 15000 });
-  await page.getByText(labels.rolesPlaceholder, { exact: true }).waitFor({ timeout: 15000 });
-  // Open the roles multi-select so the shot shows the assignable built-in
-  // roles, not a closed placeholder.
+  // just the table. The Select placeholder is a div, so wait on its text.
+  await page.getByRole("button", { name: t.adminUsers.createButton }).click();
+  const dialog = page.getByRole("dialog", { name: t.adminUsers.createModalTitle });
+  await dialog.waitFor({ timeout: 15000 });
+  await dialog.getByText(t.adminUsers.rolesPlaceholder, { exact: true }).waitFor({ timeout: 15000 });
   // force: the dropdown portal this click opens lands under the cursor,
   // which would otherwise trip Playwright's hit-target retry loop; the
   // option wait below proves the dropdown really opened.
-  await page.getByText(labels.rolesPlaceholder, { exact: true }).click({ force: true });
+  await dialog.getByText(t.adminUsers.rolesPlaceholder, { exact: true }).click({ force: true });
   // rc-select options expose the role UUID in their accessible name —
   // match on the visible label text inside the dropdown instead.
-  await page.locator(".ant-select-dropdown").getByText(labels.opsRole, { exact: true }).waitFor({ timeout: 15000 });
+  await page.locator(".ant-select-dropdown").getByText(t.roles.ops, { exact: true })
+    .waitFor({ timeout: 15000 });
   await settle();
   await shot("admin-users");
   console.log(`capture: ${locale} admin-users.png`);
   // The open dropdown renders in a body-level portal that overlays the
-  // modal footer (Cancel/Escape both get intercepted) — close via the X
-  // and wait for the modal AND the dropdown portal to unmount.
-  await page.getByRole("button", { name: labels.closeModal }).click();
-  await page.getByRole("dialog").waitFor({ state: "detached", timeout: 15000 });
+  // modal footer (Cancel/Escape both get intercepted) — close via the X.
+  await dialog.locator(".ant-modal-close").click();
+  await dialog.waitFor({ state: "detached", timeout: 15000 });
   await settle(300);
 
-  await page.getByRole("menuitem", { name: labels.adminRoles }).click();
-  await page.getByText("user_admin", { exact: true }).waitFor({ timeout: 15000 });
+  await open("/admin/roles");
+  await page.getByText(t.roles.user_admin, { exact: true }).waitFor({ timeout: 15000 });
   await page.getByText("Auditor", { exact: true }).waitFor({ timeout: 15000 });
   await settle();
   await shot("admin-roles");

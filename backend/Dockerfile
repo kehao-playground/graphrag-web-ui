@@ -13,8 +13,17 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY . .
 RUN uv sync --frozen --no-dev
 # Bake NLTK corpora (brown/treebank/tagger/punkt): fast-method NLP extraction
-# downloads these at runtime otherwise (verified 2026-08-21).
-RUN ./.venv/bin/python -c "import nltk; [nltk.download(p, quiet=True) for p in ('brown','treebank','averaged_perceptron_tagger_eng','punkt','punkt_tab')]"
+# downloads these at runtime otherwise (verified 2026-08-21). The build fails
+# when any download fails: `quiet=True` alone used to ship an image without
+# corpora. nltk >= 3.10 refuses a proxied fetch unless told the proxy is
+# trusted; a build proxy is the operator's own, so this one RUN opts in
+# (F26-01) and the runtime keeps nltk's default. download_dir is explicit:
+# nltk's default is root's $HOME whatever NLTK_DATA says, and every image
+# before F26 baked its corpora where the runtime user cannot read them.
+RUN NLTK_ALLOW_PROXIED_URLOPEN=1 ./.venv/bin/python -c "import nltk, os, sys; \
+    missing = [p for p in ('brown','treebank','averaged_perceptron_tagger_eng','punkt','punkt_tab') \
+               if not nltk.download(p, quiet=True, download_dir=os.environ['NLTK_DATA'])]; \
+    sys.exit('nltk corpora not downloaded: ' + ', '.join(missing) if missing else 0)"
 
 # Non-root runtime (uid 10001). The workspaces mountpoint is created and
 # chowned in the image so a *fresh* docker named volume inherits these
