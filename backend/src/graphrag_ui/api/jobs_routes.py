@@ -10,9 +10,6 @@ from fastapi import APIRouter, Depends, Header, Query, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from graphrag_ui.adapters.db import get_session_factory
-from graphrag_ui.adapters.index_runner import log_path_for
-from graphrag_ui.adapters.job_logs import tail_log
 from graphrag_ui.adapters.models import Job
 from graphrag_ui.api.deps import (
     CurrentUser,
@@ -35,10 +32,10 @@ from graphrag_ui.api.schemas import (
     JobPageOut,
     PreflightOut,
 )
-from graphrag_ui.domain.jobs import TERMINAL_STATUSES, display_status
+from graphrag_ui.domain.jobs import display_status
 from graphrag_ui.domain.permissions import Atom, can
 from graphrag_ui.services import jobs as jobs_service
-from graphrag_ui.services.projects import get_member_perms, ws_path
+from graphrag_ui.services.projects import get_member_perms
 
 
 def job_out(j: Job) -> dict:
@@ -160,24 +157,15 @@ def register_jobs_routes(app):
             raise ApiError(
                 status.HTTP_400_BAD_REQUEST, "job_invalid_last_event_id", "invalid Last-Event-ID"
             ) from None
-        log_path = log_path_for(ws_path(job.project_id), job.id)
 
         async def gen():
-            # NOTE: db session is request-scoped and may close once the
-            # response starts streaming — poll liveness in a fresh session.
-            async def finished() -> bool:
-                async with get_session_factory()() as s:
-                    fresh = await jobs_service.get_job(s, job_id)
-                return fresh is None or fresh.status in TERMINAL_STATUSES
-
-            pos = start
-            async for pos, chunk in tail_log(log_path, start, finished=finished):
-                # SSE data lines are single-line; json.dumps escapes newlines
-                yield f"id: {pos}\nevent: log\ndata: {json.dumps(chunk.decode(errors='replace'))}\n\n"
-            async with get_session_factory()() as s:
-                final = await jobs_service.get_job(s, job_id)
-            status_str = final.status if final is not None else "terminal"
-            yield f"event: done\ndata: {json.dumps({'offset': pos, 'status': status_str})}\n\n"
+            # SSE data lines are single-line; json.dumps escapes newlines
+            async for kind, pos, payload in jobs_service.log_events(job, start):
+                if kind == "log":
+                    yield f"id: {pos}\nevent: log\ndata: {json.dumps(payload)}\n\n"
+                else:
+                    done = {"offset": pos, "status": payload}
+                    yield f"event: done\ndata: {json.dumps(done)}\n\n"
 
         return StreamingResponse(
             gen(),

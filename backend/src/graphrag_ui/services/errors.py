@@ -7,9 +7,16 @@ server-log-only material (spec A7), so the query and explore routes map it
 to fixed messages themselves.
 """
 
+import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 INTERRUPTED_DETAIL = "query interrupted"
+
+# How much of an exception's text a pipeline error keeps for the server
+# log: the tail, where the provider's actual complaint usually sits.
+_DETAIL_TAIL = 500
 
 
 class CodedServiceError(Exception):
@@ -39,6 +46,44 @@ class ServicePipelineError(RuntimeError):
         super().__init__(detail or code)
         self.code = code
         self.detail = detail
+
+
+@contextmanager
+def pipeline_step(
+    error_cls: type[ServicePipelineError],
+    step: str,
+    log_msg: str,
+    *log_args: object,
+    passthrough: tuple[type[BaseException], ...] = (),
+) -> Iterator[None]:
+    """One step of the query or explore pipeline (R1-76): an unexpected
+    failure is logged with its traceback and re-raised as
+    `error_cls(step, <tail of the message>)`; `passthrough` errors are
+    re-raised as they are."""
+    try:
+        yield
+    except passthrough:
+        raise
+    except Exception as exc:
+        logging.getLogger(error_cls.__module__).exception(log_msg, *log_args)
+        raise error_cls(step, str(exc)[-_DETAIL_TAIL:]) from exc
+
+
+class NotIndexedError(CodedServiceError, RuntimeError):
+    """The workspace has no index output to read yet (query, explore).
+    The adapters' own not-indexed errors are translated to this one, so
+    the api layer never imports them (R1-42). Maps to 409."""
+
+    code = "not_indexed"
+
+
+@contextmanager
+def not_indexed_on(*adapter_errors: type[Exception]) -> Iterator[None]:
+    """Translate an adapter's not-indexed error into NotIndexedError."""
+    try:
+        yield
+    except adapter_errors as exc:
+        raise NotIndexedError(str(exc)) from exc
 
 
 class ProjectIndexingError(CodedServiceError, RuntimeError):

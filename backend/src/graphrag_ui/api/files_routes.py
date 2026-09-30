@@ -5,13 +5,7 @@ project:view. Audit actions: file.uploaded / file.deleted
 with payload {name, size}.
 """
 
-import re
-import uuid
-from typing import Annotated
-
-from fastapi import APIRouter, Depends, Request, Response, UploadFile, status
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from fastapi import APIRouter, Depends, Response, UploadFile, status
 
 from graphrag_ui.api.deps import (
     CurrentUser,
@@ -20,168 +14,29 @@ from graphrag_ui.api.deps import (
     ProjectView,
     get_current_user,
 )
-from graphrag_ui.config import get_settings
+from graphrag_ui.api.schemas import (
+    BulkDeleteIn,
+    BulkDeleteOut,
+    FileEntryOut,
+    FileListOut,
+    FileOut,
+    PreviewIn,
+    PreviewOut,
+    TagCatalogOut,
+    TagOut,
+    TagsIn,
+)
 from graphrag_ui.services import file_listing, file_preview, file_tags
 from graphrag_ui.services import files as files_service
-from graphrag_ui.services.file_preview import PASSAGE_MAX_BYTES
 from graphrag_ui.services.files import max_file_bytes
-
-
-class FileOut(BaseModel):
-    name: str
-    size: int
-
-
-class FileEntryOut(BaseModel):
-    name: str
-    # Nullable because a `removed` row has no file behind it (spec 6.1).
-    # Inventing a zero size or the deletion timestamp would let the UI sort
-    # and total them as if they were files.
-    size: int | None
-    modified_at: str | None
-    sha256: str | None
-    index_state: str
-    tags: list[str] = []
-
-
-class FileListOut(BaseModel):
-    files: list[FileEntryOut]
-    usage_bytes: int
-    quota_bytes: int
-    # UPLOAD_MAX_FILE_MB in bytes: the SPA checks a file against it before
-    # sending, and names the limit in the uploader (the server stays the
-    # authority — this only saves a doomed round trip).
-    max_file_bytes: int
-    # Whether `skipped` can be emitted at all, and why not. On the response,
-    # not on each row: it is a property of the artifacts, and repeating it
-    # per file would invite the UI to render it per file (spec 6.3).
-    ingest_check: str
-    has_baseline: bool
-
-
-# Tags are metadata, not input (spec 8): a tag body is curated vocabulary,
-# so each tag is a non-empty bounded string rather than free text.
-_TAG = Annotated[str, StringConstraints(min_length=1, max_length=50)]
-
-
-class TagsIn(BaseModel):
-    # extra="forbid": a body with unknown keys is a caller bug, not a
-    # silently ignored field (same posture as every other body here).
-    model_config = ConfigDict(extra="forbid")
-
-    tags: list[_TAG] = Field(min_length=1)
-
-
-class BulkDeleteIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    # 500 names is the bulk ceiling (spec 8); each name is validated against
-    # the project's whitelist in the service, like every other filename.
-    names: list[str] = Field(min_length=1, max_length=500)
-
-
-class TagOut(BaseModel):
-    name: str
-    count: int
-
-
-class TagCatalogOut(BaseModel):
-    tags: list[TagOut]
-
-
-class BulkDeleteOut(BaseModel):
-    deleted: int
-    bytes: int
-    # Names whose unlink failed: their rows and audit stay, the rest commit.
-    failed: list[str]
-
-
-class PreviewOut(BaseModel):
-    text: str
-    offset: int
-    total_size: int
-    match: bool
-
-
-class PreviewIn(BaseModel):
-    """Exactly one locator form. A partially specified locator is a caller
-    bug, and guessing an interpretation is how the bindings in
-    resolve_stored_passage get bypassed by accident (spec 7.4)."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    result_id: uuid.UUID | None = None
-    entry_id: int | None = None
-    passage: str | None = None
-
-    @model_validator(mode="after")
-    def _exactly_one_form(self) -> "PreviewIn":
-        historic = self.result_id is not None and self.entry_id is not None
-        half = (self.result_id is None) != (self.entry_id is None)
-        adhoc = self.passage is not None
-        if half or (historic and adhoc) or not (historic or adhoc):
-            raise ValueError("provide either {result_id, entry_id} or {passage}")
-        if adhoc:
-            if not self.passage:
-                raise ValueError("passage must not be empty")
-            # The bound is on BYTES: pydantic's string max_length counts
-            # characters, so a CJK passage would pass a character check at
-            # three times the byte budget.
-            if len(self.passage.encode("utf-8")) > PASSAGE_MAX_BYTES:
-                raise ValueError(f"passage exceeds {PASSAGE_MAX_BYTES} bytes")
-        return self
-
-
-# POST /api/projects/{pid}/files — the only upload endpoint (pid is a path
-# segment, so [^/]+ cannot over-match into deeper routes).
-_UPLOAD_PATH = re.compile(r"^/api/projects/[^/]+/files$")
-
-# Multipart framing (boundary + part headers + trailing CRLF) inflates
-# Content-Length slightly beyond the payload; tolerate it so an
-# exactly-at-cap file is not falsely rejected by the early check. The
-# authoritative cap is the streaming limit in save_file.
-_DECLARED_LENGTH_SLACK = 64 * 1024
-
-
-def _register_upload_size_guard(app):
-    """Early 413 on a declared-oversized upload, before the body is read.
-
-    FastAPI parses the whole multipart body ahead of endpoint code, so a
-    check inside upload_file would fire only after a multi-GB body had been
-    spooled and parsed. Rejecting at the middleware layer keeps a hostile
-    POST this cheap: header read, response, done. The header is advisory
-    (may be absent or malformed — chunked uploads fall through); the
-    streaming cap in save_file remains the authoritative limit.
-    """
-
-    @app.middleware("http")
-    async def reject_oversized_uploads(request: Request, call_next):
-        declared = request.headers.get("content-length", "")
-        if (
-            request.method == "POST"
-            and _UPLOAD_PATH.match(request.url.path)
-            and declared.isdigit()
-            and int(declared) > max_file_bytes() + _DECLARED_LENGTH_SLACK
-        ):
-            return JSONResponse(
-                {
-                    "detail": (
-                        f"file exceeds the {get_settings().upload_max_file_mb} MiB upload limit"
-                    ),
-                    "code": "file_too_large",
-                    "params": {"max_mb": get_settings().upload_max_file_mb},
-                },
-                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-            )
-        return await call_next(request)
 
 
 def register_files_routes(app):
     # Same conventions as projects_routes: router built inside the function
     # (create_app() is called repeatedly in tests), auth on the router itself.
     # Service errors (bad name 400, missing file 404, size/quota 413, frozen
-    # project 409) render through the app-level table in api/errors.py.
-    _register_upload_size_guard(app)
+    # project 409) render through the app-level table in api/errors.py; the
+    # early 413 on a declared oversize is api/middleware.UploadSizeGuard.
     router = APIRouter(prefix="/api/projects", dependencies=[Depends(get_current_user)])
 
     @router.post("/{pid}/files", response_model=FileOut, status_code=status.HTTP_201_CREATED)

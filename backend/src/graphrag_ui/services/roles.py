@@ -214,6 +214,22 @@ async def list_roles_for_user(session: AsyncSession, user_id: uuid.UUID) -> list
     )
 
 
+async def global_perms(session: AsyncSession, user_id: uuid.UUID) -> frozenset[str]:
+    """The union of the atoms the user's global roles grant."""
+    rows = (
+        (
+            await session.execute(
+                select(Role.permissions)
+                .join(UserRole, UserRole.role_id == Role.id)
+                .where(UserRole.user_id == user_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return frozenset().union(*rows) if rows else frozenset()
+
+
 async def load_roles(session: AsyncSession, role_ids: list[uuid.UUID]) -> list[Role]:
     # dict.fromkeys: order-preserving dedupe — a repeated id must not
     # produce a second UserRole row (same PK → IntegrityError)

@@ -8,22 +8,22 @@ import jwt
 from fastapi import Depends, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import EmailStr, TypeAdapter, ValidationError
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.adapters.db import get_session_factory
-from graphrag_ui.adapters.models import Project, Role, User, UserRole
+from graphrag_ui.adapters.models import Project, User
 from graphrag_ui.api.errors import ApiError
 from graphrag_ui.config import get_settings
 from graphrag_ui.domain.permissions import Atom, can
 from graphrag_ui.services.auth import get_or_provision_user
 from graphrag_ui.services.projects import get_member_perms
+from graphrag_ui.services.roles import global_perms
 
 _bearer = HTTPBearer(auto_error=False)
 
 # Full set of paths still reachable while must_change_password is true
-# (the password-change flow + endpoints that need no login). Single source:
-# main.py's global middleware and get_current_user share it; neither may drift.
+# (the password-change flow + endpoints that need no login). Checked in
+# _principal_from_token, the one gate both bearer paths go through.
 MUST_CHANGE_ALLOWED_PATHS = frozenset(
     {
         "/api/auth/login",
@@ -75,23 +75,8 @@ class Principal:
         return self.user.must_change_password
 
 
-async def load_global_perms(db: AsyncSession, user_id: uuid.UUID) -> frozenset[str]:
-    rows = (
-        (
-            await db.execute(
-                select(Role.permissions)
-                .join(UserRole, UserRole.role_id == Role.id)
-                .where(UserRole.user_id == user_id)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    return frozenset().union(*rows) if rows else frozenset()
-
-
 async def _principal(db: AsyncSession, user: User) -> Principal:
-    return Principal(user=user, global_perms=await load_global_perms(db, user.id))
+    return Principal(user=user, global_perms=await global_perms(db, user.id))
 
 
 async def get_db():
@@ -169,12 +154,19 @@ async def get_current_user(
         return await resolve_proxy_user(request, db)
     if creds is None:
         raise ApiError(status.HTTP_401_UNAUTHORIZED, "auth_not_authenticated", "Not authenticated")
-    user = await resolve_access_user(creds.credentials, db)
+    return await _principal_from_token(request, db, creds.credentials)
+
+
+async def _principal_from_token(request: Request, db: AsyncSession, token: str) -> Principal:
+    """An access token → Principal: 401 when invalid or expired, 403 while
+    the user must change their password (the backend enforces the forced
+    change, not just the SPA's modal) unless the path is on the allowlist.
+    Both the header and the SSE ?token= paths go through here (R1-104)."""
+    user = await resolve_access_user(token, db)
     if user is None:
         raise ApiError(
             status.HTTP_401_UNAUTHORIZED, "auth_invalid_token", "Invalid or expired token"
         )
-    # The backend must also enforce the forced password change, not just the frontend modal
     if user.must_change_password and request.url.path not in MUST_CHANGE_ALLOWED_PATHS:
         raise ApiError(
             status.HTTP_403_FORBIDDEN, "auth_must_change_password", "password change required"
@@ -231,18 +223,7 @@ async def sse_user_from_request(
     if get_settings().auth_mode == "proxy":
         return await resolve_proxy_user(request, db)
     if token is not None:
-        user = await resolve_access_user(token, db)
-        if user is None:
-            raise ApiError(
-                status.HTTP_401_UNAUTHORIZED, "auth_invalid_token", "Invalid or expired token"
-            )
-        # Mirror get_current_user's forced-change gate so the ?token= path is
-        # not a bypass of that check.
-        if user.must_change_password and request.url.path not in MUST_CHANGE_ALLOWED_PATHS:
-            raise ApiError(
-                status.HTTP_403_FORBIDDEN, "auth_must_change_password", "password change required"
-            )
-        return await _principal(db, user)
+        return await _principal_from_token(request, db, token)
     # No query token: standard Bearer header semantics.
     return await get_current_user(request, creds, db)
 

@@ -3,9 +3,9 @@
 ApiError renders as {"detail": <legacy string>, "code": <stable code>,
 "params": {...}?}. detail stays byte-identical to the pre-i18n contract
 (tests pin it); code/params are additive so unknown-code clients keep
-working. Every user-visible raise site in api/ uses ApiError; the three
-JSONResponse exits (settings 409, must-change guard, upload size guard)
-and the SSE error frame attach code by hand (spec §4.3/§4.4).
+working. Every user-visible raise site in api/ uses ApiError; the two
+JSONResponse exits (settings 409, api/middleware.UploadSizeGuard) and the
+SSE error frames attach code by hand (spec §4.3/§4.4).
 
 Service errors reach the wire through ONE table (R1-11): every
 CodedServiceError subclass has a row in SERVICE_ERROR_STATUS, and the
@@ -22,7 +22,13 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from graphrag_ui.services.env_file import EnvKeyNotFoundError, EnvValidationError
-from graphrag_ui.services.errors import CodedServiceError, JobConflictError, ProjectIndexingError
+from graphrag_ui.services.errors import (
+    CodedServiceError,
+    JobConflictError,
+    NotIndexedError,
+    ProjectIndexingError,
+)
+from graphrag_ui.services.explore import UnknownTableError, UnsupportedFilterError
 from graphrag_ui.services.file_preview import LocatorMismatchError
 from graphrag_ui.services.files import (
     FileServiceError,
@@ -31,12 +37,17 @@ from graphrag_ui.services.files import (
     QuotaExceededError,
 )
 from graphrag_ui.services.jobs import DiskWatermarkError, ProjectOverQuotaError
-from graphrag_ui.services.projects import MemberNotFoundError, MemberOwnerProtectedError
+from graphrag_ui.services.projects import (
+    MemberNotFoundError,
+    MemberOwnerProtectedError,
+    ProjectInitError,
+)
 from graphrag_ui.services.questions import (
     QuestionNotFoundError,
     QuestionSetNotFoundError,
     QuestionSetTooLargeError,
 )
+from graphrag_ui.services.rate_limit import QueryRateLimitedError
 from graphrag_ui.services.roles import (
     LastUserManagerError,
     RoleInUseError,
@@ -46,7 +57,7 @@ from graphrag_ui.services.roles import (
     RolePermissionsInvalidError,
     RoleScopeMismatchError,
 )
-from graphrag_ui.services.settings import SettingsValidationError
+from graphrag_ui.services.settings import DryRunFailedError, SettingsValidationError
 from graphrag_ui.services.test_runs import EmptyQuestionSetError
 from graphrag_ui.services.users import SelfRoleChangeError, UserNotFoundError
 
@@ -107,8 +118,10 @@ SERVICE_ERROR_STATUS: dict[type[CodedServiceError], tuple[int, str | None]] = {
     MemberNotFoundError: (status.HTTP_404_NOT_FOUND, "member not found"),
     QuestionSetNotFoundError: (status.HTTP_404_NOT_FOUND, "question set not found"),
     QuestionNotFoundError: (status.HTTP_404_NOT_FOUND, "question not found"),
+    UnknownTableError: (status.HTTP_404_NOT_FOUND, "unknown table"),
     # 409 — the project's state forbids it right now
     ProjectIndexingError: (status.HTTP_409_CONFLICT, None),
+    NotIndexedError: (status.HTTP_409_CONFLICT, "not indexed yet — run an indexing job first"),
     JobConflictError: (status.HTTP_409_CONFLICT, "this project already has a job in progress"),
     DiskWatermarkError: (status.HTTP_409_CONFLICT, "not enough free disk space"),
     # The upload quota error at enqueue (R3-25): same code, but the project's
@@ -119,6 +132,17 @@ SERVICE_ERROR_STATUS: dict[type[CodedServiceError], tuple[int, str | None]] = {
     # 413 — single-file cap and project quota alike (spec §9)
     FileTooLargeError: (status.HTTP_413_CONTENT_TOO_LARGE, None),
     QuotaExceededError: (status.HTTP_413_CONTENT_TOO_LARGE, None),
+    UnsupportedFilterError: (
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "this table does not support that filter",
+    ),
+    QueryRateLimitedError: (
+        status.HTTP_429_TOO_MANY_REQUESTS,
+        "too many queries — please retry later",
+    ),
+    # 500 — graphrag's CLI could not run (not installed, crashed on init)
+    ProjectInitError: (status.HTTP_500_INTERNAL_SERVER_ERROR, "graphrag init failed"),
+    DryRunFailedError: (status.HTTP_500_INTERNAL_SERVER_ERROR, "graphrag dry-run failed"),
 }
 
 

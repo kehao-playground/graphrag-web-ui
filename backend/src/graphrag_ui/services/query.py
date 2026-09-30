@@ -3,8 +3,8 @@ from the per-project cache → search via the adapter → join citations from
 the returned context frames → shape the response with timings.
 
 Error contract (route maps, service never touches HTTP):
-- QueryRateLimitedError / WorkspaceNotIndexedError re-raised as-is (429/409)
-- ConfigLoadError → QueryError(code="config") (500)
+- QueryRateLimitedError / NotIndexedError are coded service errors (429/409)
+- a config load failure → QueryError(code="config") (500)
 - adapter or frame-load failure → QueryError with the exception tail kept
   SERVER-SIDE only (logger.exception); clients get a fixed message (502)
 """
@@ -29,7 +29,13 @@ from graphrag_ui.services.citations import (
     enrich_sources,
     read_generation,
 )
-from graphrag_ui.services.errors import INTERRUPTED_DETAIL, ServicePipelineError
+from graphrag_ui.services.errors import (
+    INTERRUPTED_DETAIL,
+    NotIndexedError,
+    ServicePipelineError,
+    not_indexed_on,
+    pipeline_step,
+)
 from graphrag_ui.services.projects import ws_path
 from graphrag_ui.services.rate_limit import get_rate_limiter
 
@@ -118,26 +124,31 @@ async def prepare_query(project: Project, method: str, *, config: Any = None) ->
     """
     root = ws_path(project.id)
     if config is None:
-        try:
+        with pipeline_step(
+            QueryError, "config", "query config load failed (project %s)", project.id
+        ):
             # settings.yaml + .env + pydantic validation: file I/O and CPU,
             # so off the loop (R1-73); the adapter memoises per file version
             config = await asyncio.to_thread(load_config, root)
-        except Exception as exc:
-            logger.exception("query config load failed (project %s)", project.id)
-            raise QueryError("config", str(exc)[-500:]) from exc
 
     frames_start = time.perf_counter()
     cache = get_frame_cache()
-    try:
+    # e.g. a corrupt parquet is a 502 whose tail stays server-side
+    with (
+        pipeline_step(
+            QueryError,
+            "search",
+            "frame load failed (project %s, method %s)",
+            project.id,
+            method,
+            passthrough=(NotIndexedError,),
+        ),
+        not_indexed_on(WorkspaceNotIndexedError),
+    ):
         tables = tables_for(method)
         # A cold cache reads each parquet in its own thread; await them together
         loaded = await asyncio.gather(*(cache.get(root, table) for table in tables))
         frames = dict(zip(tables, loaded, strict=True))
-    except WorkspaceNotIndexedError:
-        raise
-    except Exception as exc:  # e.g. corrupt parquet — 502, tail kept server-side
-        logger.exception("frame load failed (project %s, method %s)", project.id, method)
-        raise QueryError("search", str(exc)[-500:]) from exc
     frames_ms = (time.perf_counter() - frames_start) * 1000
     return Prepared(
         root=root, project_id=project.id, config=config, frames=frames, frames_ms=frames_ms
@@ -162,7 +173,9 @@ async def execute_query(
     after the search, so it cannot be read here."""
     exec_start = time.perf_counter()
     search_start = time.perf_counter()
-    try:
+    with pipeline_step(
+        QueryError, "search", "search failed (project %s, method %s)", prepared.root.name, method
+    ):
         answer, context = await GraphragSearchAdapter().search(
             method,
             prepared.config,
@@ -170,9 +183,6 @@ async def execute_query(
             query,
             response_type or DEFAULT_RESPONSE_TYPE,
         )
-    except Exception as exc:
-        logger.exception("search failed (project %s, method %s)", prepared.root.name, method)
-        raise QueryError("search", str(exc)[-500:]) from exc
     search_ms = (time.perf_counter() - search_start) * 1000
 
     citations, citations_ms = await _citations(answer, context, prepared, g0, memo)

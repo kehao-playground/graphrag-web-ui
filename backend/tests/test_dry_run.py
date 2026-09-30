@@ -58,7 +58,7 @@ async def test_dry_run_returns_adapter_result_verbatim(
         seen.append(root)
         return canned
 
-    monkeypatch.setattr("graphrag_ui.api.dry_run_routes.dry_run", fake_dry_run)
+    monkeypatch.setattr("graphrag_ui.services.settings.dry_run", fake_dry_run)
     before = (await db_session.execute(select(AuditLog.id).where(AuditLog.target_id == pid))).all()
 
     r = await client.post(f"/api/projects/{pid}/dry-run", headers=alice)
@@ -79,7 +79,7 @@ async def test_dry_run_viewer_is_forbidden(client, app, monkeypatch):
     async def must_not_run(root):
         raise AssertionError("dry_run must not execute for a viewer")
 
-    monkeypatch.setattr("graphrag_ui.api.dry_run_routes.dry_run", must_not_run)
+    monkeypatch.setattr("graphrag_ui.services.settings.dry_run", must_not_run)
     assert (await client.post(f"/api/projects/{pid}/dry-run", headers=bob)).status_code == 403
 
 
@@ -116,7 +116,7 @@ async def test_dry_run_reports_an_escaping_workspace_without_forking(client, app
     async def must_not_run(root):
         raise AssertionError("dry_run must not execute for an escaping workspace")
 
-    monkeypatch.setattr("graphrag_ui.api.dry_run_routes.dry_run", must_not_run)
+    monkeypatch.setattr("graphrag_ui.services.settings.dry_run", must_not_run)
     path = ws_path(uuid.UUID(pid)) / "settings.yaml"
     path.write_text(path.read_text() + "input_storage:\n  base_dir: /data/workspaces\n")
 
@@ -124,3 +124,17 @@ async def test_dry_run_reports_an_escaping_workspace_without_forking(client, app
     assert r.status_code == 200, r.text
     assert r.json()["ok"] is False
     assert "input_storage.base_dir" in r.json()["output"]
+
+
+async def test_dry_run_cli_failure_is_a_coded_500(client, app, monkeypatch):
+    from graphrag_ui.adapters.workspace import WorkspaceInitError
+
+    _, alice, pid = await _fake_project(client, app)
+
+    async def cli_missing(root):
+        raise WorkspaceInitError("graphrag not found")
+
+    monkeypatch.setattr("graphrag_ui.services.settings.dry_run", cli_missing)
+    r = await client.post(f"/api/projects/{pid}/dry-run", headers=alice)
+    assert r.status_code == 500
+    assert r.json() == {"detail": "graphrag dry-run failed", "code": "dry_run_failed"}

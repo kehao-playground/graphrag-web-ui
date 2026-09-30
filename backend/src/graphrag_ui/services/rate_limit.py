@@ -16,6 +16,7 @@ from functools import lru_cache
 
 from graphrag_ui.config import get_settings
 from graphrag_ui.domain.sliding_window import SlidingWindow
+from graphrag_ui.services.errors import CodedServiceError
 
 WINDOW_SECONDS = 3600.0
 
@@ -27,8 +28,10 @@ MAX_TRACKED_KEYS = 50_000
 _now = time.monotonic
 
 
-class QueryRateLimitedError(RuntimeError):
+class QueryRateLimitedError(CodedServiceError, RuntimeError):
     """(user, project) bucket exceeded QUERY_RATE_LIMIT_PER_HOUR in the last hour."""
+
+    code = "query_rate_limited"
 
 
 class RateLimiter:
