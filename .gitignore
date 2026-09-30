@@ -6,3 +6,7 @@ dist/
 .env
 .worktrees/
 .superpowers/
+# pytest --cov output (coverage config in backend/pyproject.toml)
+.coverage
+.coverage.*
+htmlcov/
