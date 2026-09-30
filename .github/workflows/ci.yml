@@ -144,6 +144,26 @@ jobs:
         run: |
           helm template deploy/helm/graphrag-ui --set ingress.enabled=true --set uploadMaxFileMb=120 \
             | grep -q 'nginx.ingress.kubernetes.io/proxy-body-size: 121m'
+      # R3-16: no ingress backend may point at the api Service. The api
+      # NetworkPolicy admits only the web and oauth2-proxy pods, so a direct
+      # ingress -> api route times out on a policy-enforcing CNI.
+      - name: ingress routes /api through the web service
+        run: |
+          for extra in "" "--set ingress.host=graphrag.example.com --set proxyAuth.enabled=true --set proxyAuth.emailDomains={example.com}"; do
+            # backend service names only (the proxy-mode /api Ingress is itself named *-api)
+            out=$(helm template deploy/helm/graphrag-ui --set ingress.enabled=true $extra \
+              | sed -n '/^kind: Ingress/,/^---/p' | grep -A1 'service:' | grep 'name:')
+            echo "$out" | grep -q 'name: release-name-graphrag-ui-web'
+            if echo "$out" | grep -q 'name: release-name-graphrag-ui-api$'; then
+              echo "ingress routes to the api service ($extra)"; exit 1
+            fi
+          done
+      # R3-30: an existing claim replaces the chart's workspace PVC
+      - name: persistence.existingClaim is mounted and no PVC is created
+        run: |
+          out=$(helm template deploy/helm/graphrag-ui --set persistence.existingClaim=ws-data)
+          echo "$out" | grep -q 'claimName: ws-data'
+          if echo "$out" | grep -q 'graphrag-ui-workspaces'; then echo "chart PVC still rendered"; exit 1; fi
       # proxy-auth misconfigurations fail at render time, not as a 401 wall
       # (R3-17). `if … ; then exit 1` rather than `! …`: bash's errexit
       # ignores a negated pipeline, so `!` would never fail the step.

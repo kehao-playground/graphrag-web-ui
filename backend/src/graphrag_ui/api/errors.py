@@ -30,7 +30,7 @@ from graphrag_ui.services.files import (
     InputFileNotFoundError,
     QuotaExceededError,
 )
-from graphrag_ui.services.jobs import DiskWatermarkError
+from graphrag_ui.services.jobs import DiskWatermarkError, ProjectOverQuotaError
 from graphrag_ui.services.projects import MemberNotFoundError, MemberOwnerProtectedError
 from graphrag_ui.services.questions import (
     QuestionNotFoundError,
@@ -111,6 +111,9 @@ SERVICE_ERROR_STATUS: dict[type[CodedServiceError], tuple[int, str | None]] = {
     ProjectIndexingError: (status.HTTP_409_CONFLICT, None),
     JobConflictError: (status.HTTP_409_CONFLICT, "this project already has a job in progress"),
     DiskWatermarkError: (status.HTTP_409_CONFLICT, "not enough free disk space"),
+    # The upload quota error at enqueue (R3-25): same code, but the project's
+    # state is what refuses, not the request size.
+    ProjectOverQuotaError: (status.HTTP_409_CONFLICT, None),
     RoleNameTakenError: (status.HTTP_409_CONFLICT, "a role with that name already exists"),
     RoleInUseError: (status.HTTP_409_CONFLICT, "role is still granted; unassign it first"),
     # 413 — single-file cap and project quota alike (spec §9)

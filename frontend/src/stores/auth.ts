@@ -64,6 +64,15 @@ export const useAuth = create<AuthState>((set) => ({
     // → 401 → the valid session gets cleared.
     try {
       const cfgR = await fetch("/api/auth/config", { redirect: "manual" });
+      // The api serves /config without auth, so a 401 here is oauth2-proxy
+      // refusing a signed-out browser: proxy mode, sign in at the proxy.
+      // Reached when a cached index.html boots after sign-out (F25-02).
+      if (cfgR.status === 401 || cfgR.type === "opaqueredirect") {
+        localStorage.removeItem(REFRESH_KEY);
+        set({ authMode: "proxy", user: null, accessToken: null, bootstrapping: false });
+        redirectToProxyLogin();
+        return;
+      }
       const cfg = cfgR.ok ? await cfgR.json() : null;
       // config unreachable or malformed: assume local, existing behavior
       const mode = cfg?.auth_mode === "proxy" ? "proxy" : "local";

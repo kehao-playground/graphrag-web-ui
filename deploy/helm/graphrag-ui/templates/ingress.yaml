@@ -40,12 +40,9 @@ spec:
       {{- end }}
       http:
         paths:
-          - path: /api
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "graphrag-ui.fullname" . }}-api
-                port: { number: 80 }
+          # /api included: the web nginx reverse-proxies it to the api (R3-16).
+          # A direct ingress → api route would need the NetworkPolicy to admit
+          # the ingress controller, which no default can name.
           - path: /
             pathType: Prefix
             backend:
@@ -55,7 +52,9 @@ spec:
 {{- else }}
 {{- $apiAnnotations := merge (dict) $shared $authAnnotations .Values.ingress.annotations }}
 {{- $appAnnotations := merge (dict) $shared $authAnnotations (dict "nginx.ingress.kubernetes.io/auth-signin" $auth.signin) .Values.ingress.annotations }}
-# /api sends no signin redirect: fetch clients get 401 instead of an HTML redirect-to-login (spec decision 5)
+# /api sends no signin redirect: fetch clients get 401 instead of an HTML redirect-to-login (spec decision 5).
+# Its own Ingress only for that annotation difference; like / it goes through the web nginx,
+# which forwards the auth-response headers to the api unchanged (R3-16).
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -79,7 +78,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: {{ include "graphrag-ui.fullname" . }}-api
+                name: {{ include "graphrag-ui.fullname" . }}-web
                 port: { number: 80 }
 ---
 # app root: browser navigation still gets the interactive oauth2-proxy login

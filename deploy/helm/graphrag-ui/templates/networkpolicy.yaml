@@ -3,8 +3,9 @@
 # reachable by every pod in the cluster, which means anyone who lands a pod
 # there can (a) talk to the api bypassing the web nginx entirely and (b) set
 # their own X-Forwarded-For, minting a fresh login-rate-limit bucket per
-# attempt. Only the web nginx, the bundled oauth2-proxy and the ingress
-# controller have any business reaching it.
+# attempt. Only the web nginx and the bundled oauth2-proxy have any business
+# reaching it: the ingress routes /api through the web Service (R3-16), so the
+# ingress controller needs no entry here.
 #
 # ⚠ Requires a CNI that enforces NetworkPolicy (Calico/Cilium/Antrea…). On a
 # cluster without one this object is silently inert — the uvicorn

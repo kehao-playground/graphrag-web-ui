@@ -64,14 +64,31 @@ _QUIET_LOGGERS = ("httpx", "LiteLLM", "LiteLLM Router", "LiteLLM Proxy", "graphr
 
 
 _TOKEN_PARAM = re.compile(r"((?:^|[?&])token=)[^&\s]*")
+_PROBE_PATHS = frozenset({"/api/health", "/api/ready"})
 
 
-class _RedactTokenFilter(logging.Filter):
-    """The SSE routes take the access token as `?token=` (EventSource cannot
-    set headers); uvicorn's access line carries the full path, so the token
-    would land in `docker logs api` (R2-25, decision D5)."""
+class _AccessLogFilter(logging.Filter):
+    """Two edits to uvicorn's access lines, whose args are (client, method,
+    full path, http version, status):
+
+    - The SSE routes take the access token as `?token=` (EventSource cannot
+      set headers), so the token would land in `docker logs api` (R2-25,
+      decision D5): its value is redacted.
+    - A successful liveness/readiness probe is dropped (F24-03): the compose
+      healthcheck and the kubelet hit them every few seconds. A failing
+      probe stays — that is the line an operator is looking for."""
 
     def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if (
+            isinstance(args, tuple)
+            and len(args) == 5
+            and isinstance(args[2], str)
+            and args[2].split("?", 1)[0] in _PROBE_PATHS
+            and isinstance(args[4], int)
+            and 200 <= args[4] < 300
+        ):
+            return False
         if isinstance(record.args, tuple) and any(
             isinstance(a, str) and "token=" in a for a in record.args
         ):
@@ -97,8 +114,8 @@ def configure_logging() -> None:
     for name in _QUIET_LOGGERS:
         logging.getLogger(name).setLevel(logging.WARNING)
     access = logging.getLogger("uvicorn.access")
-    if not any(isinstance(f, _RedactTokenFilter) for f in access.filters):
-        access.addFilter(_RedactTokenFilter())
+    if not any(isinstance(f, _AccessLogFilter) for f in access.filters):
+        access.addFilter(_AccessLogFilter())
 
 
 async def _retention_loop(stop: asyncio.Event) -> None:

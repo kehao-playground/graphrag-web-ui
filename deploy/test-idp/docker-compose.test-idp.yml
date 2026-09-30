@@ -1,0 +1,32 @@
+# Test IdP for the proxy-auth overlay (F6-01): Dex with one static user.
+# Local verification only. Run from the repo root, under its own project
+# name so a local-login stack's data is never mixed with proxy mode:
+#
+#   docker compose -p graphrag-idp \
+#     --env-file .env --env-file deploy/test-idp/test-idp.env \
+#     -f docker-compose.yml -f docker-compose.proxy-auth.yml \
+#     -f deploy/test-idp/docker-compose.test-idp.yml up -d --build
+#
+# Sign in at http://localhost:8080 as admin@example.com / test-idp-password.
+services:
+  dex:
+    image: ghcr.io/dexidp/dex:v2.44.0
+    command: ["dex", "serve", "/etc/dex/config.yaml"]
+    ports: ["5556:5556"]   # the browser reaches the issuer here
+    # relative paths resolve from the project directory (the repo root)
+    volumes: ["./deploy/test-idp/dex.yaml:/etc/dex/config.yaml:ro"]
+  # oauth2-proxy must reach the issuer at the same URL the browser uses
+  # (the `iss` claim is checked against it). This forwarder owns a network
+  # namespace that auth joins, so http://localhost:5556 inside auth lands on
+  # dex. It starts first because oauth2-proxy runs OIDC discovery at
+  # startup; it listens dual-stack because auth dials [::1] first. auth's
+  # published port moves here with it.
+  dex-loopback:
+    image: alpine/socat:1.8.0.3
+    command: ["TCP6-LISTEN:5556,fork,reuseaddr,ipv6only=0", "TCP:dex:5556"]
+    ports: ["8080:4180"]
+    depends_on: [dex]
+  auth:
+    network_mode: service:dex-loopback
+    ports: !reset []
+    depends_on: [web, dex-loopback]

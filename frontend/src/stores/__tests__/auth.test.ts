@@ -106,6 +106,30 @@ test("proxy restore(): 401 from /me redirects to /oauth2/start with rd, once", a
   expect(useAuth.getState().bootstrapping).toBe(false);
 });
 
+// F25-02: signed out behind oauth2-proxy, a cached index.html still boots
+// the SPA, and oauth2-proxy answers its /api/auth/config call with 401. The
+// api serves that route without auth, so a 401 can only be the proxy: this
+// is proxy mode with no session, never the local sign-in form.
+test("proxy restore(): a 401 from /config is proxy mode — sign in there, never locally", async () => {
+  const assign = stubLocation();
+  localStorage.setItem("grui_refresh", "stale");
+  const calls: string[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+    calls.push(String(input));
+    return { ok: false, status: 401, type: "basic", json: async () => ({}) } as unknown as Response;
+  }));
+  vi.resetModules();
+  const { useAuth } = await import("../auth");
+
+  await useAuth.getState().restore();
+
+  expect(useAuth.getState().authMode).toBe("proxy");
+  expect(assign).toHaveBeenCalledWith("/oauth2/start?rd=%2Fprojects%3Fx%3D1");
+  expect(calls).toEqual(["/api/auth/config"]); // no local refresh attempt
+  expect(localStorage.getItem("grui_refresh")).toBeNull();
+  expect(useAuth.getState().bootstrapping).toBe(false);
+});
+
 test("proxy logout(): navigates to /oauth2/sign_out with no rd and no server call", async () => {
   const assign = stubLocation();
   const fetchMock = vi.fn();

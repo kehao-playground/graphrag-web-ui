@@ -34,7 +34,7 @@ spec:
             - name: http
               containerPort: 8000
           env:
-            # Seven fixed env vars (spec §8.3), same names shared with docker-compose
+            # Fixed env var names (spec §8.3), shared with docker-compose
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef: { name: {{ include "graphrag-ui.secretName" . }}, key: DATABASE_URL }
@@ -57,6 +57,10 @@ spec:
               valueFrom:
                 secretKeyRef: { name: {{ include "graphrag-ui.secretName" . }}, key: BOOTSTRAP_ADMIN_PASSWORD }
             # Upload/quota/retention limits are plain values, not secrets
+            - name: ACCESS_TOKEN_MINUTES
+              value: {{ .Values.accessTokenMinutes | quote }}
+            - name: REFRESH_TOKEN_DAYS
+              value: {{ .Values.refreshTokenDays | quote }}
             - name: UPLOAD_MAX_FILE_MB
               value: {{ .Values.uploadMaxFileMb | quote }}
             - name: PROJECT_QUOTA_MB
@@ -113,4 +117,4 @@ spec:
       volumes:
         - name: workspaces
           persistentVolumeClaim:
-            claimName: {{ include "graphrag-ui.fullname" . }}-workspaces
+            claimName: {{ .Values.persistence.existingClaim | default (printf "%s-workspaces" (include "graphrag-ui.fullname" .)) }}

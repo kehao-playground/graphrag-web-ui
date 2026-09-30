@@ -27,6 +27,12 @@ services:
     depends_on: [web]
     environment:
       OAUTH2_PROXY_HTTP_ADDRESS: 0.0.0.0:4180
+      # A Docker client proxy (~/.docker/config.json `proxies`) is injected
+      # into every container as HTTP(S)_PROXY; oauth2-proxy would then send
+      # its upstream hop to web through it and answer 502. The IdP calls
+      # still use the proxy — only the in-network upstream is excluded.
+      NO_PROXY: web
+      no_proxy: web
       # /api/* answers 401 instead of a login redirect so the SPA's fetch
       # layer can react (spec decision 5); browser routes keep the redirect
       OAUTH2_PROXY_API_ROUTES: ^/api/

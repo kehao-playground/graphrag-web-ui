@@ -387,6 +387,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{pid}/cache:clear": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Clear Cache
+         * @description Empty the project's graphrag cache/ (the launch warning's action).
+         *     409 job_conflict while any job is queued or running.
+         */
+        post: operations["clear_cache_api_projects__pid__cache_clear_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{pid}/dry-run": {
         parameters: {
             query?: never;
@@ -1079,6 +1100,14 @@ export interface components {
             /** Failed */
             failed: string[];
         };
+        /**
+         * CacheClearOut
+         * @description What POST /projects/{pid}/cache:clear deleted.
+         */
+        CacheClearOut: {
+            /** Freed Bytes */
+            freed_bytes: number;
+        };
         /** CancelOut */
         CancelOut: {
             /** Detail */
@@ -1491,6 +1520,10 @@ export interface components {
             /** Graphrag */
             graphrag: string;
             last_run: components["schemas"]["LastRunOut"] | null;
+            /** Project Quota Mb */
+            project_quota_mb: number;
+            /** Usage Bytes */
+            usage_bytes: number;
         };
         /**
          * PreviewIn
@@ -3100,6 +3133,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ArtifactDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorOut"];
+                };
+            };
+        };
+    };
+    clear_cache_api_projects__pid__cache_clear_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CacheClearOut"];
                 };
             };
             /** @description Validation Error */

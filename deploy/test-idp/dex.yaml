@@ -1,0 +1,29 @@
+# Test identity provider for the proxy-auth overlay — local verification
+# only, never a deployment. Dex serves one static user over plain http;
+# see docs/oauth2-proxy.md "Test IdP". The issuer must be one URL that the
+# browser (on the host) and oauth2-proxy (in its container) both reach:
+# the browser uses the published port, oauth2-proxy a localhost forwarder
+# in its own network namespace (docker-compose.test-idp.yml).
+issuer: http://localhost:5556/dex
+storage:
+  type: memory
+web:
+  http: 0.0.0.0:5556
+oauth2:
+  skipApprovalScreen: true
+staticClients:
+  - id: graphrag-ui-test
+    name: GraphRAG Web UI (test IdP)
+    secret: test-idp-client-secret
+    # 8080 is the overlay's published port; 18080 covers a host whose 8080
+    # is taken (README troubleshooting).
+    redirectURIs:
+      - http://localhost:8080/oauth2/callback
+      - http://localhost:18080/oauth2/callback
+enablePasswordDB: true
+staticPasswords:
+  # password: test-idp-password
+  - email: admin@example.com
+    hash: "$2y$10$OD2ln6PfD.8SkOao/HzHCu7sEZU2UeHvOLkV1o5LUZbIva/wa9bWG"
+    username: admin
+    userID: 7d1c1f7e-2c39-4a8e-9f5a-4f0f6a2d9b11

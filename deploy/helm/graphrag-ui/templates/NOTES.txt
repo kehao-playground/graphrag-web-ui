@@ -29,6 +29,14 @@ GraphRAG Web UI is deployed as release "{{ .Release.Name }}".
 
 3. Check
      kubectl get pods,svc,pvc -n {{ .Release.Namespace }}
+
+4. Operate — upgrades, backup/restore, logs and sizing: README "Operations".
+     api log (job lifecycle, migrations):  kubectl logs -n {{ .Release.Namespace }} deploy/{{ include "graphrag-ui.fullname" . }}-api
+     workspaces PVC to back up:            {{ .Values.persistence.existingClaim | default (printf "%s-workspaces" (include "graphrag-ui.fullname" .)) }}
+
+ℹ One release per namespace: the web nginx reaches the api through a Service literally named
+  `api` (an ExternalName alias to {{ include "graphrag-ui.fullname" . }}-api), so a second release in
+  {{ .Release.Namespace }} would collide with it. Install further copies in their own namespaces.
 {{- if and .Values.postgresql.enabled (eq .Values.postgresql.image.repository "bitnamilegacy/postgresql") }}
 
 ℹ Bundled PostgreSQL: the default image is the frozen bitnamilegacy/postgresql mirror
