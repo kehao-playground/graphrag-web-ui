@@ -7,11 +7,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy import select
 
 from graphrag_ui.adapters.models import Project, ProjectMember, Role, User
-from graphrag_ui.adapters.workspace import (
-    GraphragInitInitializer,
-    WorkspaceInitError,
-    WorkspaceInitializer,
-)
+from graphrag_ui.adapters.workspace import GraphragInitInitializer, WorkspaceInitializer
 from graphrag_ui.api.deps import (
     CurrentUser,
     DbSession,
@@ -105,20 +101,9 @@ def register_projects_routes(app):
         user: CurrentUser,
         initializer: Annotated[WorkspaceInitializer, Depends(get_initializer)],
     ):
-        try:
-            project = await create_project(
-                db,
-                body.name,
-                body.description,
-                body.input_file_type,
-                user.user,
-                initializer,
-            )
-        except WorkspaceInitError:
-            # The service only raises WorkspaceInitError; HTTP conversion belongs to the route layer
-            raise ApiError(
-                status.HTTP_500_INTERNAL_SERVER_ERROR, "init_failed", "graphrag init failed"
-            ) from None
+        project = await create_project(
+            db, body.name, body.description, body.input_file_type, user.user, initializer
+        )
         # the owner membership create_project just wrote
         member_perms = await get_member_perms(db, project.id, user.id)
         return _project_out(project, user.global_perms, member_perms)
@@ -166,12 +151,7 @@ def register_projects_routes(app):
         target = await db.get(User, user_id)
         if target is None:
             raise ApiError(status.HTTP_404_NOT_FOUND, "user_not_found", "user not found")
-        member = await set_member(db, project, user_id, body.role_id, actor_id=user.id)
-        role = await db.get(Role, member.role_id)
-        # set_member_role validated and assigned this role id in the same
-        # transaction, so the row is there; an assert says why rather than
-        # letting a later attribute access raise a bare AttributeError.
-        assert role is not None, "member.role_id was just set from a loaded role"
+        _, role = await set_member(db, project, user_id, body.role_id, actor_id=user.id)
         return MemberOut(
             user_id=str(user_id),
             email=target.email,

@@ -1,7 +1,7 @@
 """Query REST endpoints (spec §6.1): POST /api/projects/{pid}/query for the
 four search modes, GET .../query/stream for SSE streaming. Permission:
-project:view. All failures map to fixed zh-TW details — internals
-stay in server logs (no-leak posture)."""
+project:view. All failures map to fixed messages — internals stay in
+server logs (no-leak posture)."""
 
 import json
 from typing import Annotated, Literal
@@ -10,7 +10,6 @@ from fastapi import APIRouter, Depends, Query, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from graphrag_ui.adapters.frame_cache import WorkspaceNotIndexedError
 from graphrag_ui.api.deps import (
     CurrentUser,
     ProjectView,
@@ -18,11 +17,11 @@ from graphrag_ui.api.deps import (
     SseUser,
     get_current_user,
 )
-from graphrag_ui.api.errors import ApiError
+from graphrag_ui.api.errors import ApiError, api_error_for
 from graphrag_ui.api.schemas import QueryOut
 from graphrag_ui.domain.questions import MAX_QUESTION_CHARS
+from graphrag_ui.services.errors import CodedServiceError
 from graphrag_ui.services.query import QueryError, run_query, stream_query
-from graphrag_ui.services.rate_limit import QueryRateLimitedError
 
 Method = Literal["local", "global", "drift", "basic"]
 
@@ -40,21 +39,11 @@ class QueryIn(BaseModel):
     response_type: str | None = Field(default=None, max_length=MAX_RESPONSE_TYPE_CHARS)
 
 
-def _query_error_http(exc: Exception) -> ApiError:
-    """Single error mapping for both query paths (POST raises it; the stream
-    sends it as its only error frame)."""
-    if isinstance(exc, QueryRateLimitedError):
-        return ApiError(
-            status.HTTP_429_TOO_MANY_REQUESTS,
-            "query_rate_limited",
-            "too many queries — please retry later",
-        )
-    if isinstance(exc, WorkspaceNotIndexedError):
-        return ApiError(
-            status.HTTP_409_CONFLICT, "not_indexed", "not indexed yet — run an indexing job first"
-        )
-    # detail (exception tail) stays server-side; fixed message only
-    if isinstance(exc, QueryError) and exc.code == "config":
+def _query_error_http(exc: QueryError) -> ApiError:
+    """A pipeline failure's fixed message; its detail (exception tail)
+    stays server-side. Coded refusals (rate limit, not indexed) go through
+    the app-level table instead."""
+    if exc.code == "config":
         return ApiError(
             status.HTTP_500_INTERNAL_SERVER_ERROR, "query_config_failed", "failed to load settings"
         )
@@ -91,7 +80,7 @@ def register_query_routes(app):
     async def post_query(project: ProjectView, body: QueryIn, user: CurrentUser):
         try:
             return await run_query(project, user.user, body.method, body.query, body.response_type)
-        except (QueryRateLimitedError, WorkspaceNotIndexedError, QueryError) as exc:
+        except QueryError as exc:
             raise _query_error_http(exc) from None
 
     @sse_router.get("/{pid}/query/stream")
@@ -114,9 +103,12 @@ def register_query_routes(app):
         agen = stream_query(project, user.user, method, query, response_type)
         try:
             first = await anext(agen, None)
-        except (QueryRateLimitedError, WorkspaceNotIndexedError, QueryError) as exc:
+        except (CodedServiceError, QueryError) as exc:
             await agen.aclose()
-            frame = _refusal_frame(_query_error_http(exc))
+            err = _query_error_http(exc) if isinstance(exc, QueryError) else api_error_for(exc)
+            if err is None:  # a coded error without a table row: a server bug
+                raise
+            frame = _refusal_frame(err)
 
             async def refused():
                 yield frame

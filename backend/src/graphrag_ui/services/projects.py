@@ -61,6 +61,12 @@ def ws_path(project_id: uuid.UUID) -> Path:
     return path
 
 
+class ProjectInitError(CodedServiceError, RuntimeError):
+    """`graphrag init` failed; nothing was created. Maps to 500."""
+
+    code = "init_failed"
+
+
 async def create_project(
     session: AsyncSession,
     name: str,
@@ -91,9 +97,9 @@ async def create_project(
     )
     try:
         await initializer.init(ws_path(project.id), input_file_type)
-    except WorkspaceInitError:
-        await session.rollback()  # a failed init leaves no half-baked row; re-raise as-is
-        raise
+    except WorkspaceInitError as e:
+        await session.rollback()  # a failed init leaves no half-baked row
+        raise ProjectInitError("graphrag init failed") from e
     await session.commit()
     return project
 
@@ -232,7 +238,9 @@ async def set_member(
     user_id: uuid.UUID,
     role_id: uuid.UUID,
     actor_id: uuid.UUID | None,
-) -> ProjectMember:
+) -> tuple[ProjectMember, Role]:
+    """Grant or change a member's project role; returns the member row and
+    the role it validated, so callers need not load the role again."""
     if user_id == project.owner_id:
         raise MemberOwnerProtectedError("cannot change or remove the project owner")
     if role_id == ROLE_ID_OWNER:
@@ -256,9 +264,9 @@ async def set_member(
             session, actor_id, "member.role_changed", "project", str(project.id), payload=payload
         )
     else:
-        return member  # same role = no change; no audit
+        return member, role  # same role = no change; no audit
     await session.commit()
-    return member
+    return member, role
 
 
 async def remove_member(

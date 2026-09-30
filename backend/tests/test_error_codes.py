@@ -52,10 +52,8 @@ async def test_login_failure_carries_code(client):
 
 
 async def test_must_change_guard_carries_code(client):
-    # Fresh bootstrap admin starts must_change_password=True; the global
-    # guard 403s any /api path outside the allowlist (main.py §4.4 exit).
-    # The guard only fires when Authorization starts with "Bearer " —
-    # a bare request would 401 in get_current_user instead.
+    # Fresh bootstrap admin starts must_change_password=True;
+    # get_current_user 403s any mounted route outside the allowlist.
     login = await client.post(
         "/api/auth/login", json={"email": "admin@test.local", "password": "admin-pass-123"}
     )

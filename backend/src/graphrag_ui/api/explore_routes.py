@@ -2,45 +2,23 @@
 for server-paginated parquet browsing, full-row detail and the knowledge
 graph. Permission: project:view — the same block as the query routes. Route order is contractual: /artifacts/graph registers BEFORE
 /artifacts/{table}, otherwise "graph" binds to the path parameter. All
-failures map to fixed zh-TW details; adapter tails stay in server logs."""
+refusals render through the app-level table; a failed read maps to one
+fixed message and its adapter tail stays in server logs."""
 
 from fastapi import APIRouter, Depends, Query, status
 
-from graphrag_ui.adapters.artifacts import ArtifactsNotIndexedError
 from graphrag_ui.api.deps import DbSession, ProjectView, get_current_user
 from graphrag_ui.api.errors import ApiError
 from graphrag_ui.api.schemas import ArtifactDetailOut, ArtifactPageOut, GraphOut
 from graphrag_ui.services.explore import (
     ExploreReadError,
-    UnknownTableError,
-    UnsupportedFilterError,
     artifact_detail,
     knowledge_graph,
     list_artifacts,
 )
 
-_ExploreErrors = (
-    UnknownTableError,
-    ArtifactsNotIndexedError,
-    ExploreReadError,
-    UnsupportedFilterError,
-)
 
-
-def _explore_error_http(exc: Exception) -> ApiError:
-    """Single error mapping for every explore route (fixed messages)."""
-    if isinstance(exc, UnknownTableError):
-        return ApiError(status.HTTP_404_NOT_FOUND, "explore_unknown_table", "unknown table")
-    if isinstance(exc, ArtifactsNotIndexedError):
-        return ApiError(
-            status.HTTP_409_CONFLICT, "not_indexed", "not indexed yet — run an indexing job first"
-        )
-    if isinstance(exc, UnsupportedFilterError):
-        return ApiError(
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            "explore_unsupported_filter",
-            "this table does not support that filter",
-        )
+def _read_failed() -> ApiError:
     # detail (exception tail) stays server-side; fixed message only
     return ApiError(
         status.HTTP_502_BAD_GATEWAY, "explore_read_failed", "failed to read the index output"
@@ -61,8 +39,8 @@ def register_explore_routes(app):
     ):
         try:
             return await knowledge_graph(db, project, level)
-        except _ExploreErrors as exc:
-            raise _explore_error_http(exc) from None
+        except ExploreReadError:
+            raise _read_failed() from None
 
     @router.get("/{pid}/artifacts/{table}", response_model=ArtifactPageOut)
     async def list_table(
@@ -86,8 +64,8 @@ def register_explore_routes(app):
                 type_filter=type,
                 community=community,
             )
-        except _ExploreErrors as exc:
-            raise _explore_error_http(exc) from None
+        except ExploreReadError:
+            raise _read_failed() from None
 
     @router.get("/{pid}/artifacts/{table}/{hrid}", response_model=ArtifactDetailOut)
     async def get_row_detail(
@@ -98,8 +76,8 @@ def register_explore_routes(app):
     ):
         try:
             data = await artifact_detail(db, project, table, hrid)
-        except _ExploreErrors as exc:
-            raise _explore_error_http(exc) from None
+        except ExploreReadError:
+            raise _read_failed() from None
         if data is None:
             raise ApiError(status.HTTP_404_NOT_FOUND, "explore_row_not_found", "row not found")
         return data

@@ -4,11 +4,13 @@ while an index/update job is queued or running.
 
 Thin async wrapper over the duckdb adapter: the sync adapter calls run in
 a worker thread (``asyncio.to_thread``) so parquet reads never block the
-event loop. No FastAPI here — failures are domain errors the API layer
-maps to fixed zh-TW details; adapter tails stay in server logs."""
+event loop. No FastAPI here — refusals are coded service errors (the
+app-level table maps them), a failed read is an ExploreReadError the
+routes map to a fixed message; adapter tails stay in server logs."""
 
 import asyncio
-import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,19 +23,27 @@ from graphrag_ui.adapters.artifacts import (
 from graphrag_ui.adapters.models import Project
 from graphrag_ui.config import get_settings
 from graphrag_ui.domain.artifacts import TableSpec, table_spec
-from graphrag_ui.services.errors import ServicePipelineError
+from graphrag_ui.services.errors import (
+    CodedServiceError,
+    NotIndexedError,
+    ServicePipelineError,
+    not_indexed_on,
+    pipeline_step,
+)
 from graphrag_ui.services.jobs import active_job
 from graphrag_ui.services.projects import ws_path
 
-logger = logging.getLogger(__name__)
 
-
-class UnknownTableError(RuntimeError):
+class UnknownTableError(CodedServiceError, LookupError):
     """Table name is not in the artifact registry (HTTP 404)."""
 
+    code = "explore_unknown_table"
 
-class UnsupportedFilterError(RuntimeError):
+
+class UnsupportedFilterError(CodedServiceError, ValueError):
     """Filter param offered on a table whose TableSpec lacks it (HTTP 422)."""
+
+    code = "explore_unsupported_filter"
 
 
 class ExploreReadError(ServicePipelineError):
@@ -42,6 +52,17 @@ class ExploreReadError(ServicePipelineError):
     Mirrors QueryError: ``code`` names the failing step, ``detail`` is the
     truncated exception text — logged server-side, never sent to clients.
     """
+
+
+@contextmanager
+def _read_step(step: str, log_msg: str, *log_args: object) -> Iterator[None]:
+    """A parquet read: not-indexed is the service's 409, anything else an
+    ExploreReadError whose tail stays in the server log."""
+    with (
+        pipeline_step(ExploreReadError, step, log_msg, *log_args, passthrough=(NotIndexedError,)),
+        not_indexed_on(ArtifactsNotIndexedError),
+    ):
+        yield
 
 
 def _guard_table(table: str) -> TableSpec:
@@ -76,7 +97,8 @@ async def list_artifacts(
     if community is not None and not spec.community_filter:
         raise UnsupportedFilterError(f"community filter on {spec.name}")
     stale = await _stale(session, project)
-    try:
+    # corrupt parquet etc. — 502, tail stays logged
+    with _read_step("list", "explore list failed (project %s, table %s)", project.id, table):
         rows, total = await asyncio.to_thread(
             list_rows,
             ws_path(project.id),
@@ -87,11 +109,6 @@ async def list_artifacts(
             type_filter=type_filter,
             community=community,
         )
-    except ArtifactsNotIndexedError:
-        raise
-    except Exception as exc:  # corrupt parquet etc. — 502, tail stays logged
-        logger.exception("explore list failed (project %s, table %s)", project.id, table)
-        raise ExploreReadError("list", str(exc)[-500:]) from exc
     return {"rows": rows, "total": total, "stale": stale}
 
 
@@ -104,13 +121,8 @@ async def artifact_detail(
     """Full row envelope, or None when no row carries the hrid (→ 404)."""
     _guard_table(table)
     stale = await _stale(session, project)
-    try:
+    with _read_step("detail", "explore detail failed (project %s, table %s)", project.id, table):
         row = await asyncio.to_thread(get_row, ws_path(project.id), table, hrid)
-    except ArtifactsNotIndexedError:
-        raise
-    except Exception as exc:
-        logger.exception("explore detail failed (project %s, table %s)", project.id, table)
-        raise ExploreReadError("detail", str(exc)[-500:]) from exc
     return None if row is None else {"row": row, "stale": stale}
 
 
@@ -124,11 +136,6 @@ async def knowledge_graph(
     # back whether it had to cut, so the UI can say so rather than quietly
     # showing a partial graph as if it were the whole one.
     node_limit = get_settings().graph_node_limit
-    try:
+    with _read_step("graph", "explore graph failed (project %s)", project.id):
         data = await asyncio.to_thread(graph, ws_path(project.id), level, node_limit)
-    except ArtifactsNotIndexedError:
-        raise
-    except Exception as exc:
-        logger.exception("explore graph failed (project %s)", project.id)
-        raise ExploreReadError("graph", str(exc)[-500:]) from exc
     return {**data, "stale": stale}

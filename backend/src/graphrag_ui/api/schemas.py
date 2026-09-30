@@ -1,9 +1,20 @@
+import uuid
 from collections.abc import Sequence
 from datetime import datetime
 from typing import Annotated, Any, Literal, Protocol
 from uuid import UUID
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, EmailStr, Field
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    EmailStr,
+    Field,
+    StringConstraints,
+    model_validator,
+)
+
+from graphrag_ui.services.file_preview import PASSAGE_MAX_BYTES
 
 # pydantic 2 does not coerce UUID to str, and the ORM ids are UUIDs: every
 # response id field is declared UuidStr so the wire type stays a plain
@@ -369,3 +380,111 @@ class SettingsConflictOut(BaseModel):
     code: Literal["settings_conflict"]
     current_content: str
     current_hash: str
+
+
+# Project input files (api/files_routes.py, spec §6.3).
+
+
+class FileOut(BaseModel):
+    name: str
+    size: int
+
+
+class FileEntryOut(BaseModel):
+    name: str
+    # Nullable because a `removed` row has no file behind it (spec 6.1).
+    # Inventing a zero size or the deletion timestamp would let the UI sort
+    # and total them as if they were files.
+    size: int | None
+    modified_at: str | None
+    sha256: str | None
+    index_state: str
+    tags: list[str] = []
+
+
+class FileListOut(BaseModel):
+    files: list[FileEntryOut]
+    usage_bytes: int
+    quota_bytes: int
+    # UPLOAD_MAX_FILE_MB in bytes: the SPA checks a file against it before
+    # sending, and names the limit in the uploader (the server stays the
+    # authority — this only saves a doomed round trip).
+    max_file_bytes: int
+    # Whether `skipped` can be emitted at all, and why not. On the response,
+    # not on each row: it is a property of the artifacts, and repeating it
+    # per file would invite the UI to render it per file (spec 6.3).
+    ingest_check: str
+    has_baseline: bool
+
+
+# Tags are metadata, not input (spec 8): a tag body is curated vocabulary,
+# so each tag is a non-empty bounded string rather than free text.
+_TAG = Annotated[str, StringConstraints(min_length=1, max_length=50)]
+
+
+class TagsIn(BaseModel):
+    # extra="forbid": a body with unknown keys is a caller bug, not a
+    # silently ignored field (same posture as every other body here).
+    model_config = ConfigDict(extra="forbid")
+
+    tags: list[_TAG] = Field(min_length=1)
+
+
+class BulkDeleteIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # 500 names is the bulk ceiling (spec 8); each name is validated against
+    # the project's whitelist in the service, like every other filename.
+    names: list[str] = Field(min_length=1, max_length=500)
+
+
+class TagOut(BaseModel):
+    name: str
+    count: int
+
+
+class TagCatalogOut(BaseModel):
+    tags: list[TagOut]
+
+
+class BulkDeleteOut(BaseModel):
+    deleted: int
+    bytes: int
+    # Names whose unlink failed: their rows and audit stay, the rest commit.
+    failed: list[str]
+
+
+class PreviewOut(BaseModel):
+    text: str
+    offset: int
+    total_size: int
+    match: bool
+
+
+class PreviewIn(BaseModel):
+    """Exactly one locator form. A partially specified locator is a caller
+    bug, and guessing an interpretation is how the bindings in
+    resolve_stored_passage get bypassed by accident (spec 7.4)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    result_id: uuid.UUID | None = None
+    entry_id: int | None = None
+    passage: str | None = None
+
+    @model_validator(mode="after")
+    def _exactly_one_form(self) -> "PreviewIn":
+        historic = self.result_id is not None and self.entry_id is not None
+        half = (self.result_id is None) != (self.entry_id is None)
+        adhoc = self.passage is not None
+        if half or (historic and adhoc) or not (historic or adhoc):
+            raise ValueError("provide either {result_id, entry_id} or {passage}")
+        if adhoc:
+            if not self.passage:
+                raise ValueError("passage must not be empty")
+            # The bound is on BYTES: pydantic's string max_length counts
+            # characters, so a CJK passage would pass a character check at
+            # three times the byte budget.
+            if len(self.passage.encode("utf-8")) > PASSAGE_MAX_BYTES:
+                raise ValueError(f"passage exceeds {PASSAGE_MAX_BYTES} bytes")
+        return self

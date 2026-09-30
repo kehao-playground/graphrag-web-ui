@@ -10,7 +10,10 @@ functions on purpose:
 - `adapters/` never imports `services` or `api`;
 - `graphrag*` is imported only by `adapters/graphrag_search.py` (the
   env-shielded in-process entry; indexing forks the CLI);
-- `duckdb` is imported only under `adapters/`.
+- `duckdb` is imported only under `adapters/`;
+- `api/` reaches adapters only for ORM types and the session factory
+  (`adapters.models`, `adapters.db`), plus the workspace initializer the
+  projects routes inject (R1-42): everything else goes through services.
 """
 
 import ast
@@ -21,6 +24,8 @@ SRC = Path(__file__).resolve().parents[1] / "src" / "graphrag_ui"
 PKG = "graphrag_ui"
 
 GRAPHRAG_SITES = {"adapters/graphrag_search.py"}
+API_ADAPTER_MODULES = {f"{PKG}.adapters.models", f"{PKG}.adapters.db"}
+API_ADAPTER_EXTRA = {"api/projects_routes.py": {f"{PKG}.adapters.workspace"}}
 
 
 def imported_modules(source: str, module: str) -> set[str]:
@@ -59,6 +64,12 @@ def violations(rel: str, modules: set[str]) -> list[str]:
             out.append(f"{rel}: adapters imports {mod}")
         if top.startswith("graphrag") and top != PKG and rel not in GRAPHRAG_SITES:
             out.append(f"{rel}: graphrag import {mod} outside {sorted(GRAPHRAG_SITES)}")
+        if (
+            layer == "api"
+            and own_layer == "adapters"
+            and mod not in API_ADAPTER_MODULES | API_ADAPTER_EXTRA.get(rel, set())
+        ):
+            out.append(f"{rel}: api imports {mod}")
         if top == "duckdb" and layer != "adapters":
             out.append(f"{rel}: duckdb import outside adapters/")
     return out
@@ -86,6 +97,8 @@ def test_checker_catches_each_rule() -> None:
         ("adapters/x.py", "def f():\n    from graphrag.api import query"): "graphrag import",
         ("services/x.py", "import graphrag_common"): "graphrag import",
         ("services/x.py", "import duckdb"): "duckdb import outside",
+        ("api/x.py", "from graphrag_ui.adapters.job_logs import tail_log"): "api imports",
+        ("api/x.py", "from graphrag_ui.adapters.workspace import dry_run"): "api imports",
     }
     for (rel, source), expected in cases.items():
         dotted = ".".join([PKG, *rel.removesuffix(".py").split("/")])

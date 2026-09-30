@@ -1,6 +1,5 @@
 from datetime import timedelta
 
-from graphrag_ui import main
 from graphrag_ui.api import auth_routes
 from graphrag_ui.domain.sliding_window import SlidingWindow
 from graphrag_ui.services import auth as auth_service
@@ -155,9 +154,6 @@ async def test_me_returns_current_user(client):
     # change-password must be blocked
     assert (await client.get("/api/auth/me", headers=hdr)).json()["email"] == "admin@test.local"
     assert (await client.get("/api/admin/users", headers=hdr)).status_code == 403
-    # A path with no mounted route is blocked 403 by the global middleware
-    # (not 404) — proves the guard is registered
-    assert (await client.get("/api/no-such-route", headers=hdr)).status_code == 403
 
 
 async def test_logout_revokes(client):
@@ -186,49 +182,3 @@ async def test_bootstrap_admin_warns_when_admin_already_exists(db_session, app, 
         await bootstrap_admin(db_session)  # second run: admin exists -> warn
     assert "BOOTSTRAP_ADMIN_PASSWORD" in caplog.text
     assert "admin@test.local" in caplog.text
-
-
-async def test_must_change_guard_skips_the_db_for_mounted_routes(client, monkeypatch):
-    """The guard exists to turn a 404 into a 403 on paths that have no route.
-
-    For everything that *does* have a route, get_current_user already runs
-    the identical check, so the guard was decoding the JWT and opening a
-    second session per request purely to reach the same answer — the auth
-    query, doubled on every authenticated call.
-
-    Patching main's name only affects the middleware: deps.get_current_user
-    resolves through its own module-level reference.
-    """
-    calls = []
-    real = main.resolve_access_user
-
-    async def counting(token, db):
-        calls.append(token)
-        return await real(token, db)
-
-    monkeypatch.setattr(main, "resolve_access_user", counting)
-    body = (
-        await client.post(
-            "/api/auth/login", json={"email": "admin@test.local", "password": "admin-pass-123"}
-        )
-    ).json()
-    hdr = {"Authorization": f"Bearer {body['access_token']}"}
-
-    assert (await client.get("/api/admin/users", headers=hdr)).status_code == 403
-    assert calls == []  # the mounted route's own dependency answered it
-
-    assert (await client.get("/api/no-such-route", headers=hdr)).status_code == 403
-    assert len(calls) == 1  # only the unrouted path pays for the lookup
-
-
-async def test_guard_still_403s_an_unrouted_path_with_a_wrong_method(client):
-    # A path that exists but rejects the method must not fall through to the
-    # guard's DB check either — 405 is the route's answer, not a leak.
-    body = (
-        await client.post(
-            "/api/auth/login", json={"email": "admin@test.local", "password": "admin-pass-123"}
-        )
-    ).json()
-    hdr = {"Authorization": f"Bearer {body['access_token']}"}
-    r = await client.delete("/api/admin/users", headers=hdr)
-    assert r.status_code in (403, 405)

@@ -5,6 +5,7 @@ The hash is sha256 of the file BYTES on disk (hex) — content is compared as
 bytes so trailing-newline or encoding drift never fools the lock.
 """
 
+import asyncio
 import hashlib
 import uuid
 from pathlib import Path
@@ -14,6 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.adapters.models import Project, SettingsVersion
+from graphrag_ui.adapters.workspace import WorkspaceInitError, dry_run
 from graphrag_ui.adapters.workspace_env import read_workspace_env, substitute_placeholders
 from graphrag_ui.domain.settings_confinement import confinement_violations, input_pin_violations
 from graphrag_ui.services.audit import audit
@@ -140,6 +142,27 @@ def check_workspace_settings(project: Project) -> None:
     Sync file reads — callers run it in a thread."""
     content, _ = read_settings(project)
     validate_settings_content(ws_path(project.id), content, project.input_file_type)
+
+
+class DryRunFailedError(CodedServiceError, RuntimeError):
+    """The dry-run CLI could not run at all (not installed). Maps to 500."""
+
+    code = "dry_run_failed"
+
+
+async def dry_run_project(project: Project) -> dict:
+    """`graphrag index --dry-run` on the project (spec §6.2): {ok, output}.
+    A validation failure is data (ok=false), never an error. An escaping
+    settings.yaml is one such failure, and the CLI is never forked on it
+    (R2-03)."""
+    try:
+        await asyncio.to_thread(check_workspace_settings, project)
+    except SettingsValidationError as e:
+        return {"ok": False, "output": str(e)}
+    try:
+        return await dry_run(ws_path(project.id))
+    except WorkspaceInitError as e:
+        raise DryRunFailedError("graphrag dry-run failed") from e
 
 
 async def _commit_settings(

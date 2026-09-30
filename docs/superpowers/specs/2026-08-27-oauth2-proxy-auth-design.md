@@ -253,9 +253,10 @@ mode would be unreachable (login disabled).
 - `AUTH_MODE=proxy`: the router registers **only** `GET /api/auth/me`
   and `GET /api/auth/config`. `login`, `refresh`, `logout`,
   `change-password` are not registered → 404 (Starlette default).
-  Login rate limiting, `_LOGIN_FAILURES`, and the
-  must-change-password middleware in `main.py` are all skipped — the
-  middleware guard is simply not registered.
+  Login rate limiting and `_LOGIN_FAILURES` are skipped. (The
+  must-change-password middleware this item also named was removed in
+  fix wave F30; the forced change is enforced by the token path of
+  `get_current_user`, which proxy mode never takes.)
 - `GET /api/auth/config` (public, both modes): returns
   `{"auth_mode": "local" | "proxy"}`. This is the SPA's single source
   of truth for mode detection; response model `AuthConfigOut` lives in

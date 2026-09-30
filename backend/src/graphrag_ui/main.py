@@ -5,15 +5,12 @@ import re
 import shutil
 from contextlib import asynccontextmanager, suppress
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
-from starlette.routing import Match
 
 from graphrag_ui.adapters.db import get_session_factory
 from graphrag_ui.api.audit_routes import register_audit_routes
 from graphrag_ui.api.auth_routes import register_auth_routes
-from graphrag_ui.api.deps import MUST_CHANGE_ALLOWED_PATHS, resolve_access_user
 from graphrag_ui.api.dry_run_routes import register_dry_run_routes
 from graphrag_ui.api.env_routes import register_env_routes
 from graphrag_ui.api.errors import (
@@ -27,6 +24,7 @@ from graphrag_ui.api.files_routes import register_files_routes
 from graphrag_ui.api.health_project_routes import register_health_project_routes
 from graphrag_ui.api.health_routes import register_health_routes
 from graphrag_ui.api.jobs_routes import register_jobs_routes
+from graphrag_ui.api.middleware import UploadSizeGuard
 from graphrag_ui.api.openapi import install_error_schema
 from graphrag_ui.api.projects_routes import register_projects_routes
 from graphrag_ui.api.query_routes import register_query_routes
@@ -35,7 +33,6 @@ from graphrag_ui.api.roles_routes import register_roles_routes
 from graphrag_ui.api.settings_routes import register_settings_routes
 from graphrag_ui.api.test_runs_routes import register_test_runs_routes
 from graphrag_ui.api.users_routes import register_users_routes
-from graphrag_ui.config import get_settings
 from graphrag_ui.services.auth import bootstrap_admin
 from graphrag_ui.services.errors import CodedServiceError
 
@@ -157,53 +154,6 @@ async def lifespan(app: FastAPI):
         await asyncio.wait_for(app.state.runner_task, timeout=5)
 
 
-def _has_mounted_route(app: FastAPI, request: Request) -> bool:
-    """Does any mounted route claim this request's path?
-
-    Match.PARTIAL counts: the path exists and only the method is wrong, so
-    the router answers with 405 and nothing about the route is leaked.
-    """
-    return any(route.matches(request.scope)[0] is not Match.NONE for route in app.router.routes)
-
-
-def _register_must_change_guard(app: FastAPI) -> None:
-    """Global guard for the forced password change (spec: the backend must
-    also enforce it, not just the frontend modal).
-
-    get_current_user (deps.py) performs the same check on every protected
-    endpoint, but it only runs when the route exists and declares that
-    dependency; paths that have not yet mounted a get_current_user dependency
-    get an early 403 here instead of a 404 that would leak the route.
-    Invalid tokens are not intercepted here — the endpoint's get_current_user
-    returns 401.
-
-    Which is exactly why the DB lookup below is gated on the path having no
-    route: for every real endpoint get_current_user reaches the identical
-    answer from the request's own session, so doing it here as well decoded
-    the JWT and opened a second session on every authenticated request just
-    to duplicate work. Route matching is an in-memory regex scan.
-    """
-
-    @app.middleware("http")
-    async def must_change_password_guard(request: Request, call_next):
-        path = request.url.path
-        auth = request.headers.get("Authorization", "")
-        if (
-            path.startswith("/api")
-            and path not in MUST_CHANGE_ALLOWED_PATHS
-            and auth.startswith("Bearer ")
-            and not _has_mounted_route(app, request)
-        ):
-            async with get_session_factory()() as session:
-                user = await resolve_access_user(auth[7:], session)
-            if user is not None and user.must_change_password:
-                return JSONResponse(
-                    {"detail": "password change required", "code": "auth_must_change_password"},
-                    status_code=403,
-                )
-        return await call_next(request)
-
-
 def create_app() -> FastAPI:
     configure_logging()
     app = FastAPI(title="GraphRAG Web UI", lifespan=lifespan)
@@ -223,6 +173,7 @@ def create_app() -> FastAPI:
     register_audit_routes(app)
     register_projects_routes(app)
     register_files_routes(app)
+    app.add_middleware(UploadSizeGuard)
     register_env_routes(app)
     register_settings_routes(app)
     register_jobs_routes(app)
@@ -231,7 +182,5 @@ def create_app() -> FastAPI:
     register_questions_routes(app)
     register_test_runs_routes(app)
     register_explore_routes(app)
-    if get_settings().auth_mode == "local":
-        _register_must_change_guard(app)
     install_error_schema(app)
     return app

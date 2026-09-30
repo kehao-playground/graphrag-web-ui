@@ -5,16 +5,19 @@ import asyncio
 import logging
 import shutil
 import uuid
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from pathlib import Path
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.adapters import jobs_repo
+from graphrag_ui.adapters.db import get_session_factory
+from graphrag_ui.adapters.index_runner import log_path_for
+from graphrag_ui.adapters.job_logs import tail_log
 from graphrag_ui.adapters.models import Job, Project, User
 from graphrag_ui.config import get_settings
-from graphrag_ui.domain.jobs import build_argv
+from graphrag_ui.domain.jobs import TERMINAL_STATUSES, build_argv
 from graphrag_ui.services.audit import audit
 from graphrag_ui.services.errors import CodedServiceError, JobConflictError
 from graphrag_ui.services.files import QuotaExceededError, quota_bytes, usage_bytes
@@ -111,6 +114,27 @@ async def cancel(session: AsyncSession, job: Job, actor: User) -> bool:
 
 async def get_job(session: AsyncSession, job_id: uuid.UUID) -> Job | None:
     return await jobs_repo.get_job(session, job_id)
+
+
+async def log_events(job: Job, start: int) -> AsyncIterator[tuple[str, int, str]]:
+    """The job's log from byte `start`: ("log", end offset, text) per chunk
+    while the job runs, then one ("done", offset, final status).
+
+    Liveness is polled in fresh sessions: the caller's request-scoped
+    session may close once its response starts streaming."""
+
+    async def finished() -> bool:
+        async with get_session_factory()() as s:
+            fresh = await jobs_repo.get_job(s, job.id)
+        return fresh is None or fresh.status in TERMINAL_STATUSES
+
+    pos = start
+    log_path = log_path_for(ws_path(job.project_id), job.id)
+    async for pos, chunk in tail_log(log_path, start, finished=finished):
+        yield "log", pos, chunk.decode(errors="replace")
+    async with get_session_factory()() as s:
+        final = await jobs_repo.get_job(s, job.id)
+    yield "done", pos, final.status if final is not None else "terminal"
 
 
 async def list_jobs(
