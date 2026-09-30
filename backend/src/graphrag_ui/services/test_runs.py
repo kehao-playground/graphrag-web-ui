@@ -1,33 +1,21 @@
-"""Batch execution of test_run jobs (spec 5.3/7.2/7.3).
+"""Test runs (spec 5.3/7.2/7.3): enqueue and the read models. The worker
+that executes a run lives in services/test_run_worker.py, ratings in
+services/ratings.py.
 
 The manifest is materialized at enqueue, not at execution: between POST
 /test-runs and the worker claiming the job the set can be edited, so the
 placeholder test_results rows ARE the manifest — ordered, immutable, and
 already the thing the worker fills in. jobs.params carries only {run_id}.
-
-Recording the configuration honestly takes more than a settings hash: the
-effective configuration also depends on .env, and the digest and the load
-are two independent reads — the worker therefore takes the project lock
-briefly at start, computes the digest and loads the config inside it, then
-releases. The lock is never held for the run.
 """
 
-import asyncio
-import hashlib
 import logging
 import uuid
-from collections.abc import Callable
-from datetime import UTC, datetime
-from pathlib import Path
-from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.adapters import jobs_repo
-from graphrag_ui.adapters.db import get_session_factory
-from graphrag_ui.adapters.index_runner import RunResult
 from graphrag_ui.adapters.models import (
     Job,
     Project,
@@ -37,24 +25,14 @@ from graphrag_ui.adapters.models import (
     TestRun,
     User,
 )
-from graphrag_ui.services import query as query_service
+from graphrag_ui.domain.jobs import CLI_JOB_TYPES
 from graphrag_ui.services.audit import audit
-from graphrag_ui.services.citations import CitationMemo, read_generation
 from graphrag_ui.services.errors import CodedServiceError
 from graphrag_ui.services.jobs import JobConflictError
 from graphrag_ui.services.project_lock import lock_project
-from graphrag_ui.services.query import _execute_query, _prepare_query
 from graphrag_ui.services.questions import live_questions
 
 logger = logging.getLogger(__name__)
-
-# What a failed question's row says. Fixed, like the interactive query
-# path's messages (spec A7): the exception carries provider error bodies,
-# URLs and workspace paths, and every project viewer reads this row — the
-# cause stays in the server log with the run id and position (R2-07).
-QUESTION_FAILED_ERROR = "query failed"
-
-_INDEX_JOB_TYPES = ("index", "update")
 
 
 class EmptyQuestionSetError(CodedServiceError, RuntimeError):
@@ -69,40 +47,6 @@ async def _commit_manifest(session: AsyncSession) -> None:
     await session.commit()
 
 
-def _load_run_config(root: Path) -> Any:
-    # Module-level seam for the digest-vs-load interleaving test. Resolves
-    # query.load_config at call time so its tests can count loads.
-    return query_service.load_config(root)
-
-
-def _framed(name: str, data: bytes | None) -> bytes:
-    length = -1 if data is None else len(data)
-    return name.encode() + b"\n" + str(length).encode() + b"\n" + (data or b"")
-
-
-def workspace_config_revision(root: Path) -> str:
-    """sha256 over a canonical FRAMING of settings.yaml and .env, in that
-    fixed order: name || b"\\n" || length || b"\\n" || bytes, with a missing
-    file length -1 and an empty file length 0.
-
-    Not a concatenation: without a length delimiter, moving a line from the
-    end of settings.yaml to the start of .env would produce the same digest,
-    and a deleted .env would be indistinguishable from an empty one.
-
-    The name says workspace, not effective: settings.yaml and .env are the
-    whole placeholder input (adapters/workspace_env.py), but the graphrag
-    version and the operator's subprocess passthrough (proxy, CA bundle)
-    are outside the digest. Being a sha256 of file bytes, it identifies a
-    configuration without exposing any value in it (spec 7.2).
-    """
-    digest = hashlib.sha256()
-    for name in ("settings.yaml", ".env"):
-        path = root / name
-        data = path.read_bytes() if path.is_file() else None
-        digest.update(_framed(name, data))
-    return digest.hexdigest()
-
-
 async def _last_successful_index_job(
     session: AsyncSession, project_id: uuid.UUID
 ) -> uuid.UUID | None:
@@ -114,7 +58,7 @@ async def _last_successful_index_job(
             select(Job.id)
             .where(
                 Job.project_id == project_id,
-                Job.type.in_(_INDEX_JOB_TYPES),
+                Job.type.in_(CLI_JOB_TYPES),
                 Job.status == "succeeded",
             )
             .order_by(Job.finished_at.desc().nulls_last(), Job.id.desc())
@@ -179,119 +123,6 @@ async def enqueue_run(
         await session.rollback()
         raise JobConflictError(project_id) from None
     return run
-
-
-async def execute_test_run(
-    job_id: uuid.UUID, root: Path, *, cancel_requested: Callable[[], bool]
-) -> RunResult:
-    """Execute one test_run job to a terminal RunResult (runner_loop contract).
-
-    Short-lived sessions throughout, mirroring runner_loop. The project lock
-    is held only for the config capture at start; each question's result row
-    and its progress tick commit together between questions, so a crash
-    leaves at most the current question unanswered.
-    """
-    factory = get_session_factory()
-    async with factory() as s:
-        job = await jobs_repo.get_job(s, job_id)
-        run_id = (job.params or {}).get("run_id") if job is not None else None
-        run = await s.get(TestRun, uuid.UUID(run_id)) if run_id else None
-        if job is None or run is None:
-            return RunResult(
-                status="failed",
-                exit_code=None,
-                error="test_run job does not reference a known run",
-                stats=None,
-            )
-        project = await s.get(Project, run.project_id)
-        if project is None:
-            return RunResult(
-                status="failed", exit_code=None, error="run references no project", stats=None
-            )
-        # Brief lock: digest and load land in the same critical section, so
-        # the recorded revision cannot describe a configuration the run did
-        # not load (spec 7.2). Released at this transaction's commit.
-        await lock_project(s, project.id)
-        revision = workspace_config_revision(root)
-        config = await asyncio.to_thread(_load_run_config, root)
-        run.started_at = datetime.now(UTC)
-        run.workspace_config_revision = revision
-        await s.commit()
-
-    # G0 ONCE for the whole run, read before the preamble frame load
-    # (spec 7.4): every question's G1 is evaluated against this one, so a
-    # rebuild landing anywhere inside the run withholds every later link.
-    # The memo is run-scoped: at most one resolver call per question, only
-    # for ids no earlier question already resolved, and one baseline read.
-    g0 = await read_generation(project.id)
-    memo = CitationMemo()
-
-    # One preamble for the whole run: Prepared.config is reused for every
-    # question, so an edit to settings.yaml or .env mid-batch cannot change
-    # what the later questions execute against.
-    prepared = await _prepare_query(project, run.method, config=config)
-
-    async with factory() as s:
-        placeholders = list(
-            (
-                await s.execute(
-                    select(TestResult)
-                    .where(TestResult.run_id == run.id)
-                    .order_by(TestResult.position)
-                )
-            )
-            .scalars()
-            .all()
-        )
-    total = len(placeholders)
-    done = 0
-    cancelled = False
-    for row in placeholders:
-        if cancel_requested():
-            # Leave the remainder honestly NULL — the matrix renders it as
-            # not run, not as an empty answer (spec 5.3).
-            cancelled = True
-            break
-        try:
-            body = await _execute_query(
-                prepared, run.method, row.question_text, None, g0=g0, memo=memo
-            )
-            answer, citations, timings, error = (
-                body["answer"],
-                body["citations"],
-                body["timings"],
-                None,
-            )
-        except Exception:  # one bad question must not fail the run
-            logger.exception("test_run question failed (run %s, position %s)", run.id, row.position)
-            answer, citations, timings = None, None, None
-            error = QUESTION_FAILED_ERROR
-        # Row and progress tick in ONE commit: done can never advertise a
-        # question whose answer is not yet durable.
-        async with factory() as s:
-            done += 1
-            await s.execute(
-                update(TestResult)
-                .where(TestResult.id == row.id)
-                .values(
-                    answer=answer,
-                    citations=citations,
-                    timings=timings,
-                    error=error,
-                    completed_at=datetime.now(UTC),
-                )
-            )
-            await jobs_repo.set_progress(s, job_id, done, total)
-
-    async with factory() as s:
-        await s.execute(
-            update(TestRun).where(TestRun.id == run.id).values(finished_at=datetime.now(UTC))
-        )
-        await s.commit()
-
-    return RunResult(
-        status="cancelled" if cancelled else "succeeded", exit_code=None, error=None, stats=None
-    )
 
 
 async def get_run(session: AsyncSession, run_id: uuid.UUID) -> TestRun | None:
@@ -363,60 +194,3 @@ async def run_matrix(
         )
     ordered = sorted(by_lineage.items(), key=lambda item: first_seen[item[0]])
     return runs, [(lineage_id, cells) for lineage_id, cells in ordered]
-
-
-async def result_with_project(
-    session: AsyncSession, result_id: uuid.UUID
-) -> tuple[TestResult, uuid.UUID] | None:
-    """A result and its run's project id — the authz resolution path for
-    ratings (spec 8): permission is checked against the row's OWN project."""
-    row = (
-        await session.execute(
-            select(TestResult, TestRun.project_id)
-            .join(TestRun, TestRun.id == TestResult.run_id)
-            .where(TestResult.id == result_id)
-        )
-    ).first()
-    return None if row is None else (row[0], row[1])
-
-
-async def rate_result(
-    session: AsyncSession, result: TestResult, score: str, note: str, actor: User
-) -> ResultRating:
-    """Upsert the result's ONE current rating and audit test.rated (spec 5.3).
-
-    Project-shared, not per-user: a colleague must see the judgement this
-    writes. Who changed what is carried by the audit log, not by row
-    versioning, so re-rating overwrites the same row.
-    """
-    result_id = result.id
-    actor_id = actor.id
-    now = datetime.now(UTC)
-    rating = ResultRating(
-        result_id=result_id, score=score, note=note, rated_by=actor_id, rated_at=now
-    )
-    session.add(rating)
-    try:
-        await audit(
-            session, actor_id, "test.rated", "test_result", str(result_id), {"score": score}
-        )
-        await session.commit()
-        return rating
-    except IntegrityError:
-        # Lost the unique(result_id) race — or re-rating an existing row.
-        # Insert-and-map, never check-then-insert (models.py posture): a
-        # check-then-insert upsert turns two concurrent first-ratings into
-        # an unmapped 500 for the loser.
-        await session.rollback()
-        existing = (
-            await session.execute(select(ResultRating).where(ResultRating.result_id == result_id))
-        ).scalar_one()
-        existing.score = score
-        existing.note = note
-        existing.rated_by = actor_id
-        existing.rated_at = now
-        await audit(
-            session, actor_id, "test.rated", "test_result", str(result_id), {"score": score}
-        )
-        await session.commit()
-        return existing

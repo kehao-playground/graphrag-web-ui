@@ -54,7 +54,9 @@ async def _is_referenced(session: AsyncSession, question_id: uuid.UUID) -> bool:
     ).scalar() is not None
 
 
-async def _set_or_raise(session: AsyncSession, project_id: uuid.UUID, set_id: uuid.UUID):
+async def _set_or_raise(
+    session: AsyncSession, project_id: uuid.UUID, set_id: uuid.UUID
+) -> QuestionSet:
     qs = (
         await session.execute(
             select(QuestionSet).where(
@@ -290,17 +292,7 @@ async def live_questions(
     neither the listing route nor a run's manifest can read across projects.
     Raises QuestionSetNotFoundError for an unknown or archived set: enqueueing a
     run against a set that is gone is a caller error, not an empty run."""
-    qs = (
-        await session.execute(
-            select(QuestionSet).where(
-                QuestionSet.id == set_id,
-                QuestionSet.project_id == project_id,
-                QuestionSet.archived_at.is_(None),
-            )
-        )
-    ).scalar_one_or_none()
-    if qs is None:
-        raise QuestionSetNotFoundError(f"no live question set {set_id} in project {project_id}")
+    await _set_or_raise(session, project_id, set_id)
     return list(
         (
             await session.execute(

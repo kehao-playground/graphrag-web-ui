@@ -25,10 +25,10 @@ from sqlalchemy import select
 
 from graphrag_ui.adapters.artifacts import resolve_document_titles
 from graphrag_ui.adapters.db import get_session_factory
-from graphrag_ui.adapters.models import IndexSnapshot, Job, Project
+from graphrag_ui.adapters.models import IndexSnapshot, Project
 from graphrag_ui.domain.artifacts import recover_filename
 from graphrag_ui.services.index_snapshots import baseline_row, entries_of
-from graphrag_ui.services.project_lock import FREEZING_JOB_TYPES
+from graphrag_ui.services.project_lock import freezing_job
 
 logger = logging.getLogger(__name__)
 
@@ -56,17 +56,7 @@ async def read_generation(project_id: uuid.UUID) -> Generation:
                 )
             )
         ).one()
-        active = (
-            await s.execute(
-                select(Job.id)
-                .where(
-                    Job.project_id == project_id,
-                    Job.status.in_(("queued", "running")),
-                    Job.type.in_(FREEZING_JOB_TYPES),
-                )
-                .limit(1)
-            )
-        ).scalar_one_or_none()
+        active = await freezing_job(s, project_id)
     return Generation(row[0], int(row[1]), active is not None)
 
 

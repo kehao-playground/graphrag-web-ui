@@ -31,8 +31,8 @@ from graphrag_ui.adapters.models import (
     ProjectFile,
 )
 from graphrag_ui.domain.artifacts import recover_filenames, title_column_configured
+from graphrag_ui.domain.jobs import FREEZING_JOB_TYPES
 from graphrag_ui.services.input_scan import cached_scans, scan_input
-from graphrag_ui.services.project_lock import FREEZING_JOB_TYPES
 from graphrag_ui.services.projects import ws_path
 
 

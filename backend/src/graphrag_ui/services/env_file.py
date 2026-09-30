@@ -11,6 +11,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.adapters.models import Project
+from graphrag_ui.adapters.workspace_env import read_workspace_env
 from graphrag_ui.domain.env_keys import is_reserved_env_key
 from graphrag_ui.services.audit import audit
 from graphrag_ui.services.errors import CodedServiceError
@@ -96,12 +97,9 @@ def referenced_key_missing(project: Project) -> bool:
     referenced = set(string.Template(path.read_text()).get_identifiers())
     if not referenced:
         return False
-    values: dict[str, str] = {}
-    for raw in _read_lines(project):
-        line = raw.strip()
-        if line and not line.startswith("#") and "=" in line:
-            key, _, value = line.partition("=")
-            values[key.strip()] = value
+    # The loader's own view of the .env (python-dotenv, reserved keys
+    # dropped), so this check and graphrag agree on what is set.
+    values = read_workspace_env(ws_path(project.id))
     return any(key not in values or is_placeholder(values[key]) for key in referenced)
 
 

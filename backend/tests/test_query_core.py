@@ -1,7 +1,7 @@
 """The shared query core (spec 7.2): the preamble and the tail are shared;
 the two searches are not.
 
-The limiter placement is the load-bearing assertion. If _execute_query
+The limiter placement is the load-bearing assertion. If execute_query
 carried the limiter, a 20-question batch would consume an entire
 interactive bucket and could be rejected mid-set, leaving a partial run -
 which is the whole reason batch execution is a job.
@@ -113,13 +113,13 @@ def fake_cache(monkeypatch):
     return cache
 
 
-async def test_execute_query_applies_no_limiter(project, fake_adapter, fake_cache):
+async def testexecute_query_applies_no_limiter(project, fake_adapter, fake_cache):
     limiter = get_rate_limiter()
     for _ in range(limiter.limit_per_hour):
         limiter.check("u1", str(project.id))
 
-    prepared = await query_service._prepare_query(project, "local")
-    body = await query_service._execute_query(
+    prepared = await query_service.prepare_query(project, "local")
+    body = await query_service.execute_query(
         prepared, "local", "q", None, g0=Generation(None, 0, False)
     )
     assert body["answer"]
@@ -138,8 +138,8 @@ async def test_run_query_and_the_core_produce_identical_bodies(
     project, user, fake_adapter, fake_cache
 ):
     direct = await query_service.run_query(project, user, "local", "q")
-    prepared = await query_service._prepare_query(project, "local")
-    core = await query_service._execute_query(
+    prepared = await query_service.prepare_query(project, "local")
+    core = await query_service.execute_query(
         prepared, "local", "q", None, g0=Generation(None, 0, False)
     )
     assert direct["answer"] == core["answer"]
@@ -147,7 +147,7 @@ async def test_run_query_and_the_core_produce_identical_bodies(
     assert set(direct["timings"]) == set(core["timings"])
 
 
-async def test_prepare_query_reuses_a_caller_supplied_config(
+async def testprepare_query_reuses_a_caller_supplied_config(
     project, fake_adapter, fake_cache, monkeypatch
 ):
     """A run loads its configuration ONCE. settings.yaml and .env are frozen
@@ -163,8 +163,8 @@ async def test_prepare_query_reuses_a_caller_supplied_config(
 
     monkeypatch.setattr(query_service, "load_config", counting)
 
-    first = await query_service._prepare_query(project, "local")
-    await query_service._prepare_query(project, "local", config=first.config)
+    first = await query_service.prepare_query(project, "local")
+    await query_service.prepare_query(project, "local", config=first.config)
     assert loads["n"] == 1
 
 
@@ -192,14 +192,14 @@ async def test_config_loads_off_the_loop_and_frames_load_concurrently(project, m
     tables = tables_for("local")
     monkeypatch.setattr(query_service, "load_config", loading)
     monkeypatch.setattr(query_service, "get_frame_cache", lambda: BarrierCache(len(tables)))
-    prepared = await query_service._prepare_query(project, "local")
+    prepared = await query_service.prepare_query(project, "local")
     assert len(threads) == 1 and threads[0] is not threading.main_thread()
     assert {name: df["table"][0] for name, df in prepared.frames.items()} == {t: t for t in tables}
 
 
 async def test_streaming_still_streams(project, user, fake_adapter, fake_cache):
     """Regression guard: stream_query must remain an async generator with
-    chunk -> citations -> done, not a wrapper around _execute_query."""
+    chunk -> citations -> done, not a wrapper around execute_query."""
     kinds = [kind async for kind, _ in query_service.stream_query(project, user, "local", "q")]
     assert kinds[0] == "chunk"
     assert kinds[-2:] == ["citations", "done"]

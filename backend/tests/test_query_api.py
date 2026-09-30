@@ -315,8 +315,7 @@ async def test_invalid_body_422(client, app, fake_adapter, fake_cache):
 
 def test_query_errors_share_base():
     """Task 8 (spec A7): QueryError and ExploreReadError share one
-    ServicePipelineError base; code/detail contract unchanged, and
-    ExploreReadError's historical ``tail`` name still reads through."""
+    ServicePipelineError base; code/detail contract unchanged."""
     from graphrag_ui.services.errors import INTERRUPTED_DETAIL, ServicePipelineError
     from graphrag_ui.services.explore import ExploreReadError
     from graphrag_ui.services.query import QueryError
@@ -326,7 +325,7 @@ def test_query_errors_share_base():
     e = QueryError("search", "boom")
     assert (e.code, e.detail) == ("search", "boom")
     explore = ExploreReadError("list", "tail text")
-    assert (explore.code, explore.detail, explore.tail) == ("list", "tail text", "tail text")
+    assert (explore.code, explore.detail) == ("list", "tail text")
     assert INTERRUPTED_DETAIL == "query interrupted"
 
 

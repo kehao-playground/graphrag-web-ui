@@ -22,10 +22,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.adapters.models import Job, Project
+from graphrag_ui.domain.jobs import ACTIVE_STATUSES, FREEZING_JOB_TYPES
 from graphrag_ui.services.errors import ProjectIndexingError
-
-FREEZING_JOB_TYPES: tuple[str, ...] = ("index", "update")
-_ACTIVE = ("queued", "running")
 
 
 async def lock_project(session: AsyncSession, project_id: uuid.UUID) -> None:
@@ -34,28 +32,21 @@ async def lock_project(session: AsyncSession, project_id: uuid.UUID) -> None:
     await session.execute(select(Project.id).where(Project.id == project_id).with_for_update())
 
 
+async def active_job(
+    session: AsyncSession, project_id: uuid.UUID, types: tuple[str, ...] | None = None
+) -> Job | None:
+    """A queued/running job of one of `types`; None means any type, test_run
+    included - the predicate for work that must not overlap a job of any
+    type (project deletion)."""
+    stmt = select(Job).where(Job.project_id == project_id, Job.status.in_(ACTIVE_STATUSES))
+    if types is not None:
+        stmt = stmt.where(Job.type.in_(types))
+    return (await session.execute(stmt.limit(1))).scalar_one_or_none()
+
+
 async def freezing_job(session: AsyncSession, project_id: uuid.UUID) -> Job | None:
-    return (
-        await session.execute(
-            select(Job)
-            .where(
-                Job.project_id == project_id,
-                Job.status.in_(_ACTIVE),
-                Job.type.in_(FREEZING_JOB_TYPES),
-            )
-            .limit(1)
-        )
-    ).scalar_one_or_none()
-
-
-async def active_job(session: AsyncSession, project_id: uuid.UUID) -> Job | None:
-    """Any queued/running job, test_run included - the predicate for work
-    that must not overlap a job of any type (project deletion)."""
-    return (
-        await session.execute(
-            select(Job).where(Job.project_id == project_id, Job.status.in_(_ACTIVE)).limit(1)
-        )
-    ).scalar_one_or_none()
+    """The active index/update job that freezes input/, if any."""
+    return await active_job(session, project_id, FREEZING_JOB_TYPES)
 
 
 async def assert_input_unfrozen(session: AsyncSession, project_id: uuid.UUID) -> None:

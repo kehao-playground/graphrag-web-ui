@@ -26,7 +26,7 @@ from graphrag_ui.services.auth import (
     verify_password,
 )
 from graphrag_ui.services.auth import change_password as change_password_service
-from graphrag_ui.services.roles import roles_for_user
+from graphrag_ui.services.roles import list_roles_for_user
 
 # Login rate limiting: in-memory sliding window keyed by (ip, lowercased
 # email), counting only **failed** attempts — successful logins never fill a
@@ -83,7 +83,7 @@ def register_auth_routes(app):
 
     @router.get("/me", response_model=UserOut)
     async def me(user: CurrentUser, db: DbSession):
-        return user_out(user.user, await roles_for_user(db, user.user.id))
+        return user_out(user.user, await list_roles_for_user(db, user.user.id))
 
     if get_settings().auth_mode == "proxy":
         # Proxy mode replaces the local login surface entirely (spec §5.3):
@@ -106,7 +106,7 @@ def register_auth_routes(app):
         return LoginOut(
             access_token=create_access_token(user),
             refresh_token=await issue_refresh_token(db, user.id),
-            user=user_out(user, await roles_for_user(db, user.id)),
+            user=user_out(user, await list_roles_for_user(db, user.id)),
         )
 
     @router.post("/refresh", response_model=RefreshOut)

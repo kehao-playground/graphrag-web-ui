@@ -19,11 +19,11 @@ from graphrag_ui.adapters.db import get_session_factory
 from graphrag_ui.adapters.index_runner import IndexRunner, RunResult, log_path_for
 from graphrag_ui.adapters.models import Job
 from graphrag_ui.config import get_settings
+from graphrag_ui.domain.jobs import FREEZING_JOB_TYPES
 from graphrag_ui.services import index_snapshots
-from graphrag_ui.services.project_lock import FREEZING_JOB_TYPES
 from graphrag_ui.services.projects import ws_path
 from graphrag_ui.services.retention import prune_update_output
-from graphrag_ui.services.test_runs import execute_test_run
+from graphrag_ui.services.test_run_worker import execute_test_run
 
 _HEARTBEAT_S = 10.0
 _STALE_AFTER_S = 60.0

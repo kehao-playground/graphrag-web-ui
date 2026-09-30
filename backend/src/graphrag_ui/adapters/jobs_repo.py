@@ -11,9 +11,7 @@ from sqlalchemy import CursorResult, Result, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.adapters.models import Job, TestRun
-from graphrag_ui.domain.jobs import TERMINAL_STATUSES
-
-_ACTIVE = ("queued", "running")
+from graphrag_ui.domain.jobs import ACTIVE_STATUSES, TERMINAL_STATUSES
 
 logger = logging.getLogger(__name__)
 
@@ -154,7 +152,7 @@ async def finish(
 async def _terminal_update(session: AsyncSession, job_id: uuid.UUID, values: dict) -> bool:
     res = await session.execute(
         update(Job)
-        .where(Job.id == job_id, Job.status.in_(_ACTIVE))
+        .where(Job.id == job_id, Job.status.in_(ACTIVE_STATUSES))
         .values(**values, finished_at=func.now())
     )
     if _rowcount(res) == 0:
@@ -234,7 +232,7 @@ async def count_running(session: AsyncSession) -> int:
     ).scalar_one()
 
 
-async def last_finished(session: AsyncSession, project_id: uuid.UUID) -> Job | None:
+async def last_succeeded(session: AsyncSession, project_id: uuid.UUID) -> Job | None:
     return (
         await session.execute(
             select(Job)

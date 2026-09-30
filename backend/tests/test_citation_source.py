@@ -34,7 +34,7 @@ from graphrag_ui.services import citations as citations_service
 from graphrag_ui.services import query as query_service
 from graphrag_ui.services.projects import ws_path
 from graphrag_ui.services.rate_limit import reset_rate_limiter
-from graphrag_ui.services.test_runs import execute_test_run
+from graphrag_ui.services.test_run_worker import execute_test_run
 from tests.citation_fixtures import (
     UNIT_TEXT,
     FakeFrameCache,

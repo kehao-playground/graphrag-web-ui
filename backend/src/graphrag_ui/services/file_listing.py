@@ -20,6 +20,21 @@ from graphrag_ui.services.project_lock import lock_project
 from graphrag_ui.services.projects import ws_path
 
 
+def discovered_row(
+    project_id: uuid.UUID, name: str, sha256: str, size: int, *, mtime_ns: int | None = None
+) -> ProjectFile:
+    """The row for a file found in input/ without one (copied in, not
+    uploaded): no uploader, stamped discovered now."""
+    return ProjectFile(
+        project_id=project_id,
+        name=name,
+        sha256=sha256,
+        size=size,
+        mtime_ns=mtime_ns,
+        discovered_at=datetime.now(UTC),
+    )
+
+
 async def list_files(session: AsyncSession, project: Project) -> dict:
     """The Documents listing: file_listings for one project plus each
     on-disk file's tags (a `removed` document has no row and no tags)."""
@@ -185,15 +200,13 @@ async def _sync_file_rows(
                 )
             ).scalars()
         )
-        now = datetime.now(UTC)
         session.add_all(
-            ProjectFile(
-                project_id=pid,
-                name=name,
-                sha256=scans[pid][name].sha256,
-                size=scans[pid][name].size,
+            discovered_row(
+                pid,
+                name,
+                scans[pid][name].sha256,
+                scans[pid][name].size,
                 mtime_ns=scans[pid][name].cache_mtime_ns,
-                discovered_at=now,
             )
             for name in names
             if name not in tracked

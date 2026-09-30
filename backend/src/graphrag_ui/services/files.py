@@ -25,6 +25,7 @@ from graphrag_ui.adapters.models import Project, ProjectFile
 from graphrag_ui.config import get_settings
 from graphrag_ui.services.audit import audit
 from graphrag_ui.services.errors import CodedServiceError
+from graphrag_ui.services.fs_stats import MIB, tree_bytes
 from graphrag_ui.services.input_scan import CHUNK_BYTES
 from graphrag_ui.services.project_lock import input_mutation
 from graphrag_ui.services.projects import ws_path
@@ -74,9 +75,6 @@ class InputFileNotFoundError(CodedServiceError, LookupError):
     code = "file_not_found"
 
 
-_MIB = 1024 * 1024
-
-
 def _safe_name(project_input_file_type: str, filename: str) -> str:
     """Validate a client-supplied filename; returns the name unchanged.
 
@@ -124,32 +122,20 @@ def input_file(project: Project, filename: str) -> tuple[str, Path]:
 _UPLOAD_TMP_PREFIX = ".tmp-"
 
 
-def _dir_size(path: Path) -> int:
-    """Recursive byte size; 0 when the directory does not exist yet.
-    In-flight upload tmp files are skipped: they are not stored yet, and
-    counting a concurrent upload's partial bytes would refuse uploads that
-    fit."""
-    if not path.exists():
-        return 0
-    return sum(
-        p.stat().st_size
-        for p in path.rglob("*")
-        if p.is_file() and not p.name.startswith(_UPLOAD_TMP_PREFIX)
-    )
-
-
 def quota_bytes() -> int:
-    return get_settings().project_quota_mb * _MIB
+    return get_settings().project_quota_mb * MIB
 
 
 def max_file_bytes() -> int:
-    return get_settings().upload_max_file_mb * _MIB
+    return get_settings().upload_max_file_mb * MIB
 
 
 def _usage_bytes_sync(project: Project) -> int:
     """input/ + output/ both count against the project quota (spec §10)."""
     root = ws_path(project.id)
-    return _dir_size(root / "input") + _dir_size(root / "output")
+    # In-flight upload tmp files are skipped: they are not stored yet, and
+    # counting a concurrent upload's partial bytes would refuse uploads that fit.
+    return sum(tree_bytes(root / d, skip_prefix=_UPLOAD_TMP_PREFIX) for d in ("input", "output"))
 
 
 async def usage_bytes(project: Project) -> int:

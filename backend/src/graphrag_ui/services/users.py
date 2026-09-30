@@ -1,7 +1,7 @@
 import uuid
 
 from sqlalchemy import delete as sa_delete
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.adapters.models import Role, User, UserRole
@@ -9,10 +9,11 @@ from graphrag_ui.services.audit import audit
 from graphrag_ui.services.auth import hash_password, normalize_email, revoke_all_for_user
 from graphrag_ui.services.errors import CodedServiceError
 from graphrag_ui.services.roles import (
+    USERS_MANAGE,
     LastUserManagerError,
+    has_active_manager,
+    list_roles_for_user,
     load_roles,
-    other_active_manager_count,
-    roles_for_user,
     validate_global_roles,
 )
 
@@ -95,7 +96,7 @@ async def create_user(
 
 
 async def _user_grant_names(session: AsyncSession, user_id: uuid.UUID) -> list[str]:
-    return sorted(r.name for r in await roles_for_user(session, user_id))
+    return sorted(r.name for r in await list_roles_for_user(session, user_id))
 
 
 async def update_user(
@@ -103,17 +104,17 @@ async def update_user(
     user: User,
     *,
     display_name: str | None = None,
-    role_ids: list[uuid.UUID] | None = None,
+    roles: list[Role] | None = None,
     is_active: bool | None = None,
     actor_id: uuid.UUID | None,
 ) -> User:
+    """Apply a patch. `roles` arrive loaded and validated (load_roles +
+    validate_global_roles) by the caller."""
     changed: dict = {}
     if display_name is not None and display_name != user.display_name:
         user.display_name = display_name
         changed["display_name"] = display_name
-    if role_ids is not None:
-        roles = await load_roles(session, role_ids)
-        validate_global_roles(roles)
+    if roles is not None:
         names = sorted(r.name for r in roles)
         if names != await _user_grant_names(session, user.id):
             await session.execute(sa_delete(UserRole).where(UserRole.user_id == user.id))
@@ -146,33 +147,20 @@ async def reset_password(
     await session.commit()
 
 
-async def _holds_users_manage(session: AsyncSession, user_id: uuid.UUID) -> bool:
-    return (
-        await session.execute(
-            select(func.count())
-            .select_from(UserRole)
-            .join(Role, Role.id == UserRole.role_id)
-            .where(UserRole.user_id == user_id, Role.permissions.contains(["users:manage"]))
-        )
-    ).scalar_one() > 0
-
-
 async def _loses_last_manager(
-    session: AsyncSession, user: User, role_ids: list[uuid.UUID] | None, is_active: bool | None
+    session: AsyncSession, user: User, roles: list[Role] | None, is_active: bool | None
 ) -> bool:
     """True when this mutation would take the system to zero ACTIVE
     users:manage holders (spec §6.2). Only the target's loss matters:
     if they keep the atom post-change, nothing is lost."""
-    if not await _holds_users_manage(session, user.id):
+    if not await has_active_manager(session, user_id=user.id):
         return False
     keeps = is_active is not False
-    if role_ids is not None:
-        roles = await load_roles(session, role_ids)
-        validate_global_roles(roles)
-        keeps = keeps and any("users:manage" in (r.permissions or []) for r in roles)
+    if roles is not None:
+        keeps = keeps and any(USERS_MANAGE in (r.permissions or []) for r in roles)
     if keeps:
         return False
-    return await other_active_manager_count(session, user.id) == 0
+    return not await has_active_manager(session, exclude_user_id=user.id)
 
 
 async def patch_user_guarded(
@@ -190,13 +178,17 @@ async def patch_user_guarded(
     user = await get_user(session, user_id)
     if user.id == actor_id and (role_ids is not None or is_active is not None):
         raise SelfRoleChangeError("cannot change your own roles or active status")
-    if await _loses_last_manager(session, user, role_ids, is_active):
+    roles = None
+    if role_ids is not None:
+        roles = await load_roles(session, role_ids)
+        validate_global_roles(roles)
+    if await _loses_last_manager(session, user, roles, is_active):
         raise LastUserManagerError("cannot remove the last active holder of users:manage")
     return await update_user(
         session,
         user,
         display_name=display_name,
-        role_ids=role_ids,
+        roles=roles,
         is_active=is_active,
         actor_id=actor_id,
     )

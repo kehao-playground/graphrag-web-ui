@@ -270,7 +270,7 @@ async def test_a_batch_run_is_guarded_identically(
 ):
     """services/test_runs.py persists what it resolved, so an unguarded
     batch would write the wrong filename into history permanently."""
-    from graphrag_ui.services.test_runs import execute_test_run
+    from graphrag_ui.services.test_run_worker import execute_test_run
 
     async with park_before_documents_read() as parked:
         task = asyncio.create_task(
