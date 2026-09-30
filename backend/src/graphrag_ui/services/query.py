@@ -107,13 +107,13 @@ class Prepared:
     frames_ms: float
 
 
-async def _prepare_query(project: Project, method: str, *, config: Any = None) -> Prepared:
+async def prepare_query(project: Project, method: str, *, config: Any = None) -> Prepared:
     """Config load (or reuse a caller-supplied one) -> frames -> frames_ms.
 
     No limiter and no user on purpose: this is the part the batch service
     shares with the interactive paths, and the batch is bounded by
     MAX_CONCURRENT_JOBS instead (spec 7.3). The `config` parameter exists
-    so services/test_runs.py can load configuration once at worker start
+    so services/test_run_worker.py can load configuration once at worker start
     and reuse it for every question.
     """
     root = ws_path(project.id)
@@ -144,7 +144,7 @@ async def _prepare_query(project: Project, method: str, *, config: Any = None) -
     )
 
 
-async def _execute_query(
+async def execute_query(
     prepared: Prepared,
     method: str,
     query: str,
@@ -197,7 +197,7 @@ async def _preamble(project: Project, user: User, method: str) -> tuple[Generati
     enrichment performs after the search), then config and frames."""
     get_rate_limiter().check(str(user.id), str(project.id))
     g0 = await read_generation(project.id)
-    return g0, await _prepare_query(project, method)
+    return g0, await prepare_query(project, method)
 
 
 async def _citations(
@@ -237,7 +237,7 @@ async def run_query(
     """Run one four-mode query; returns the API response body (never raises HTTP)."""
     total_start = time.perf_counter()
     g0, prepared = await _preamble(project, user, method)
-    body = await _execute_query(prepared, method, query, response_type, g0=g0)
+    body = await execute_query(prepared, method, query, response_type, g0=g0)
     # total_ms spans the whole interactive request (limiter + preamble +
     # search), so it is measured from run_query's own entry.
     body["timings"]["total_ms"] = (time.perf_counter() - total_start) * 1000

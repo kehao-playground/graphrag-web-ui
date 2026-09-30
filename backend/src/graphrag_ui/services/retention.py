@@ -55,9 +55,10 @@ async def sweep_job_logs(session, now: datetime) -> dict:
                 continue
             # log_path_for mkdirs parents — skip deleted projects so the
             # sweep never recreates their workspace dirs.
-            if not ws_path(project_id).is_dir():
+            ws = ws_path(project_id)
+            if not ws.is_dir():
                 continue
-            log = log_path_for(ws_path(project_id), job_id)
+            log = log_path_for(ws, job_id)
             if log.is_file():
                 log.unlink()
                 deleted += 1

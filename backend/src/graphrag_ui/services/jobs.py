@@ -18,6 +18,7 @@ from graphrag_ui.domain.jobs import build_argv
 from graphrag_ui.services.audit import audit
 from graphrag_ui.services.errors import CodedServiceError, JobConflictError
 from graphrag_ui.services.files import QuotaExceededError, quota_bytes, usage_bytes
+from graphrag_ui.services.fs_stats import MIB, tree_bytes, workspaces_free_bytes
 from graphrag_ui.services.project_lock import active_job, lock_project
 from graphrag_ui.services.projects import ws_path
 from graphrag_ui.services.settings import check_workspace_settings
@@ -48,12 +49,8 @@ async def enqueue(
     # prompts or the vector store outside this workspace (SettingsValidationError).
     await asyncio.to_thread(check_workspace_settings, project)
     settings = get_settings()
-    # Measure the workspaces ROOT (spec §6.1), not the possibly-missing
-    # project dir; create the root if needed so disk_usage has a target.
-    ws_root = Path(settings.workspaces_dir).resolve()
-    ws_root.mkdir(parents=True, exist_ok=True)
-    free = (await asyncio.to_thread(shutil.disk_usage, ws_root)).free
-    if free < settings.disk_watermark_mb * 1024 * 1024:
+    free = await workspaces_free_bytes()
+    if free < settings.disk_watermark_mb * MIB:
         raise DiskWatermarkError(str(free))
     if await usage_bytes(project) > quota_bytes():
         raise ProjectOverQuotaError(settings.project_quota_mb)
@@ -112,11 +109,11 @@ async def cancel(session: AsyncSession, job: Job, actor: User) -> bool:
     return True
 
 
-async def get(session: AsyncSession, job_id: uuid.UUID) -> Job | None:
+async def get_job(session: AsyncSession, job_id: uuid.UUID) -> Job | None:
     return await jobs_repo.get_job(session, job_id)
 
 
-async def list_for_project(
+async def list_jobs(
     session: AsyncSession,
     project_id: uuid.UUID,
     *,
@@ -151,7 +148,7 @@ async def clear_cache(session: AsyncSession, project: Project, actor: User) -> i
         await session.rollback()
         raise JobConflictError(project_id)
     cache = ws_path(project.id) / "cache"
-    freed = await asyncio.to_thread(_tree_bytes, cache)
+    freed = await asyncio.to_thread(tree_bytes, cache)
     await audit(session, actor.id, "cache.cleared", "project", project_id, {"freed_bytes": freed})
     await session.flush()
     try:
@@ -164,18 +161,10 @@ async def clear_cache(session: AsyncSession, project: Project, actor: User) -> i
     return freed
 
 
-def _tree_bytes(path: Path) -> int:
-    # Sync on purpose: preflight runs it inside one to_thread hop (spec A4).
-    if not path.exists():
-        return 0
-    return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
-
-
 async def preflight(session: AsyncSession, project: Project) -> dict:
     settings = get_settings()
     root = ws_path(project.id)
-    ws_root = Path(settings.workspaces_dir).resolve()
-    last = await jobs_repo.last_finished(session, project.id)
+    last = await jobs_repo.last_succeeded(session, project.id)
     last_run = None
     if last is not None and last.stats:
         # stats keys may be absent on partial runs — keep fields None-safe.
@@ -191,10 +180,10 @@ async def preflight(session: AsyncSession, project: Project) -> dict:
     return {
         "active_job": await active_job(session, project.id),
         "last_run": last_run,
-        "cache_bytes": await asyncio.to_thread(_tree_bytes, root / "cache"),
+        "cache_bytes": await asyncio.to_thread(tree_bytes, root / "cache"),
         "cache_quota_mb": settings.cache_quota_mb,
         "usage_bytes": await usage_bytes(project),
         "project_quota_mb": settings.project_quota_mb,
-        "disk_free_mb": (await asyncio.to_thread(shutil.disk_usage, ws_root)).free // (1024 * 1024),
+        "disk_free_mb": await workspaces_free_bytes() // MIB,
         "disk_watermark_mb": settings.disk_watermark_mb,
     }

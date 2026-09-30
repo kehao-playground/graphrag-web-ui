@@ -7,8 +7,8 @@ the same permissions @> containment the users service uses.
 
 import uuid
 
+from sqlalchemy import Select, func, select
 from sqlalchemy import delete as sa_delete
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.adapters.models import ProjectMember, Role, User, UserRole
@@ -22,6 +22,7 @@ _ATOMS_BY_SCOPE: dict[str, frozenset[str]] = {
     "global": frozenset(a.value for a in GLOBAL_ATOMS if a is not Atom.projects_create),
     "project": frozenset(a.value for a in PROJECT_ATOMS),
 }
+USERS_MANAGE = Atom.users_manage.value
 
 
 class RoleNotFoundError(CodedServiceError, LookupError):
@@ -190,9 +191,7 @@ async def usage_counts(session: AsyncSession) -> dict[uuid.UUID, dict[str, int]]
         role_id: count
         for role_id, count in (
             await session.execute(
-                select(ProjectMember.role_id, func.count())
-                .where(ProjectMember.role_id.is_not(None))  # nullable until R2
-                .group_by(ProjectMember.role_id)
+                select(ProjectMember.role_id, func.count()).group_by(ProjectMember.role_id)
             )
         ).all()
     }
@@ -200,7 +199,7 @@ async def usage_counts(session: AsyncSession) -> dict[uuid.UUID, dict[str, int]]
     return {rid: {"users": users.get(rid, 0), "members": members.get(rid, 0)} for rid in ids}
 
 
-async def roles_for_user(session: AsyncSession, user_id: uuid.UUID) -> list[Role]:
+async def list_roles_for_user(session: AsyncSession, user_id: uuid.UUID) -> list[Role]:
     return list(
         (
             await session.execute(
@@ -230,32 +229,44 @@ def validate_global_roles(roles: list[Role]) -> None:
             )
 
 
-async def _active_manager_count(
-    session: AsyncSession,
+def manager_holders_stmt(
     *,
+    user_id: uuid.UUID | None = None,
     exclude_user_id: uuid.UUID | None = None,
     exclude_role_id: uuid.UUID | None = None,
-) -> int:
-    """Active users holding users:manage, optionally ignoring one user
-    and/or one role as a SOURCE of the atom (spec §6.2). Matching is by
-    atom, never by role name — a user can hold it via a custom role."""
+) -> Select[tuple[uuid.UUID]]:
+    """Ids of ACTIVE users holding users:manage through a role, optionally
+    only `user_id`, and/or ignoring one user and/or one role as a SOURCE of
+    the atom (spec §6.2). Matching is by atom, never by role name — a user
+    can hold it via a custom role. The one statement behind the last-user-
+    manager guards and the bootstrap probe, so they cannot drift apart."""
     stmt = (
-        select(func.count(func.distinct(User.id)))
+        select(User.id)
         .join(UserRole, UserRole.user_id == User.id)
         .join(Role, Role.id == UserRole.role_id)
-        .where(User.is_active.is_(True), Role.permissions.contains(["users:manage"]))
+        .where(User.is_active.is_(True), Role.permissions.contains([USERS_MANAGE]))
     )
+    if user_id is not None:
+        stmt = stmt.where(User.id == user_id)
     if exclude_user_id is not None:
         stmt = stmt.where(User.id != exclude_user_id)
     if exclude_role_id is not None:
         stmt = stmt.where(Role.id != exclude_role_id)
-    return (await session.execute(stmt)).scalar_one()
+    return stmt
 
 
-async def other_active_manager_count(session: AsyncSession, user_id: uuid.UUID) -> int:
-    """Active users OTHER than user_id holding users:manage. Task 4's
-    users service uses this for the patch-user guard."""
-    return await _active_manager_count(session, exclude_user_id=user_id)
+async def has_active_manager(
+    session: AsyncSession,
+    *,
+    user_id: uuid.UUID | None = None,
+    exclude_user_id: uuid.UUID | None = None,
+    exclude_role_id: uuid.UUID | None = None,
+) -> bool:
+    """Whether manager_holders_stmt with these filters matches anyone."""
+    stmt = manager_holders_stmt(
+        user_id=user_id, exclude_user_id=exclude_user_id, exclude_role_id=exclude_role_id
+    )
+    return (await session.execute(stmt.limit(1))).first() is not None
 
 
 async def would_lose_last_user_manager(
@@ -273,8 +284,8 @@ async def would_lose_last_user_manager(
     fallback and the guard waves through an edit that ends at zero
     managers.
     """
-    if "users:manage" not in set(role.permissions or ()):
+    if USERS_MANAGE not in set(role.permissions or ()):
         return False  # this role was never a source of the atom
-    if "users:manage" in future_permissions:
+    if USERS_MANAGE in future_permissions:
         return False  # it stays a source
-    return await _active_manager_count(session, exclude_role_id=role.id) == 0
+    return not await has_active_manager(session, exclude_role_id=role.id)

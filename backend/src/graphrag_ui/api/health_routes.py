@@ -1,6 +1,3 @@
-import asyncio
-import shutil
-from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, Response
@@ -10,6 +7,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from graphrag_ui.adapters.db import get_session_factory
 from graphrag_ui.api.schemas import LivenessOut, ReadyOut
 from graphrag_ui.config import get_settings
+from graphrag_ui.services.fs_stats import MIB, workspaces_free_bytes
 
 
 def register_health_routes(app):
@@ -39,12 +37,9 @@ def register_health_routes(app):
         # case that must not escape as an unstructured 500.
         except (SQLAlchemyError, OSError):
             db = "error"
-        # Same measurement point as the enqueue preflight (services/jobs.py):
-        # the workspaces ROOT, created if missing so disk_usage has a target.
+        # Same measurement point as the enqueue preflight (services/jobs.py).
         settings = get_settings()
-        ws_root = Path(settings.workspaces_dir).resolve()
-        ws_root.mkdir(parents=True, exist_ok=True)
-        disk_free_mb = (await asyncio.to_thread(shutil.disk_usage, ws_root)).free // (1024 * 1024)
+        disk_free_mb = await workspaces_free_bytes() // MIB
         out = ReadyOut(
             db=db,
             graphrag=app.state.graphrag_version,

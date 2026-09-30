@@ -31,6 +31,7 @@ from graphrag_ui.config import get_settings
 from graphrag_ui.services import jobs as jobs_service
 from graphrag_ui.services import query as query_service
 from graphrag_ui.services import questions as questions_service
+from graphrag_ui.services import test_run_worker
 from graphrag_ui.services import test_runs as test_runs_service
 from graphrag_ui.services.jobs import JobConflictError
 from tests.test_projects import _activate, _setup_two_users
@@ -268,7 +269,7 @@ async def test_placeholder_rows_are_honestly_null(db_session, project_with_quest
 async def test_a_per_question_failure_does_not_fail_the_run(db_session, run_ready, fake_adapter):
     """test_results.error records it and the remaining questions still execute."""
     fake_adapter.fail_on("q2")
-    res = await test_runs_service.execute_test_run(
+    res = await test_run_worker.execute_test_run(
         run_ready.job_id, run_ready.root, cancel_requested=lambda: False
     )
 
@@ -288,7 +289,7 @@ async def test_cancellation_keeps_the_results_already_produced(db_session, run_r
         calls["n"] += 1
         return calls["n"] > 1
 
-    res = await test_runs_service.execute_test_run(
+    res = await test_run_worker.execute_test_run(
         run_ready.job_id, run_ready.root, cancel_requested=cancel_after_one
     )
     assert res.status == "cancelled"
@@ -316,7 +317,7 @@ async def test_progress_is_written_between_questions(db_session, run_ready, fake
 
     jobs_repo.set_progress = recording
     try:
-        await test_runs_service.execute_test_run(
+        await test_run_worker.execute_test_run(
             run_ready.job_id, run_ready.root, cancel_requested=lambda: False
         )
     finally:
@@ -330,7 +331,7 @@ async def test_one_configuration_per_run(db_session, run_ready, fake_adapter, mo
     loads = {"n": 0}
     monkeypatch.setattr(query_service, "load_config", _counting(loads))
 
-    await test_runs_service.execute_test_run(
+    await test_run_worker.execute_test_run(
         run_ready.job_id, run_ready.root, cancel_requested=lambda: False
     )
     assert loads["n"] == 1
@@ -351,15 +352,15 @@ def test_config_revision_framing_distinguishes_the_ambiguous_cases(tmp_path):
     deleted .env would be indistinguishable from an empty one."""
     a = _workspace(tmp_path / "a", settings=b"x: 1\nFOO=bar\n", env=None)
     b = _workspace(tmp_path / "b", settings=b"x: 1\n", env=b"FOO=bar\n")
-    assert test_runs_service.workspace_config_revision(
+    assert test_run_worker.workspace_config_revision(
         a
-    ) != test_runs_service.workspace_config_revision(b)
+    ) != test_run_worker.workspace_config_revision(b)
 
     missing = _workspace(tmp_path / "c", settings=b"x: 1\n", env=None)
     empty = _workspace(tmp_path / "d", settings=b"x: 1\n", env=b"")
-    assert test_runs_service.workspace_config_revision(
+    assert test_run_worker.workspace_config_revision(
         missing
-    ) != test_runs_service.workspace_config_revision(empty)
+    ) != test_run_worker.workspace_config_revision(empty)
 
 
 async def test_config_revision_is_captured_with_the_load_not_after(
@@ -374,8 +375,8 @@ async def test_config_revision_is_captured_with_the_load_not_after(
     configuration B.
     """
     settings_path = run_ready.root / "settings.yaml"
-    before = test_runs_service.workspace_config_revision(run_ready.root)
-    original = test_runs_service._load_run_config
+    before = test_run_worker.workspace_config_revision(run_ready.root)
+    original = test_run_worker._load_run_config
 
     def edit_then_load(root):
         # Fires between the digest capture and the config load if - and only
@@ -383,15 +384,15 @@ async def test_config_revision_is_captured_with_the_load_not_after(
         settings_path.write_text(settings_path.read_text() + "\n# drifted\n")
         return original(root)
 
-    test_runs_service._load_run_config = edit_then_load
+    test_run_worker._load_run_config = edit_then_load
     try:
-        await test_runs_service.execute_test_run(
+        await test_run_worker.execute_test_run(
             run_ready.job_id, run_ready.root, cancel_requested=lambda: False
         )
     finally:
-        test_runs_service._load_run_config = original
+        test_run_worker._load_run_config = original
 
-    after = test_runs_service.workspace_config_revision(run_ready.root)
+    after = test_run_worker.workspace_config_revision(run_ready.root)
     revision = (
         await db_session.execute(
             select(models.TestRun.workspace_config_revision).where(
@@ -596,7 +597,7 @@ async def test_a_failing_preamble_still_closes_the_run(db_session, run_ready, mo
     async def _unindexed(*a, **kw):
         raise query_service.WorkspaceNotIndexedError("output/ is gone")
 
-    monkeypatch.setattr(test_runs_service, "_prepare_query", _unindexed)
+    monkeypatch.setattr(test_run_worker, "prepare_query", _unindexed)
     async with get_session_factory()() as s:
         assert (await jobs_repo.claim_next(s, "w-test")).id == run_ready.job_id
     await runner_loop._execute(run_ready.job_id)

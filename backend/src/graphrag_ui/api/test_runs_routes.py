@@ -29,6 +29,7 @@ from graphrag_ui.api.query_routes import Method
 from graphrag_ui.api.schemas import CitationOut, QueryTimingsOut, UuidStr
 from graphrag_ui.domain.permissions import Atom, can
 from graphrag_ui.domain.test_runs import MATRIX_DEFAULT_RUNS
+from graphrag_ui.services import ratings as ratings_service
 from graphrag_ui.services import test_runs as test_runs_service
 from graphrag_ui.services.projects import get_member_perms
 
@@ -197,12 +198,12 @@ def register_test_runs_routes(app):
         # Permission resolves through the result's OWN project (spec 8):
         # run_id -> project_id. Unknown and unreadable are 404; a caller
         # who can view but not curate gets the plain 403.
-        ctx = await test_runs_service.result_with_project(db, rid)
+        ctx = await ratings_service.result_with_project(db, rid)
         if ctx is not None:
             result, project_id = ctx
             perms = await get_member_perms(db, project_id, user.id)
             if can(user.global_perms, Atom.project_edit_content, perms):
-                rating = await test_runs_service.rate_result(
+                rating = await ratings_service.rate_result(
                     db, result, body.score, body.note, user.user
                 )
                 return RatingOut.model_validate(rating)

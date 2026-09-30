@@ -5,7 +5,10 @@ from pathlib import Path
 
 JOB_TYPES = ("index", "update", "test_run")
 CLI_JOB_TYPES = ("index", "update")
+# The CLI job types are the ones that read input/ and so freeze it (spec 5.2b).
+FREEZING_JOB_TYPES = CLI_JOB_TYPES
 JOB_METHODS = ("standard", "fast")
+ACTIVE_STATUSES = ("queued", "running")
 TERMINAL_STATUSES = {"succeeded", "failed", "failed(interrupted)", "cancelled"}
 
 
@@ -15,7 +18,7 @@ def build_argv(job_type: str, method: str, root: Path) -> list[str]:
     'standard-update' would build 'standard-update-update' (source-verified).
 
     test_run is a valid job type with NO argv: it runs in-process through
-    services/test_runs.py. Asking for one is a caller bug, not a silent
+    services/test_run_worker.py. Asking for one is a caller bug, not a silent
     empty list (spec 7.2)."""
     if job_type not in CLI_JOB_TYPES:
         msg = f"job type has no CLI argv: {job_type}"

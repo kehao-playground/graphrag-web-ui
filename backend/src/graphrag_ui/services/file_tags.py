@@ -8,13 +8,13 @@ may run concurrently.
 
 import asyncio
 import uuid
-from datetime import UTC, datetime
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.adapters.models import FileTag, FileTagLink, Project, ProjectFile
 from graphrag_ui.services.audit import audit
+from graphrag_ui.services.file_listing import discovered_row
 from graphrag_ui.services.files import input_file
 from graphrag_ui.services.input_scan import sha256_file
 from graphrag_ui.services.project_lock import input_mutation
@@ -42,13 +42,7 @@ async def add_tags(
         if row is None:
             if sha is None:  # its row vanished since the check: hash now
                 sha = await asyncio.to_thread(sha256_file, target)
-            row = ProjectFile(
-                project_id=project.id,
-                name=name,
-                sha256=sha,
-                size=target.stat().st_size,
-                discovered_at=datetime.now(UTC),
-            )
+            row = discovered_row(project.id, name, sha, target.stat().st_size)
             session.add(row)
             await session.flush()
         have = set(

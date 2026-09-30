@@ -190,7 +190,7 @@ async def test_update_role_dropping_users_manage_guarded(db_session):
         )
 
 
-async def test_usage_counts_and_roles_for_user(db_session):
+async def test_usage_counts_and_list_roles_for_user(db_session):
     u = await _user(db_session)
     p = await _project(db_session, u)
     member = await _user(db_session, "member@x.com")  # see the note above
@@ -209,7 +209,7 @@ async def test_usage_counts_and_roles_for_user(db_session):
     assert counts[custom.id] == {"users": 0, "members": 1}
     assert counts[ROLE_ID_OPS] == {"users": 1, "members": 0}
     assert counts[ROLE_ID_OWNER] == {"users": 0, "members": 1}
-    names = {r.name for r in await svc.roles_for_user(db_session, u.id)}
+    names = {r.name for r in await svc.list_roles_for_user(db_session, u.id)}
     assert names == {"ops"}
 
 

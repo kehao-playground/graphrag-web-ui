@@ -12,7 +12,7 @@ from graphrag_ui.adapters.jobs_repo import (
     get_job,
     heartbeat,
     insert_job,
-    last_finished,
+    last_succeeded,
     list_jobs,
     request_cancel,
 )
@@ -64,7 +64,7 @@ async def test_per_project_mutex_partial_index(db_session):
     await _insert(db_session, p2, u)  # other project: fine
 
 
-async def test_finish_and_last_finished(db_session):
+async def test_finish_and_last_succeeded(db_session):
     p, u = await _mk_project(db_session)
     j = await _insert(db_session, p, u)
     await claim_next(db_session, "w1")
@@ -72,7 +72,7 @@ async def test_finish_and_last_finished(db_session):
     got = await get_job(db_session, j.id)
     assert got.status == "succeeded" and got.stats["num_documents"] == 3
     assert got.finished_at is not None
-    lf = await last_finished(db_session, p.id)
+    lf = await last_succeeded(db_session, p.id)
     assert lf.id == j.id
     with pytest.raises(ValueError):
         await finish(db_session, j.id, "running")  # non-terminal rejected

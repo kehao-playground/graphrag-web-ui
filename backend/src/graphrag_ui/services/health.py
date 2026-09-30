@@ -29,6 +29,7 @@ from graphrag_ui.adapters.models import (
     TestRun,
     User,
 )
+from graphrag_ui.domain.jobs import CLI_JOB_TYPES
 from graphrag_ui.domain.test_runs import count_regressions
 from graphrag_ui.services import jobs as jobs_service
 from graphrag_ui.services.env_file import referenced_key_missing
@@ -133,7 +134,7 @@ async def _last_finished_indexes(
         return {}
     stmt = select(Job).where(
         Job.project_id.in_(project_ids),
-        Job.type.in_(("index", "update")),
+        Job.type.in_(CLI_JOB_TYPES),
         Job.finished_at.is_not(None),
     )
     if succeeded_only:

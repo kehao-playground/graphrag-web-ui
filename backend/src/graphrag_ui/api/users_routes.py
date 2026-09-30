@@ -14,7 +14,7 @@ from graphrag_ui.api.deps import (
 from graphrag_ui.api.errors import ApiError
 from graphrag_ui.api.schemas import UserBriefOut, UserOut, user_out
 from graphrag_ui.domain.permissions import Atom
-from graphrag_ui.services.roles import roles_for_user
+from graphrag_ui.services.roles import list_roles_for_user
 from graphrag_ui.services.users import (
     create_user,
     get_user,
@@ -71,7 +71,7 @@ def register_users_routes(app):
             raise ApiError(
                 status.HTTP_409_CONFLICT, "email_registered", "email already registered"
             ) from None
-        return user_out(user, await roles_for_user(db, user.id))
+        return user_out(user, await list_roles_for_user(db, user.id))
 
     @router.patch("/{user_id}", response_model=UserOut)
     async def patch_user(user_id: uuid.UUID, body: UserUpdateIn, admin: ManageUsers, db: DbSession):
@@ -84,7 +84,7 @@ def register_users_routes(app):
             role_ids=body.roles,
             is_active=body.is_active,
         )
-        return user_out(user, await roles_for_user(db, user.id))
+        return user_out(user, await list_roles_for_user(db, user.id))
 
     @router.post("/{user_id}/reset-password", status_code=status.HTTP_204_NO_CONTENT)
     async def post_reset_password(

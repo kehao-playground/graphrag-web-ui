@@ -21,7 +21,7 @@ from graphrag_ui.config import get_settings
 from graphrag_ui.domain.role_catalog import ROLE_ID_VIEWER
 from graphrag_ui.main import create_app
 from graphrag_ui.services.projects import ws_path
-from graphrag_ui.services.test_runs import rate_result
+from graphrag_ui.services.ratings import rate_result
 from tests.citation_fixtures import _run_index_to_failure, _run_index_to_success
 from tests.test_files import (
     _alice,

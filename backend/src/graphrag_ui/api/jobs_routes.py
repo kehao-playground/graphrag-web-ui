@@ -64,7 +64,7 @@ def job_out(j: Job) -> dict:
 
 
 async def _job_or_404(db: AsyncSession, job_id: uuid.UUID) -> Job:
-    job = await jobs_service.get(db, job_id)
+    job = await jobs_service.get_job(db, job_id)
     if job is None:
         raise ApiError(status.HTTP_404_NOT_FOUND, "job_not_found", "job not found")
     return job
@@ -107,7 +107,7 @@ def register_jobs_routes(app):
         """Newest first, paged (at most 200 per page); total counts every
         job matching `type`. Server-side exclusion so the jobs page can
         drop test_run rows (spec 8)."""
-        jobs, total = await jobs_service.list_for_project(
+        jobs, total = await jobs_service.list_jobs(
             db, project.id, limit=limit, offset=offset, job_types=type
         )
         return JobPageOut(items=[JobOut(**job_out(j)) for j in jobs], total=total)
@@ -167,7 +167,7 @@ def register_jobs_routes(app):
             # response starts streaming — poll liveness in a fresh session.
             async def finished() -> bool:
                 async with get_session_factory()() as s:
-                    fresh = await jobs_service.get(s, job_id)
+                    fresh = await jobs_service.get_job(s, job_id)
                 return fresh is None or fresh.status in TERMINAL_STATUSES
 
             pos = start
@@ -175,7 +175,7 @@ def register_jobs_routes(app):
                 # SSE data lines are single-line; json.dumps escapes newlines
                 yield f"id: {pos}\nevent: log\ndata: {json.dumps(chunk.decode(errors='replace'))}\n\n"
             async with get_session_factory()() as s:
-                final = await jobs_service.get(s, job_id)
+                final = await jobs_service.get_job(s, job_id)
             status_str = final.status if final is not None else "terminal"
             yield f"event: done\ndata: {json.dumps({'offset': pos, 'status': status_str})}\n\n"
 

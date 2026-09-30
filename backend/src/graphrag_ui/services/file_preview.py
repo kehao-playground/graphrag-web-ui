@@ -5,6 +5,7 @@ stored passage (spec 7.4)."""
 import asyncio
 import uuid
 from pathlib import Path
+from typing import BinaryIO
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,12 +44,7 @@ def _preview_core(path: Path, needle: bytes | None) -> dict:
     total = path.stat().st_size
     with path.open("rb") as fh:
         if needle is None:
-            return {
-                "text": fh.read(PREVIEW_WINDOW_BYTES).decode("utf-8", errors="replace"),
-                "offset": 0,
-                "total_size": total,
-                "match": False,
-            }
+            return _window(fh, 0, total, match=False)
         overlap = len(needle) - 1
         base = 0  # absolute offset of buf[0]
         carry = b""
@@ -66,21 +62,19 @@ def _preview_core(path: Path, needle: bytes | None) -> dict:
             base += len(buf) - len(carry)
         if found == -1:
             # Unmatched: the head plus match=False, rather than pretending.
-            fh.seek(0)
-            return {
-                "text": fh.read(PREVIEW_WINDOW_BYTES).decode("utf-8", errors="replace"),
-                "offset": 0,
-                "total_size": total,
-                "match": False,
-            }
-        start = max(0, found - PREVIEW_WINDOW_BYTES // 2)
-        fh.seek(start)
-        return {
-            "text": fh.read(PREVIEW_WINDOW_BYTES).decode("utf-8", errors="replace"),
-            "offset": start,
-            "total_size": total,
-            "match": True,
-        }
+            return _window(fh, 0, total, match=False)
+        return _window(fh, max(0, found - PREVIEW_WINDOW_BYTES // 2), total, match=True)
+
+
+def _window(fh: BinaryIO, start: int, total: int, *, match: bool) -> dict:
+    """The preview payload: one window of text read from `start`."""
+    fh.seek(start)
+    return {
+        "text": fh.read(PREVIEW_WINDOW_BYTES).decode("utf-8", errors="replace"),
+        "offset": start,
+        "total_size": total,
+        "match": match,
+    }
 
 
 async def preview_file(project: Project, name: str, *, around: str | None = None) -> dict:

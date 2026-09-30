@@ -14,10 +14,11 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from graphrag_ui.adapters.models import RefreshToken, Role, User, UserRole
+from graphrag_ui.adapters.models import RefreshToken, User, UserRole
 from graphrag_ui.config import get_settings
 from graphrag_ui.domain.role_catalog import ROLE_ID_OPS, ROLE_ID_USER_ADMIN
 from graphrag_ui.services.audit import audit
+from graphrag_ui.services.roles import manager_holders_stmt
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +87,9 @@ async def get_or_provision_user(session: AsyncSession, email: str, display_name:
         try:
             await session.flush()
             if addr in settings.proxy_admin_set:
+                # Granted in the insert's own transaction, not left to the
+                # reconciliation below: concurrent first logins would both
+                # find the grants missing and race on the user_roles PK.
                 session.add_all(
                     [
                         UserRole(user_id=user.id, role_id=ROLE_ID_USER_ADMIN),
@@ -344,11 +348,7 @@ async def bootstrap_admin(session: AsyncSession) -> None:
     # a startup crash. user_admin is expected to have several holders.
     holder = (
         await session.execute(
-            select(User.email)
-            .join(UserRole, UserRole.user_id == User.id)
-            .join(Role, Role.id == UserRole.role_id)
-            .where(User.is_active.is_(True), Role.permissions.contains(["users:manage"]))
-            .limit(1)
+            select(User.email).where(User.id.in_(manager_holders_stmt())).limit(1)
         )
     ).scalar_one_or_none()
     if holder is not None:

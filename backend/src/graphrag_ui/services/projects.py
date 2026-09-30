@@ -1,4 +1,5 @@
 import asyncio
+import functools
 import logging
 import re
 import secrets
@@ -38,10 +39,21 @@ async def _unique_slug(session: AsyncSession, name: str) -> str:
     return slug
 
 
+@functools.lru_cache(maxsize=4)
+def _resolved_root(workspaces_dir: str) -> Path:
+    return Path(workspaces_dir).resolve()
+
+
+def workspaces_root() -> Path:
+    """The resolved WORKSPACES_DIR, resolved once per configured value:
+    ws_path runs per name in bulk deletes and per row in retention."""
+    return _resolved_root(get_settings().workspaces_dir)
+
+
 def ws_path(project_id: uuid.UUID) -> Path:
     """Resolved workspace dir; resolve can follow symlinks, so containment
     is re-asserted against the resolved root (spec A3, §10)."""
-    root = Path(get_settings().workspaces_dir).resolve()
+    root = workspaces_root()
     path = workspace_path(root, project_id).resolve()
     if not path.is_relative_to(root):
         msg = f"workspace path escapes workspaces dir: {path}"
