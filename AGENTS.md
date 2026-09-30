@@ -64,10 +64,12 @@ briefs; their Global Constraints always apply.
 #     -e UV_PROJECT_ENVIRONMENT=/opt/venv -e TESTCONTAINERS_RYUK_DISABLED=true \
 #     ghcr.io/astral-sh/uv:python3.12-bookworm \
 #     sh -c 'uv sync --frozen -q && uv run ruff check && uv run ruff format --check && uv run mypy && uv run pytest -q -m "not slow"'
-cd backend && uv run pytest -v          # 732 tests with GRAPHRAG_API_KEY (726 fast); 6 slow tests fork the real graphrag CLI (4 need the key, skipped without it); fast only: uv run pytest -m "not slow"
+cd backend && uv run pytest -v          # 734 tests with GRAPHRAG_API_KEY (728 fast); 6 slow tests fork the real graphrag CLI (4 need the key, skipped without it); fast only: uv run pytest -m "not slow"
 cd backend && uv run ruff check
 cd backend && uv run ruff format --check   # formatting is CI-enforced; `ruff format` to fix
 cd backend && uv run mypy                  # src/ must stay clean; CI-enforced
+cd backend && uv run pytest -m "not slow" --cov --cov-report=term-missing   # coverage; pyproject sets greenlet tracing (without it SQLAlchemy async under-reports ~13 points)
+cd backend && uv run --with pip-audit pip-audit --desc --skip-editable --ignore-vuln PYSEC-2026-3740   # CI `audit` job (required); ignore list lives in ci.yml, dated, with the reason
 
 # frontend (Node 24; jsdom+undici need >=22; explore graph renders via
 # react-sigma + graphology, lazy-loaded as a separate build chunk)
@@ -84,6 +86,8 @@ docker compose -f docker-compose.yml -f docker-compose.proxy-auth.yml config   #
 docker compose build                     # catches Dockerfile drift (e.g. .npmrc must ship with npm ci)
 helm lint deploy/helm/graphrag-ui
 helm template deploy/helm/graphrag-ui > /dev/null
+.github/scripts/compose-smoke.sh local   # CI `smoke`: boots the stack, signs in, uploads 2 MiB through nginx
+.github/scripts/compose-smoke.sh proxy   # proxy overlay + test IdP, expects 401 on /api/*; SMOKE_PORT/SMOKE_OVERRIDE when 8080 is taken
 ```
 
 ## Working Rules
@@ -93,7 +97,15 @@ helm template deploy/helm/graphrag-ui > /dev/null
   checking `graphrag_input/input_config.py` key names (`input.type`,
   `input.file_pattern` is a regex) — wrong keys are silently ignored
   (`extra="allow"`), so always read back and assert after writing
-  `settings.yaml`.
+  `settings.yaml`. graphrag 3.1.2 declares `nltk~=3.9.0`; `[tool.uv]
+  override-dependencies` lifts nltk to `>=3.10.3` for its advisories —
+  on a graphrag bump, drop the override if the new range admits it.
+- Dependency advisories: the CI `audit` job is required. An advisory
+  with no fixed release that is not reachable here goes on its
+  `--ignore-vuln` list with a dated reason; anything else is fixed
+  (bump, or an override for a transitive pin).
+- Layering is test-enforced (`backend/tests/test_layering.py`): a new
+  graphrag import site or a cross-layer import fails the suite.
 - `graphrag init` in a non-TTY subprocess needs `--model/--embedding`
   flags (typer prompts abort otherwise).
 - API contract surface is the generated OpenAPI document (`openapi.json`,

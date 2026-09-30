@@ -12,12 +12,17 @@ dependencies = [
     "email-validator>=2.2.0",
     "fastapi>=0.141.1",
     "graphrag==3.1.2",
+    # Imported directly (query, citations, frame cache); declared so a
+    # graphrag bump cannot silently move the API this code relies on.
+    "pandas>=3.0,<4",
     "pydantic-settings>=2.15.0",
     "pyjwt>=2.14.0",
     "python-dotenv>=1.1.0",
     "python-multipart>=0.0.32",
     "pyyaml>=6.0.3",
     "sqlalchemy[asyncio]>=2.0.52",
+    # main.py imports starlette.routing.Match directly; fastapi pins it tightly.
+    "starlette>=1.6",
     "uvicorn[standard]>=0.52.4",
 ]
 
@@ -30,17 +35,31 @@ dev = [
     "asgi-lifespan>=2.1.0",
     "httpx>=0.28.1",
     "pytest>=9.1.1",
+    "pytest-cov>=7.0.0",
     "pytest-asyncio>=1.4.0",
     "mypy>=1.19.0",
     "ruff>=0.16.7",
     "testcontainers[postgres]>=4.15.0",
 ]
 
+[tool.uv]
+# graphrag 3.1.2 declares nltk~=3.9.0, which holds nltk on 3.9.4 and its
+# advisories (R1-14). 3.10 is API-compatible for graphrag's use (punkt,
+# TextBlob tagging); drop this once graphrag widens its range.
+override-dependencies = ["nltk>=3.10.3"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["tests"]
 asyncio_mode = "auto"
 markers = ["slow: forks real graphrag CLI"]
+
+[tool.coverage.run]
+# SQLAlchemy's asyncio layer switches greenlets on every awaited query;
+# without greenlet tracing coverage loses a coroutine after its first DB
+# await and under-reports by ~13 points (R2-39).
+concurrency = ["greenlet", "thread"]
+source = ["graphrag_ui"]
 
 [tool.ruff]
 line-length = 100
