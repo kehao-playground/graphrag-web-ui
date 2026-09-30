@@ -1373,8 +1373,9 @@ export interface components {
         };
         /**
          * JobProgressOut
-         * @description Batch progress the test-run worker ticks between questions (spec
-         *     §5.4): `done` of `total` questions answered.
+         * @description Progress of a running job: for a test run, `done` of `total`
+         *     questions answered (spec §5.4); for index and update, `done` of `total`
+         *     graphrag workflows finished, read from stats.json (spec §6.3).
          */
         JobProgressOut: {
             /** Done */

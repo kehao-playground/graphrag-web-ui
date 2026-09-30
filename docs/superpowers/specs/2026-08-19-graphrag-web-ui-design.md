@@ -176,7 +176,7 @@ CREATE UNIQUE INDEX jobs_one_active_per_project
   | update | standard | `graphrag update --root <ws> --method standard`(內部執行 standard-update pipeline) |
   | update | fast | `graphrag update --root <ws> --method fast`(內部執行 fast-update pipeline) |
   | dry_run | — | `graphrag index --root <ws> --dry-run`(同步,不進隊列) |
-- stdout/stderr 即時寫入該 job 的 log 檔;結束時記錄 exit_code、掃描 stats 檔進 stats 欄位。**stats 檔路徑依 job.type**(2026-08-21 實測定案,見 §13 實測表):index → `output/stats.json`;update → `update_output/<timestamp>/delta/stats.json`(**merge 後 `output/stats.json` 不回寫**)。**stats.json 在每個 workflow 完成後增量寫入**,Indexing 階段可據此做真實進度(已完成 workflow 數 / 總數),不必只靠日誌行數
+- stdout/stderr 即時寫入該 job 的 log 檔;結束時記錄 exit_code、掃描 stats 檔進 stats 欄位。**stats 檔路徑依 job.type**(2026-08-21 實測定案,見 §13 實測表):index → `output/stats.json`;update → `update_output/<timestamp>/delta/stats.json`(**merge 後 `output/stats.json` 不回寫**)。**stats.json 在每個 workflow 完成後增量寫入**,Indexing 階段可據此做真實進度(已完成 workflow 數 / 總數),不必只靠日誌行數。*(2026-09-30 F28 實作,R3-36)*:watch 迴圈每次 heartbeat 讀取該 stats 檔(mtime 早於本次開始者視為上一次執行的殘檔、不計),`len(workflows)` 寫入 `jobs.progress = {done, total}`,僅在數字變動時寫;`total` 為 graphrag 3.1.2 內建 pipeline 的 workflow 數(index 10、update 18,清單存於 `domain/jobs.py`,測試逐項對照釘選版 graphrag),settings.yaml 若有非空 `workflows:` 清單則以其長度為準。結束時的 `jobs.stats` 也套用同一 mtime 規則
 - **heartbeat**:running 期間每 10s 更新 `jobs.heartbeat_at` 與 `worker_id`
 - **啟動時 reconcile**:DB 為 running 但 `heartbeat_at` 逾時(預設 60s)→ `failed(interrupted)`
 - **取消**:迴圈每 1s 檢查自己持有的 job 是否被設定 `cancel_requested_at` → SIGTERM → 30s 寬限 → SIGKILL → 標記 `cancelled`(2026-08-21 實作裁定:1s 輪詢,加快取消且查詢成本可忽略)
@@ -223,7 +223,7 @@ GraphRAG 的 `input.type` 是單一型別 + `input.file_pattern`(regex),一個 r
 
 - **技術棧**:React 19 + Vite + TypeScript、Ant Design 6(管理台表格/表單密集)、TanStack Query v5、React Router v7、Zustand(auth state)。*(2026-08-19 修訂:原定 React 18 + AntD 5 + Router 6,實作時 npm 已上 stable 最新 majors 且 build/tsc/test 全綠,經需求方確認保留新版)*
 - **頁面**:登入、專案列表、專案詳情(tab:Overview / Files / Settings / Jobs / Query / Explore)、Admin 使用者管理
-- **日誌 viewer**:虛擬捲動 + 自動跟隨 + 暫停;斷線以 `Last-Event-ID` 續傳
+- **日誌 viewer**:自動跟隨 + 暫停;斷線以 `Last-Event-ID` 續傳。*(2026-09-30 F28 修訂)*:不做虛擬捲動——SSE 片段先緩衝,每個 animation frame 以一個 text node 附加到 `<pre>`,長日誌不再整段重繪(R1-85);往上捲即暫停跟隨,「跟隨最新」回到尾端(R3-19);瀏覽器自動重連時顯示「正在重新連線」,重連被拒(`?token=` 逾期的 401 等,EventSource 進入 CLOSED)時顯示警示與「重新連線」,先換新 access token 再以 `?offset=<最後 event id>` 續傳(R2-32)
 - **查詢介面**:SSE 串流逐字顯示,答案下方以可展開卡片呈現 citations(對應 §6.4 解析結果)
 - **設定編輯器**:409 衝突時顯示 diff 與「重新載入 / 覆寫」兩個明確選項
 - **Explore tab(Phase 5,2026-08-22 定案:雙模式)**:Ant Segmented 切換「圖譜 | 資料表」。圖譜 = react-sigma + graphology(WebGL,萬級節點)+ forceatlas2 佈局,依 community 著色(穩定分類色板),控制項:level 下拉(顯示伺服器選定的層級)、type 過濾、min_degree 滑桿(預設 ≥1 濾孤點)、節點搜尋高亮聚焦(只改高亮,不重新佈局;佈局只在資料、level、type、min_degree 變動時重跑)、社群圖例(節點數前 8 大社群 + 「其他社群」+「未分群」)、縮放/重設視角控制、標籤只畫在達到大小門檻的節點上、點擊節點開啟該實體的明細 Drawer(與資料表共用);API 不限節點數,過濾交前端。資料表 = 表名下拉(6 表)+ 共用篩選 + Ant Table 伺服器端分頁(每頁 10/20/50/100)+ 行點擊 Drawer 顯示全文/列表/JSON 欄位(明細讀取失敗時在 Drawer 內顯示錯誤;型錄外欄位顯示原始欄名)。stale 時 Explore 頂部 Alert 提示;專案尚未建立索引(`not_indexed`)時兩種模式都以空狀態顯示該句並連到任務頁(F18 修訂)

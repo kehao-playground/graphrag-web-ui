@@ -13,6 +13,8 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+import yaml
+
 from graphrag_ui.adapters.workspace_env import subprocess_env
 
 _ERROR_TAIL_CHARS = 4000
@@ -46,18 +48,38 @@ def log_path_for(root: Path, job_id: uuid.UUID) -> Path:
     return p
 
 
-def read_stats(job_type: str, root: Path) -> dict | None:
+def read_stats(job_type: str, root: Path, since: float | None = None) -> dict | None:
     """stats.json by job type. update: newest update_output/*/delta/stats.json
     (timestamp dirs sort lexically). NEVER output/stats.json for update jobs —
-    merge does not rewrite it (verified)."""
+    merge does not rewrite it (verified). With `since` (epoch seconds), a file
+    last written before it belongs to an earlier run and reads as absent:
+    output/stats.json survives from the previous index until the new run's
+    first write."""
     try:
         if job_type == "index":
-            f = root / "output" / "stats.json"
-            return json.loads(f.read_text()) if f.exists() else None
-        dirs = sorted((root / "update_output").glob("*/delta/stats.json"))
-        return json.loads(dirs[-1].read_text()) if dirs else None
+            f: Path | None = root / "output" / "stats.json"
+        else:
+            dirs = sorted((root / "update_output").glob("*/delta/stats.json"))
+            f = dirs[-1] if dirs else None
+        if f is None or not f.exists():
+            return None
+        if since is not None and f.stat().st_mtime < since:
+            return None
+        return json.loads(f.read_text())
     except (OSError, ValueError):
         return None  # stats are best-effort; never fail the job on them
+
+
+def configured_workflows(root: Path) -> object:
+    """The `workflows:` value of settings.yaml, unparsed beyond YAML (the
+    progress total, domain.jobs.workflow_total). Best-effort: a missing or
+    unreadable file is None. `${VAR}` placeholders stay literal, which is
+    fine for counting list items."""
+    try:
+        data = yaml.safe_load((root / "settings.yaml").read_text())
+    except (OSError, yaml.YAMLError):
+        return None
+    return data.get("workflows") if isinstance(data, dict) else None
 
 
 class IndexRunner:
@@ -73,6 +95,7 @@ class IndexRunner:
         job_type: str,
         heartbeat: Callable[[], Awaitable[None]],
         cancel_requested: Callable[[], bool],
+        since: float | None = None,
     ) -> RunResult:
         # Allowlisted environment + the workspace .env (R2-01): the child
         # must not see JWT_SECRET, DATABASE_URL or any other API secret,
@@ -129,5 +152,5 @@ class IndexRunner:
             note = error_annotation(exit_code)
             error = (f"{note}\n{tail}" if note else tail).strip() or "no output"
         return RunResult(
-            status=status, exit_code=exit_code, error=error, stats=read_stats(job_type, root)
+            status=status, exit_code=exit_code, error=error, stats=read_stats(job_type, root, since)
         )
