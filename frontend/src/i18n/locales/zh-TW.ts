@@ -498,6 +498,12 @@ export default {
     logsTitle: "任務日誌",
     logsTitleStarted: "{{type}} · {{method}} · 開始於 {{time}}",
     logsTitleQueued: "{{type}} · {{method}} · 排入佇列於 {{time}}",
+    logFollow: "跟隨最新",
+    logPause: "暫停自動捲動",
+    logReconnecting: "連線中斷，正在重新連線…",
+    logLost: "日誌串流已中斷，上方日誌可能不完整。",
+    logReconnect: "重新連線",
+    workflowProgress: "已完成 {{done}} / {{total}} 個工作流程",
     status: {
       queued: "排隊中", running: "執行中", cancelling: "取消中",
       succeeded: "成功", failed: "失敗", interrupted: "失敗（中斷）",

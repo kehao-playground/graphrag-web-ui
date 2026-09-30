@@ -504,6 +504,12 @@ const enUS = {
     logsTitle: "Job logs",
     logsTitleStarted: "{{type}} · {{method}} · started {{time}}",
     logsTitleQueued: "{{type}} · {{method}} · queued {{time}}",
+    logFollow: "Follow",
+    logPause: "Pause auto-scroll",
+    logReconnecting: "Connection dropped — reconnecting…",
+    logLost: "The log stream stopped. The log above may be incomplete.",
+    logReconnect: "Reconnect",
+    workflowProgress: "{{done}} of {{total}} workflows done",
     status: {
       queued: "Queued", running: "Running", cancelling: "Cancelling",
       succeeded: "Succeeded", failed: "Failed", interrupted: "Failed (interrupted)",

@@ -9,6 +9,7 @@ import contextlib
 import logging
 import os
 import socket
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -16,10 +17,21 @@ from sqlalchemy import select
 
 from graphrag_ui.adapters import jobs_repo
 from graphrag_ui.adapters.db import get_session_factory
-from graphrag_ui.adapters.index_runner import IndexRunner, RunResult, log_path_for
+from graphrag_ui.adapters.index_runner import (
+    IndexRunner,
+    RunResult,
+    configured_workflows,
+    log_path_for,
+    read_stats,
+)
 from graphrag_ui.adapters.models import Job
 from graphrag_ui.config import get_settings
-from graphrag_ui.domain.jobs import FREEZING_JOB_TYPES
+from graphrag_ui.domain.jobs import (
+    CLI_JOB_TYPES,
+    FREEZING_JOB_TYPES,
+    workflow_progress,
+    workflow_total,
+)
 from graphrag_ui.services import index_snapshots
 from graphrag_ui.services.projects import ws_path
 from graphrag_ui.services.retention import prune_update_output
@@ -78,7 +90,7 @@ async def _execute(job_id: uuid.UUID) -> None:
         job = await jobs_repo.get_job(s, job_id)
         if job is None or job.status != "running":
             return  # already finished or reconciled elsewhere
-        argv, job_type, project_id = job.argv, job.type, job.project_id
+        argv, job_type, job_method, project_id = job.argv, job.type, job.method, job.project_id
         if job.cancel_requested_at is not None:
             # Cancelled between claim and here: finish before the snapshot,
             # the epoch bump and the spawn — none of them may run for a job
@@ -90,7 +102,14 @@ async def _execute(job_id: uuid.UUID) -> None:
             return
     logger.info("job started id=%s type=%s project=%s", job_id, job_type, project_id)
     started = asyncio.get_running_loop().time()
+    # Wall clock for stats.json mtimes: anything older is a previous run's.
+    started_wall = time.time()
     root = ws_path(project_id)
+    progress_total = (
+        workflow_total(job_type, job_method, await asyncio.to_thread(configured_workflows, root))
+        if job_type in CLI_JOB_TYPES
+        else None
+    )
     hb_stop = asyncio.Event()
     state: dict[str, bool] = {"cancelled": False}
 
@@ -100,6 +119,7 @@ async def _execute(job_id: uuid.UUID) -> None:
         parameter is never invoked by run() — the lambda passed below is a
         placeholder its signature requires; all cadence lives here."""
         last_beat = float("-inf")  # force a beat on the first iteration
+        last_progress: dict[str, int] | None = None
         loop = asyncio.get_running_loop()
         while not hb_stop.is_set():
             try:
@@ -107,6 +127,15 @@ async def _execute(job_id: uuid.UUID) -> None:
                     async with get_session_factory()() as s:
                         await jobs_repo.heartbeat(s, job_id, wid)
                     last_beat = loop.time()
+                    if progress_total is not None:
+                        # Workflow progress rides the heartbeat (R3-36); the
+                        # row is written only when the count moves.
+                        stats = await asyncio.to_thread(read_stats, job_type, root, started_wall)
+                        progress = workflow_progress(stats, progress_total)
+                        if progress != last_progress:
+                            async with get_session_factory()() as s:
+                                await jobs_repo.set_progress(s, job_id, **progress)
+                            last_progress = progress
                 if await _cancel_requested_in_db(job_id):
                     state["cancelled"] = True
             except Exception:  # one failed poll must not kill the watcher
@@ -135,6 +164,7 @@ async def _execute(job_id: uuid.UUID) -> None:
                 job_type=job_type,
                 heartbeat=lambda: asyncio.sleep(0),  # placeholder: run() never awaits it
                 cancel_requested=lambda: state["cancelled"],
+                since=started_wall,
             )
     except Exception as exc:  # the job must reach a terminal state regardless
         logger.exception("job execution crashed: %s", job_id)

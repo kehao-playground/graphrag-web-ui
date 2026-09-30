@@ -195,7 +195,17 @@ export default function JobsPanel({ projectId, canEdit }: { projectId: string; c
       dataIndex: "display_status",
       width: 140,
       render: (_, j) => (
-        <Tag color={JobStatusColor[j.display_status] ?? "default"}>{jobStatusLabel(j.display_status, t)}</Tag>
+        <>
+          <Tag color={JobStatusColor[j.display_status] ?? "default"}>{jobStatusLabel(j.display_status, t)}</Tag>
+          {/* Workflows done, ticked from graphrag's stats.json (R3-36). */}
+          {j.status === "running" && j.progress && (
+            <div>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                {t("jobs.workflowProgress", j.progress)}
+              </Typography.Text>
+            </div>
+          )}
+        </>
       ),
     },
     { title: t("jobs.exitCode"), dataIndex: "exit_code", width: 90, render: (_, j) => (j.exit_code ?? t("common.notApplicable")) },

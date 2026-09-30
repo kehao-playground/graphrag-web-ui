@@ -1214,7 +1214,7 @@
         "type": "object"
       },
       "JobProgressOut": {
-        "description": "Batch progress the test-run worker ticks between questions (spec\n\u00a75.4): `done` of `total` questions answered.",
+        "description": "Progress of a running job: for a test run, `done` of `total`\nquestions answered (spec \u00a75.4); for index and update, `done` of `total`\ngraphrag workflows finished, read from stats.json (spec \u00a76.3).",
         "properties": {
           "done": {
             "title": "Done",

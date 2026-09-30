@@ -318,3 +318,18 @@ test("?log= opens that job's log drawer, titled with the job", async () => {
   mount(true, "/?log=j1");
   expect(await screen.findByText(/^索引 · 標準 · 開始於 /)).toBeInTheDocument();
 });
+
+// R3-36: the runner ticks workflow progress from stats.json into the row.
+test("a running index shows how many workflows are done", async () => {
+  jobsList = [
+    job({
+      status: "running", display_status: "running",
+      started_at: new Date().toISOString(), progress: { done: 3, total: 10 },
+    }),
+    job({ id: "j2", status: "succeeded", display_status: "succeeded", progress: { done: 10, total: 10 } }),
+  ];
+  mount(true);
+  expect(await screen.findByText("已完成 3 / 10 個工作流程")).toBeInTheDocument();
+  // A finished row's last tick is history, not progress.
+  expect(screen.queryByText("已完成 10 / 10 個工作流程")).not.toBeInTheDocument();
+});
