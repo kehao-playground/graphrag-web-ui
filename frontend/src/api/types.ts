@@ -63,11 +63,11 @@ export const JobStatusColor: Record<string, string> = {
 export type QueryMethod = components["schemas"]["QueryIn"]["method"];
 export type Citation = components["schemas"]["CitationOut"];
 export type QueryTimings = components["schemas"]["QueryTimingsOut"];
-// Explore tab: GET /api/projects/{id}/artifacts/*.
-// The table name is a path parameter, so it has no schema to alias.
-export type ArtifactTableName =
-  | "entities" | "relationships" | "communities"
-  | "community_reports" | "text_units" | "documents";
+// Explore tab: GET /api/artifact-tables (the backend registry: list
+// columns and filter flags per table) and /api/projects/{id}/artifacts/*.
+export type ArtifactTable = components["schemas"]["ArtifactTableOut"];
+export type ArtifactTableName = ArtifactTable["name"];
+export type ArtifactTables = components["schemas"]["ArtifactTablesOut"];
 export type ArtifactPage = components["schemas"]["ArtifactPageOut"];
 export type ArtifactDetail = components["schemas"]["ArtifactDetailOut"];
 export type GraphNode = components["schemas"]["GraphNodeOut"];

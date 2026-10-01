@@ -299,6 +299,26 @@ class QueryOut(BaseModel):
     timings: QueryTimingsOut
 
 
+# Mirrors domain.artifacts.TABLES (test_explore_api pins the two equal):
+# spelled out so the generated SPA types carry the union.
+ArtifactTableName = Literal[
+    "entities", "relationships", "communities", "community_reports", "text_units", "documents"
+]
+
+
+class ArtifactTableOut(BaseModel):
+    """One Explore table: the list projection and the filters it offers."""
+
+    name: ArtifactTableName
+    columns: list[str]
+    type_filter: bool
+    community_filter: bool
+
+
+class ArtifactTablesOut(BaseModel):
+    tables: list[ArtifactTableOut]
+
+
 class ArtifactPageOut(BaseModel):
     """One page of a parquet table. Rows are projections of the table's
     list columns, so their keys vary per table."""

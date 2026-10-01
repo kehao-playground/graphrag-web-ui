@@ -110,7 +110,7 @@ def register_jobs_routes(app):
         return JobPageOut(items=[JobOut(**job_out(j)) for j in jobs], total=total)
 
     @router.get("/projects/{pid}/jobs/preflight", response_model=PreflightOut)
-    async def preflight(project: ProjectView, db: DbSession):
+    async def get_job_preflight(project: ProjectView, db: DbSession):
         body = await jobs_service.preflight(db, project)
         body["active_job"] = job_out(body["active_job"]) if body["active_job"] else None
         body["graphrag"] = app.state.graphrag_version
@@ -140,7 +140,7 @@ def register_jobs_routes(app):
         return CancelOut(detail="cancellation requested")
 
     @sse_router.get("/jobs/{job_id}/logs")
-    async def job_logs(
+    async def stream_job_logs(
         job_id: uuid.UUID,
         db: DbSession,
         user: SseUser,

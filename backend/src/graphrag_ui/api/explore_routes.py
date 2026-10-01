@@ -9,7 +9,14 @@ from fastapi import APIRouter, Depends, Query, status
 
 from graphrag_ui.api.deps import DbSession, ProjectView, get_current_user
 from graphrag_ui.api.errors import ApiError
-from graphrag_ui.api.schemas import ArtifactDetailOut, ArtifactPageOut, GraphOut
+from graphrag_ui.api.schemas import (
+    ArtifactDetailOut,
+    ArtifactPageOut,
+    ArtifactTableOut,
+    ArtifactTablesOut,
+    GraphOut,
+)
+from graphrag_ui.domain.artifacts import TABLES
 from graphrag_ui.services.explore import (
     ExploreReadError,
     artifact_detail,
@@ -32,7 +39,7 @@ def register_explore_routes(app):
 
     # MUST register before {table}
     @router.get("/{pid}/artifacts/graph", response_model=GraphOut)
-    async def get_graph(
+    async def get_artifact_graph(
         project: ProjectView,
         db: DbSession,
         level: int | None = Query(default=None),
@@ -43,7 +50,7 @@ def register_explore_routes(app):
             raise _read_failed() from None
 
     @router.get("/{pid}/artifacts/{table}", response_model=ArtifactPageOut)
-    async def list_table(
+    async def list_artifact_rows(
         project: ProjectView,
         table: str,
         db: DbSession,
@@ -68,7 +75,7 @@ def register_explore_routes(app):
             raise _read_failed() from None
 
     @router.get("/{pid}/artifacts/{table}/{hrid}", response_model=ArtifactDetailOut)
-    async def get_row_detail(
+    async def get_artifact_row(
         project: ProjectView,
         table: str,
         hrid: int,
@@ -83,3 +90,23 @@ def register_explore_routes(app):
         return data
 
     app.include_router(router)
+
+    # Project-independent: the registry is the same for every project, so
+    # it lives outside /projects/{pid} and the SPA fetches it once.
+    tables_router = APIRouter(prefix="/api", dependencies=[Depends(get_current_user)])
+
+    @tables_router.get("/artifact-tables", response_model=ArtifactTablesOut)
+    async def list_artifact_tables():
+        return ArtifactTablesOut(
+            tables=[
+                ArtifactTableOut(
+                    name=spec.name,  # type: ignore[arg-type]  # pinned to the Literal by a test
+                    columns=list(spec.list_columns),
+                    type_filter=spec.type_filter,
+                    community_filter=spec.community_filter,
+                )
+                for spec in TABLES.values()
+            ]
+        )
+
+    app.include_router(tables_router)

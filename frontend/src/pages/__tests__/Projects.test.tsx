@@ -7,18 +7,13 @@ import { MemoryRouter } from "react-router-dom";
 import Projects from "../Projects";
 import { stubFetch } from "../../testing/stubFetch";
 
-// The mock must branch by URL: if every call returned the same array,
-// /api/users would get the project array too — owner_id would never match,
-// and the test could not structurally catch a wrong lookup key.
+// The mock branches by URL; every path is recorded so the owner test can
+// pin that no users list is fetched (R1-117: the owner rides on ProjectOut).
 // The real api client stays under test; only fetch is stubbed.
 const healthRequests: string[] = [];
+const requested: string[] = [];
 const apiMock = vi.fn(async (path: string) => {
-  if (path === "/api/users") {
-    return new Response(JSON.stringify([
-      { id: "u1", email: "owner@example.com", display_name: "Owner", is_active: true },
-      { id: "u2", email: "other@example.com", display_name: "Other", is_active: true },
-    ]), { status: 200 });
-  }
+  requested.push(path);
   // The one batch call the list issues (spec §7.5): captured so the tests
   // can pin BOTH the URL shape and that nothing else was requested.
   if (path.startsWith("/api/projects/health")) {
@@ -34,11 +29,14 @@ stubFetch(apiMock);
 // zh-TW: that pending count renders as 3 份待索引.
 const PROJECTS_BODY = [
   { id: "p1", name: "Research Corpus", slug: "research-corpus", description: null,
-    input_file_type: "text", owner_id: "u1", created_at: "2026-08-19T00:00:00Z" },
+    input_file_type: "text", owner_id: "u1", owner_email: "owner@example.com",
+    owner_display_name: "Owner", created_at: "2026-08-19T00:00:00Z" },
   { id: "p2", name: "客服知識庫", slug: "kb", description: null,
-    input_file_type: "text", owner_id: "u2", created_at: "2026-08-20T00:00:00Z" },
+    input_file_type: "text", owner_id: "u2", owner_email: "other@example.com",
+    owner_display_name: "Other", created_at: "2026-08-20T00:00:00Z" },
   { id: "p3", name: "Manuals", slug: "manuals", description: null,
-    input_file_type: "text", owner_id: "u2", created_at: "2026-08-21T00:00:00Z" },
+    input_file_type: "text", owner_id: "u2", owner_email: "other@example.com",
+    owner_display_name: "Other", created_at: "2026-08-21T00:00:00Z" },
 ];
 
 // BatchHealthOut (Task 4) as far as the list column cares. Mutable so the
@@ -68,6 +66,7 @@ let healthBody: Record<string, unknown> = HEALTH_BODY as unknown as Record<strin
 
 beforeEach(() => {
   healthRequests.length = 0;
+  requested.length = 0;
   projectsBody = PROJECTS_BODY;
   healthBody = HEALTH_BODY as unknown as Record<string, unknown>;
 });
@@ -92,11 +91,12 @@ function renderProjects(opts: {
   );
 }
 
-test("renders project list with owner resolved by owner_id", async () => {
+test("renders each owner from the project row, without a users fetch (R1-117)", async () => {
   renderProjects();
   expect(await screen.findByText("Research Corpus")).toBeInTheDocument();
-  // Owner column: project.owner_id=u1 → the matching /api/users user, not the "—" placeholder
   expect(await screen.findByText("owner@example.com")).toBeInTheDocument();
+  expect(screen.getAllByText("other@example.com")).toHaveLength(2);
+  expect(requested.some((p) => p.startsWith("/api/users"))).toBe(false);
 });
 
 test("project list shows index health from one batch request", async () => {

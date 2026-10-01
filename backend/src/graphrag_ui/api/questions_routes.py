@@ -79,27 +79,27 @@ def register_questions_routes(app):
     router = APIRouter(prefix="/api/projects", dependencies=[Depends(get_current_user)])
 
     @router.get("/{pid}/question-sets", response_model=SetListOut)
-    async def list_sets(project: ProjectView, db: DbSession):
+    async def list_question_sets(project: ProjectView, db: DbSession):
         return SetListOut(
             sets=[SetOut.model_validate(s) for s in await questions_service.list_sets(db, project)]
         )
 
     @router.post("/{pid}/question-sets", response_model=SetOut, status_code=status.HTTP_201_CREATED)
-    async def create_set(
+    async def create_question_set(
         project: ProjectEditContent, body: SetIn, db: DbSession, user: CurrentUser
     ):
         qs = await questions_service.create_set(db, project, body.name, actor_id=user.id)
         return SetOut.model_validate(qs)
 
     @router.patch("/{pid}/question-sets/{sid}", response_model=SetOut)
-    async def rename_set(
+    async def rename_question_set(
         project: ProjectEditContent, sid: uuid.UUID, body: SetIn, db: DbSession, user: CurrentUser
     ):
         qs = await questions_service.rename_set(db, project, sid, body.name, actor_id=user.id)
         return SetOut.model_validate(qs)
 
     @router.delete("/{pid}/question-sets/{sid}", status_code=status.HTTP_204_NO_CONTENT)
-    async def archive_set(
+    async def archive_question_set(
         project: ProjectEditContent, sid: uuid.UUID, db: DbSession, user: CurrentUser
     ):
         await questions_service.archive_set(db, project, sid, actor_id=user.id)
@@ -126,7 +126,7 @@ def register_questions_routes(app):
         return QuestionOut.model_validate(q)
 
     @router.patch("/{pid}/question-sets/{sid}/questions/{qid}", response_model=QuestionOut)
-    async def edit_question(
+    async def update_question(
         project: ProjectEditContent,
         sid: uuid.UUID,
         qid: uuid.UUID,

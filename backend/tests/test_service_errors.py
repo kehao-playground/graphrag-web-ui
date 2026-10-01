@@ -9,8 +9,8 @@ import uuid
 import pytest
 
 import graphrag_ui.services as services_pkg
-from graphrag_ui.api import env_routes
 from graphrag_ui.api.errors import SERVICE_ERROR_STATUS
+from graphrag_ui.services import env_file
 from graphrag_ui.services.errors import CodedServiceError
 from graphrag_ui.services.questions import QuestionSetNotFoundError
 from tests.test_env import SECRET, _alice, _make_project, _set
@@ -61,7 +61,7 @@ async def test_unrelated_key_error_in_env_delete_is_not_a_404(client, app, monke
     async def broken(*_a, **_k):
         raise KeyError("unrelated")
 
-    monkeypatch.setattr(env_routes, "delete_env_key", broken)
+    monkeypatch.setattr(env_file, "delete_env_key", broken)
     with pytest.raises(KeyError):
         await client.delete(f"/api/projects/{pid}/env/GRAPHRAG_API_KEY", headers=alice)
 

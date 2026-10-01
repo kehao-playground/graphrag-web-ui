@@ -7,7 +7,7 @@ import {
   Alert, Descriptions, Drawer, Input, InputNumber, Segmented, Select, Space, Spin, Table, Typography,
 } from "antd";
 import type { TableProps } from "antd";
-import { artifactDetail, artifactList } from "../api/queries";
+import { artifactDetail, artifactList, artifactTables } from "../api/queries";
 import { i18n } from "../i18n";
 import { formatDateTime } from "../i18n/format";
 import ArtifactQueryError from "./ArtifactQueryError";
@@ -29,14 +29,17 @@ type Mode = "graph" | "table";
 // A column outside the catalog (another graphrag version) shows its own name.
 const columnLabel = (k: string) => i18n.t(`explore.columns.${k}` as ParseKeys, { defaultValue: k });
 
-// Mirror of the backend domain registry (Task 1): localized table label, the
-// list_columns projection and the filter flags the parquet schema supports.
-interface TableMeta {
-  label: string;
-  columns: string[];
-  typeFilter: boolean;
-  communityFilter: boolean;
-}
+// Localized table labels, in the registry's order. The list columns and
+// filter flags come from the backend registry (GET /api/artifact-tables,
+// R1-114) rather than a client-side mirror.
+const TABLE_LABELS: Record<ArtifactTableName, ParseKeys> = {
+  entities: "explore.tableEntities",
+  relationships: "explore.tableRelationships",
+  communities: "explore.tableCommunities",
+  community_reports: "explore.tableCommunityReports",
+  text_units: "explore.tableTextUnits",
+  documents: "explore.tableDocuments",
+};
 
 // Detail rows mix ids, long prose and list/object columns: prose stays
 // wrap-able, structured values are serialized for readability.
@@ -76,54 +79,16 @@ function renderHashIds(v: unknown) {
 
 export default function ExplorePanel({ projectId, canUse }: { projectId: string; canUse: boolean }) {
   const { t } = useTranslation();
-  // Labels localize per render; the projection/filter flags are static.
-  const TABLE_META: Record<ArtifactTableName, TableMeta> = {
-    entities: {
-      label: t("explore.tableEntities"),
-      columns: ["human_readable_id", "title", "type", "frequency", "degree"],
-      typeFilter: true,
-      communityFilter: true,
-    },
-    relationships: {
-      label: t("explore.tableRelationships"),
-      columns: ["human_readable_id", "source", "target", "weight", "combined_degree"],
-      typeFilter: false,
-      communityFilter: false,
-    },
-    communities: {
-      label: t("explore.tableCommunities"),
-      columns: ["human_readable_id", "community", "level", "parent", "size", "title"],
-      typeFilter: false,
-      communityFilter: true,
-    },
-    community_reports: {
-      label: t("explore.tableCommunityReports"),
-      columns: ["human_readable_id", "community", "level", "rank", "title"],
-      typeFilter: false,
-      communityFilter: true,
-    },
-    text_units: {
-      label: t("explore.tableTextUnits"),
-      columns: ["human_readable_id", "n_tokens", "document_id"],
-      typeFilter: false,
-      communityFilter: false,
-    },
-    documents: {
-      label: t("explore.tableDocuments"),
-      columns: ["human_readable_id", "title", "creation_date"],
-      typeFilter: false,
-      communityFilter: false,
-    },
-  };
-  const TABLE_OPTIONS = (Object.keys(TABLE_META) as ArtifactTableName[]).map((name) => ({
-    label: TABLE_META[name].label,
+  const tables = useQuery(artifactTables());
+  const TABLE_OPTIONS = (tables.data?.tables ?? []).map(({ name }) => ({
+    label: t(TABLE_LABELS[name]),
     value: name,
   }));
   // A citation links here as ?table=<name>&row=<human_readable_id>: that
   // table, with the row's detail open. Read once; the drawer's close drops it.
   const [params, setParams] = useSearchParams();
   const linkedTable = params.get("table");
-  const linked = linkedTable !== null && Object.hasOwn(TABLE_META, linkedTable) ? linkedTable as ArtifactTableName : null;
+  const linked = linkedTable !== null && Object.hasOwn(TABLE_LABELS, linkedTable) ? linkedTable as ArtifactTableName : null;
   const linkedRow = Number(params.get("row") ?? "");
   const [mode, setMode] = useState<Mode>("table");
   const [GraphView, setGraphView] = useState(loadGraphView);
@@ -148,7 +113,8 @@ export default function ExplorePanel({ projectId, canUse }: { projectId: string;
     }
   };
 
-  const meta = TABLE_META[table];
+  // Undefined until the registry has loaded: no list request before then.
+  const meta = tables.data?.tables.find((m) => m.name === table);
 
   // The key is the request actually sent: filters the table does not
   // support never reach it (or the cache key). Errors render in place
@@ -158,10 +124,10 @@ export default function ExplorePanel({ projectId, canUse }: { projectId: string;
       limit,
       offset,
       q: q || undefined,
-      type: meta.typeFilter ? typeTags[0] : undefined,
-      community: meta.communityFilter && community !== null ? community : undefined,
+      type: meta?.type_filter ? typeTags[0] : undefined,
+      community: meta?.community_filter && community !== null ? community : undefined,
     }),
-    enabled: canUse && mode === "table",
+    enabled: canUse && mode === "table" && meta !== undefined,
     meta: { silent: true },
   });
 
@@ -184,7 +150,7 @@ export default function ExplorePanel({ projectId, canUse }: { projectId: string;
     setHrid(id);
   };
 
-  const columns: TableProps<Row>["columns"] = meta.columns.map((c) => ({
+  const columns: TableProps<Row>["columns"] = (meta?.columns ?? []).map((c) => ({
     title: columnLabel(c),
     dataIndex: c,
     ellipsis: true,
@@ -226,7 +192,7 @@ export default function ExplorePanel({ projectId, canUse }: { projectId: string;
               allowClear
               onSearch={(v) => { setQ(v.trim()); resetPage(); }}
             />
-            {meta.typeFilter && (
+            {meta?.type_filter && (
               <Select
                 aria-label={t("explore.columns.type")}
                 mode="tags"
@@ -238,7 +204,7 @@ export default function ExplorePanel({ projectId, canUse }: { projectId: string;
                 onChange={(tags) => { setTypeTags(tags); resetPage(); }}
               />
             )}
-            {meta.communityFilter && (
+            {meta?.community_filter && (
               <InputNumber
                 aria-label={t("explore.columns.community")}
                 placeholder={t("explore.columns.community")}
@@ -253,7 +219,7 @@ export default function ExplorePanel({ projectId, canUse }: { projectId: string;
           <Table
             rowKey="human_readable_id"
             size="small"
-            loading={list.isFetching}
+            loading={tables.isPending || list.isFetching}
             dataSource={list.data?.rows ?? []}
             columns={columns}
             pagination={{
@@ -276,7 +242,7 @@ export default function ExplorePanel({ projectId, canUse }: { projectId: string;
         </>
       )}
       <Drawer
-        title={meta.label}
+        title={t(TABLE_LABELS[table])}
         size="large"
         open={hrid !== null}
         onClose={closeDetail}

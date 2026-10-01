@@ -17,7 +17,7 @@ def register_health_routes(app):
     router = APIRouter(prefix="/api")
 
     @router.get("/health", response_model=LivenessOut)
-    async def health():
+    async def get_liveness():
         return LivenessOut(status="ok")
 
     # The Helm readinessProbe is an httpGet, so kubelet sees only the status
@@ -25,7 +25,7 @@ def register_health_routes(app):
     # that cannot serve it. Every condition this endpoint exists to report
     # therefore answers 503, with the same JSON body for operators.
     @router.get("/ready", response_model=ReadyOut, responses={503: {"model": ReadyOut}})
-    async def ready(response: Response):
+    async def get_readiness(response: Response):
         db: Literal["ok", "error"]
         try:
             factory = get_session_factory()

@@ -24,14 +24,7 @@ from graphrag_ui.api.deps import (
 from graphrag_ui.api.errors import ApiError
 from graphrag_ui.api.schemas import RoleOut
 from graphrag_ui.domain.permissions import Atom
-from graphrag_ui.services.roles import (
-    create_role,
-    delete_role,
-    get_role,
-    list_roles,
-    update_role,
-    usage_counts,
-)
+from graphrag_ui.services import roles as roles_service
 
 
 class RoleCreateIn(BaseModel):
@@ -68,12 +61,12 @@ def register_roles_routes(app):
     open_router = APIRouter(prefix="/api/roles", dependencies=[Depends(get_current_user)])
 
     @open_router.get("", response_model=list[RoleOut])
-    async def get_roles(
+    async def list_roles(
         db: DbSession,
         user: CurrentUser,
         scope: str | None = Query(default=None, pattern="^(global|project)$"),
     ):
-        return [RoleOut.model_validate(r) for r in await list_roles(db, scope)]
+        return [RoleOut.model_validate(r) for r in await roles_service.list_roles(db, scope)]
 
     app.include_router(open_router)
 
@@ -82,9 +75,9 @@ def register_roles_routes(app):
     )
 
     @admin_router.get("", response_model=list[RoleOut])
-    async def admin_get_roles(db: DbSession):
-        roles = await list_roles(db)
-        counts = await usage_counts(db)
+    async def list_admin_roles(db: DbSession):
+        roles = await roles_service.list_roles(db)
+        counts = await roles_service.usage_counts(db)
         out = []
         for r in roles:
             ro = RoleOut.model_validate(r)
@@ -94,9 +87,9 @@ def register_roles_routes(app):
         return out
 
     @admin_router.post("", response_model=RoleOut, status_code=status.HTTP_201_CREATED)
-    async def post_role(body: RoleCreateIn, admin: ManageUsers, db: DbSession):
+    async def create_role(body: RoleCreateIn, admin: ManageUsers, db: DbSession):
         try:
-            role = await create_role(
+            role = await roles_service.create_role(
                 db,
                 scope=body.scope,
                 name=body.name,
@@ -109,10 +102,12 @@ def register_roles_routes(app):
         return RoleOut.model_validate(role)
 
     @admin_router.patch("/{role_id}", response_model=RoleOut)
-    async def patch_one(role_id: uuid.UUID, body: RoleUpdateIn, admin: ManageUsers, db: DbSession):
-        role = await get_role(db, role_id)
+    async def update_role(
+        role_id: uuid.UUID, body: RoleUpdateIn, admin: ManageUsers, db: DbSession
+    ):
+        role = await roles_service.get_role(db, role_id)
         try:
-            role = await update_role(
+            role = await roles_service.update_role(
                 db,
                 role,
                 name=body.name,
@@ -125,9 +120,9 @@ def register_roles_routes(app):
         return RoleOut.model_validate(role)
 
     @admin_router.delete("/{role_id}", status_code=status.HTTP_204_NO_CONTENT)
-    async def delete_one(role_id: uuid.UUID, admin: ManageUsers, db: DbSession):
-        role = await get_role(db, role_id)
-        await delete_role(db, role, actor_id=admin.id)
+    async def delete_role(role_id: uuid.UUID, admin: ManageUsers, db: DbSession):
+        role = await roles_service.get_role(db, role_id)
+        await roles_service.delete_role(db, role, actor_id=admin.id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     app.include_router(admin_router)

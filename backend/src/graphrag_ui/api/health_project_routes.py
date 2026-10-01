@@ -129,7 +129,7 @@ def register_health_project_routes(app):
     router = APIRouter(prefix="/api/projects", dependencies=[Depends(get_current_user)])
 
     @router.get("/health", response_model=BatchHealthOut)
-    async def batch(
+    async def get_projects_health(
         # A string, not list[UUID]: the wire format is ids=<uuid,uuid,…>
         # (spec 7.5), and FastAPI >= 0.115 no longer splits list params on
         # commas — declaring a list would force repeated ?ids=… keys and
@@ -156,7 +156,7 @@ def register_health_project_routes(app):
         return {"projects": await batch_health(db, user.user, user.global_perms, parsed)}
 
     @router.get("/{pid}/health", response_model=HealthOut)
-    async def one(project: ProjectView, db: DbSession):
+    async def get_project_health(project: ProjectView, db: DbSession):
         return await project_health(db, project)
 
     app.include_router(router)

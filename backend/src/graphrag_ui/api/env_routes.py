@@ -18,7 +18,7 @@ from graphrag_ui.api.deps import (
     ProjectView,
     get_current_user,
 )
-from graphrag_ui.services.env_file import delete_env_key, list_env, set_env_key
+from graphrag_ui.services import env_file as env_service
 
 
 class EnvKeyOut(BaseModel):
@@ -59,19 +59,21 @@ def register_env_routes(app):
 
     @router.get("/{pid}/env", response_model=EnvOut)
     async def get_env(project: ProjectView):
-        return EnvOut(keys=[EnvKeyOut(**e) for e in list_env(project)])
+        return EnvOut(keys=[EnvKeyOut(**e) for e in env_service.list_env(project)])
 
     @router.patch("/{pid}/env", status_code=status.HTTP_204_NO_CONTENT)
-    async def patch_env(
+    async def set_env_key(
         project: ProjectEditSettings, body: EnvKeyIn, db: DbSession, user: CurrentUser
     ):
-        await set_env_key(db, project, body.key, body.value, actor_id=user.id)
+        await env_service.set_env_key(db, project, body.key, body.value, actor_id=user.id)
 
     @router.delete("/{pid}/env/{key}", status_code=status.HTTP_204_NO_CONTENT)
-    async def delete_env(project: ProjectEditSettings, key: str, db: DbSession, user: CurrentUser):
+    async def delete_env_key(
+        project: ProjectEditSettings, key: str, db: DbSession, user: CurrentUser
+    ):
         # 404 env_key_not_found, 400 env_key_referenced (settings.yaml still
         # needs the key) and 409 project_indexing come from the service.
-        await delete_env_key(db, project, key, actor_id=user.id)
+        await env_service.delete_env_key(db, project, key, actor_id=user.id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     app.include_router(router)

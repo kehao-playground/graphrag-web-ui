@@ -156,7 +156,14 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     configure_logging()
-    app = FastAPI(title="GraphRAG Web UI", lifespan=lifespan)
+    app = FastAPI(
+        title="GraphRAG Web UI",
+        lifespan=lifespan,
+        # operationId = handler name (`<verb>_<resource>`, unique app-wide —
+        # test_openapi_contract pins the rule); FastAPI's default appends
+        # the path and method, which made the ids unreadable (R1-44).
+        generate_unique_id_function=lambda route: route.name,
+    )
     # Starlette types every handler against bare Exception; a handler
     # narrowed to its own exception class cannot satisfy that signature.
     app.add_exception_handler(ApiError, api_error_handler)  # type: ignore[arg-type]

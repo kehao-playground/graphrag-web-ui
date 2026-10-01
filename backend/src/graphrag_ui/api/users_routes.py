@@ -14,15 +14,8 @@ from graphrag_ui.api.deps import (
 from graphrag_ui.api.errors import ApiError
 from graphrag_ui.api.schemas import UserBriefOut, UserOut, user_out
 from graphrag_ui.domain.permissions import Atom
+from graphrag_ui.services import users as users_service
 from graphrag_ui.services.roles import list_roles_for_user
-from graphrag_ui.services.users import (
-    create_user,
-    get_user,
-    list_users_by_email,
-    list_users_with_roles,
-    patch_user_guarded,
-    reset_password,
-)
 
 # adapters.models.User.display_name is String(100): longer is a 422 here,
 # not a truncation error at flush.
@@ -54,12 +47,12 @@ def register_users_routes(app):
 
     @router.get("", response_model=list[UserOut])
     async def list_users(db: DbSession):
-        return [user_out(u, roles) for u, roles in await list_users_with_roles(db)]
+        return [user_out(u, roles) for u, roles in await users_service.list_users_with_roles(db)]
 
     @router.post("", response_model=UserOut, status_code=status.HTTP_201_CREATED)
-    async def post_user(body: UserCreateIn, admin: ManageUsers, db: DbSession):
+    async def create_user(body: UserCreateIn, admin: ManageUsers, db: DbSession):
         try:
-            user = await create_user(
+            user = await users_service.create_user(
                 db,
                 body.email,
                 body.display_name,
@@ -74,8 +67,10 @@ def register_users_routes(app):
         return user_out(user, await list_roles_for_user(db, user.id))
 
     @router.patch("/{user_id}", response_model=UserOut)
-    async def patch_user(user_id: uuid.UUID, body: UserUpdateIn, admin: ManageUsers, db: DbSession):
-        user = await patch_user_guarded(
+    async def update_user(
+        user_id: uuid.UUID, body: UserUpdateIn, admin: ManageUsers, db: DbSession
+    ):
+        user = await users_service.patch_user_guarded(
             db,
             admin.id,
             admin.global_perms,
@@ -87,11 +82,11 @@ def register_users_routes(app):
         return user_out(user, await list_roles_for_user(db, user.id))
 
     @router.post("/{user_id}/reset-password", status_code=status.HTTP_204_NO_CONTENT)
-    async def post_reset_password(
+    async def reset_user_password(
         user_id: uuid.UUID, body: ResetPasswordIn, admin: ManageUsers, db: DbSession
     ):
-        user = await get_user(db, user_id)
-        await reset_password(db, user, body.new_password, actor_id=admin.id)
+        user = await users_service.get_user(db, user_id)
+        await users_service.reset_password(db, user, body.new_password, actor_id=admin.id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     app.include_router(router)
@@ -103,6 +98,6 @@ def register_users_routes(app):
 
     @open_router.get("", response_model=list[UserBriefOut])
     async def list_users_brief(db: DbSession):
-        return [UserBriefOut.model_validate(u) for u in await list_users_by_email(db)]
+        return [UserBriefOut.model_validate(u) for u in await users_service.list_users_by_email(db)]
 
     app.include_router(open_router)

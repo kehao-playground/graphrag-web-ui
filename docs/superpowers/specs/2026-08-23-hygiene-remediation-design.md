@@ -255,6 +255,14 @@ file and one more diff gate.
   asserts the set equals the known-current list (explore + query
   endpoints). New endpoints must declare response models; shrinking the
   list means debt paid down.
+- *(Amended by fix wave F32, R1-44.)* operationIds are the handler
+  names: `generate_unique_id_function` returns `route.name`, so a handler
+  is named `<verb>_<resource>` (`list_projects`, `update_role`,
+  `stream_job_logs`) — no HTTP-verb prefix (`post_`/`put_`/`patch_`), no
+  bare noun, `get_`/`list_` only on GETs, unique app-wide. The rule is
+  pinned by `test_openapi_contract`; a route module whose handler would
+  shadow a service function imports the service as a module
+  (`projects_service.create_project`).
 
 ### A6. Real-corpus fixtures converge
 Single helper module owns the `app`/`client` fixtures for the three

@@ -141,6 +141,15 @@ async def member_perms_for_projects(
     return {pid: frozenset(v) for pid, v in out.items()}
 
 
+async def owners_of(session: AsyncSession, projects: Sequence[Project]) -> dict[uuid.UUID, User]:
+    """One query for the whole project list: {owner_id: User} (R1-117)."""
+    owner_ids = {p.owner_id for p in projects}
+    if not owner_ids:
+        return {}
+    users = (await session.execute(select(User).where(User.id.in_(owner_ids)))).scalars()
+    return {u.id: u for u in users}
+
+
 async def list_projects(
     session: AsyncSession,
     user: User,

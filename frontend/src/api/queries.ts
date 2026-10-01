@@ -4,7 +4,7 @@ import {
 } from "./client";
 import type { ArtifactListParams } from "./client";
 import type {
-  ArtifactTableName, AuditPage, BatchHealth, EnvOut, FilesOut, JobPage, Matrix, Member, Preflight,
+  ArtifactTableName, ArtifactTables, AuditPage, BatchHealth, EnvOut, FilesOut, JobPage, Matrix, Member, Preflight,
   PreviewOut, Project, ProjectHealth, QuestionList, QuestionSetList, ResultList, Role,
   SettingsOut, SettingsVersionPage, TagCatalog, User, UserBrief,
 } from "./types";
@@ -256,6 +256,13 @@ export const runResults = (runId: string) => queryOptions({
 });
 
 // ---- explore ---------------------------------------------------------------
+
+// The table registry is static for a deployment: read once per session.
+export const artifactTables = () => queryOptions({
+  queryKey: ["artifact-tables"],
+  queryFn: () => apiJson<ArtifactTables>("/api/artifact-tables", "explore.loadTablesFailed"),
+  staleTime: Infinity,
+});
 
 export const artifactList = (pid: string, table: ArtifactTableName, params: ArtifactListParams) =>
   queryOptions({

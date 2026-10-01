@@ -7,9 +7,11 @@ The 409 body carries the exact keys
 flow (task 7) depends on them.
 """
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, status
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from graphrag_ui.api.deps import (
     CurrentUser,
@@ -21,7 +23,7 @@ from graphrag_ui.api.deps import (
     get_current_user,
 )
 from graphrag_ui.api.errors import ApiError
-from graphrag_ui.api.schemas import SettingsConflictOut
+from graphrag_ui.api.schemas import SettingsConflictOut, UuidStr
 from graphrag_ui.services.settings import (
     SettingsConflictError,
     get_version,
@@ -46,10 +48,12 @@ class SettingsWriteOut(BaseModel):
 
 
 class VersionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     content_hash: str
-    saved_by: str
-    created_at: str
+    saved_by: UuidStr
+    created_at: datetime
 
 
 class VersionPageOut(BaseModel):
@@ -69,7 +73,7 @@ def register_settings_routes(app):
     router = APIRouter(prefix="/api/projects", dependencies=[Depends(get_current_user)])
 
     @router.get("/{pid}/settings", response_model=SettingsOut)
-    async def get_settings(project: ProjectView):
+    async def get_project_settings(project: ProjectView):
         content, content_hash = read_settings(project)
         return SettingsOut(content=content, content_hash=content_hash)
 
@@ -78,7 +82,7 @@ def register_settings_routes(app):
         response_model=SettingsWriteOut,
         responses={409: {"model": SettingsConflictOut}},
     )
-    async def put_settings(
+    async def save_project_settings(
         project: ProjectEditSettings, body: SettingsWriteIn, db: DbSession, user: CurrentUser
     ):
         try:
@@ -105,15 +109,7 @@ def register_settings_routes(app):
         """Newest first, paged (at most 200 per page)."""
         versions, total = await list_versions(db, project, limit=limit, offset=offset)
         return VersionPageOut(
-            items=[
-                VersionOut(
-                    id=v.id,
-                    content_hash=v.content_hash,
-                    saved_by=str(v.saved_by),
-                    created_at=v.created_at.isoformat(),
-                )
-                for v in versions
-            ],
+            items=[VersionOut.model_validate(v) for v in versions],
             total=total,
         )
 
@@ -122,12 +118,6 @@ def register_settings_routes(app):
         v = await get_version(db, project, vid)
         if v is None:
             raise ApiError(status.HTTP_404_NOT_FOUND, "version_not_found", "version not found")
-        return VersionDetailOut(
-            id=v.id,
-            content=v.content,
-            content_hash=v.content_hash,
-            saved_by=str(v.saved_by),
-            created_at=v.created_at.isoformat(),
-        )
+        return VersionDetailOut.model_validate(v)
 
     app.include_router(router)

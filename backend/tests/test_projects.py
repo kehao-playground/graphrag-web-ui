@@ -197,3 +197,24 @@ async def test_create_and_patch_answer_the_callers_permissions(client, app):
     assert created.json()["my_permissions"] == fetched["my_permissions"]
     patched = await client.patch(f"/api/projects/{pid}", headers=alice, json={"name": "Perms 2"})
     assert patched.json()["my_permissions"] == fetched["my_permissions"]
+
+
+async def test_every_project_response_names_its_owner(client, app):
+    """R1-117: the list page renders owners from the project itself, not
+    from a full users fetch; every route that answers a project agrees."""
+    app.dependency_overrides[get_initializer] = FakeInitializer
+    admin = await _setup_two_users(client)
+    alice = await _activate(client, "alice@test.local", "alice-pass-1", "alice-pass-2")
+    created = await client.post(
+        "/api/projects", headers=alice, json={"name": "Owned", "input_file_type": "text"}
+    )
+    pid = created.json()["id"]
+    owner = {"owner_email": "alice@test.local", "owner_display_name": "Alice"}
+    fetched = (await client.get(f"/api/projects/{pid}", headers=alice)).json()
+    patched = (
+        await client.patch(f"/api/projects/{pid}", headers=alice, json={"name": "O2"})
+    ).json()
+    # admin sees every project (view_any) without being a member
+    listed = (await client.get("/api/projects", headers=admin)).json()
+    for body in (created.json(), fetched, patched, *listed):
+        assert {k: body[k] for k in owner} == owner

@@ -180,7 +180,7 @@ async def test_patch_concurrent_rename_maps_integrity_error(client, monkeypatch)
     async def _lost_race(session, role, **kwargs):
         raise IntegrityError("UPDATE roles", {}, Exception("duplicate key uq_roles_scope_name"))
 
-    monkeypatch.setattr("graphrag_ui.api.roles_routes.update_role", _lost_race)
+    monkeypatch.setattr("graphrag_ui.services.roles.update_role", _lost_race)
     r = await client.patch(
         f"/api/admin/roles/{role_id}",
         headers=admin,
