@@ -1,7 +1,7 @@
 """Real-corpus slow query test (plan Task 6): indexes a tiny workspace once
 through the jobs API (standard, gpt-4o-mini), then drives the query pipeline
 against the real LLM endpoint — POST basic with joined citations, local via
-the SSE stream (?token=), local POST answer-only, and finally the
+the SSE stream (?ticket=), local POST answer-only, and finally the
 per-(user, project) rate limiter (limit 2 → third call 429, done last so
 the shrunken bucket cannot poison the phases above).
 
@@ -77,16 +77,6 @@ async def test_real_corpus_query_basic_post_local_stream_rate_limit(
 ):
     client = query_client
     admin = await _setup_two_users(client)
-    # Fresh access token for the SSE ?token= path (helpers return only headers).
-    token = (
-        await client.post(
-            "/api/auth/login",
-            json={
-                "email": "admin@test.local",
-                "password": "admin-new-1",
-            },
-        )
-    ).json()["access_token"]
 
     # Real init: graphrag CLI actually forks here (~7 s).
     pid = (
@@ -163,14 +153,18 @@ async def test_real_corpus_query_basic_post_local_stream_rate_limit(
     assert all(v > 0 for v in first["timings"].values())
     assert secret not in r.text
 
-    # --- (b) local via SSE stream with ?token= (EventSource shape) ---
+    # --- (b) local via SSE stream with ?ticket= (EventSource shape) ---
+    stream_path = f"/api/projects/{pid}/query/stream"
+    ticket = (
+        await client.post("/api/auth/sse-ticket", headers=admin, json={"path": stream_path})
+    ).json()["ticket"]
     sse = await client.get(
-        f"/api/projects/{pid}/query/stream",
+        stream_path,
         params={
             "method": "local",
             "query": QUESTION,
             "response_type": "multiple paragraphs",
-            "token": token,
+            "ticket": ticket,
         },
     )
     assert sse.status_code == 200

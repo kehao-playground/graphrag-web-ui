@@ -1,4 +1,4 @@
-"""Per-key workspace .env management with masked reads (task brief 4).
+"""Per-key workspace .env management with masked reads (spec §6.1).
 
 Values in .env are secrets: list_env returns masked forms only, and
 error messages must never include a value (routes rely on that).

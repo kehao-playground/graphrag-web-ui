@@ -4,10 +4,9 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Response, status
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from graphrag_ui.adapters.models import Project, ProjectMember, Role, User
+from graphrag_ui.adapters.models import Project, User
 from graphrag_ui.adapters.workspace import GraphragInitInitializer, WorkspaceInitializer
 from graphrag_ui.api.deps import (
     CurrentUser,
@@ -124,12 +123,10 @@ def register_projects_routes(app):
         user: CurrentUser,
         initializer: Annotated[WorkspaceInitializer, Depends(get_initializer)],
     ):
-        project = await projects_service.create_project(
+        project, owner_perms = await projects_service.create_project(
             db, body.name, body.description, body.input_file_type, user.user, initializer
         )
-        # the owner membership create_project just wrote
-        member_perms = await projects_service.get_member_perms(db, project.id, user.id)
-        return await _one_project_out(db, project, user, member_perms)
+        return await _one_project_out(db, project, user, owner_perms)
 
     @router.get("/{pid}", response_model=ProjectOut)
     async def get_project(access: ProjectViewAccess, db: DbSession, user: CurrentUser):
@@ -151,20 +148,15 @@ def register_projects_routes(app):
 
     @router.get("/{pid}/members", response_model=list[MemberOut])
     async def list_members(project: ProjectView, db: DbSession):
-        rows = (
-            await db.execute(
-                select(ProjectMember.user_id, User.email, User.display_name, Role.id, Role.name)
-                .join(User, User.id == ProjectMember.user_id)
-                .join(Role, Role.id == ProjectMember.role_id)
-                .where(ProjectMember.project_id == project.id)
-                .order_by(User.email)
-            )
-        ).all()
         return [
             MemberOut(
-                user_id=str(r[0]), email=r[1], display_name=r[2], role_id=str(r[3]), role_name=r[4]
+                user_id=str(m.user_id),
+                email=m.email,
+                display_name=m.display_name,
+                role_id=str(m.role_id),
+                role_name=m.role_name,
             )
-            for r in rows
+            for m in await projects_service.list_members(db, project.id)
         ]
 
     @router.put("/{pid}/members/{user_id}", response_model=MemberOut)

@@ -73,6 +73,7 @@ export default {
     settings_invalid_placeholder: "設定內含無效的 $ 佔位符",
     settings_path_escape: "設定將 graphrag 指向專案工作區之外：{{field}}",
     settings_input_locked: "輸入格式在建立專案時即已固定：{{field}}",
+    settings_missing: "工作區缺少 settings.yaml，請儲存設定以重新建立。",
     version_not_found: "版本不存在",
     // env
     env_invalid_key: "無效的變數名稱：{{key}}",

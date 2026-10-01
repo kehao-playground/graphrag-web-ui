@@ -1,8 +1,8 @@
 """Task 4: SSE streaming query — GET /api/projects/{pid}/query/stream.
 
 FakeStreamAdapter/FakeCache are patched at the service seams; the SSE event
-sequence (chunk* → citations → done), the ?token= auth fallback with its
-must-change gate, pre-stream refusals as one error frame and the mid-stream
+sequence (chunk* → citations → done), the ?ticket= auth path (F24-01),
+pre-stream refusals as one error frame and the mid-stream
 error event exercise the real route + service + domain citation parser.
 Auth and validation failures (401/403/422) still answer as plain HTTP
 errors; service refusals (rate limit, not indexed, config, adapter) do not."""
@@ -260,49 +260,41 @@ async def test_stream_chunks_then_citations_then_done(client, app, fake_adapter,
     assert headers["x-accel-buffering"] == "no"
 
 
-async def test_token_query_param_streams(client, app, fake_adapter, fake_cache):
-    """?token= auth (EventSource cannot send headers) yields the same stream."""
+async def _ticket(client, hdr, pid):
+    r = await client.post(
+        "/api/auth/sse-ticket", headers=hdr, json={"path": f"/api/projects/{pid}/query/stream"}
+    )
+    assert r.status_code == 200, r.text
+    return r.json()["ticket"]
+
+
+async def test_ticket_query_param_streams(client, app, fake_adapter, fake_cache):
+    """?ticket= auth (EventSource cannot send headers) yields the same
+    stream (F24-01)."""
     pid, _, bob, _ = await _viewer_setup(client, app)
-    token = bob["Authorization"].split(" ", 1)[1]
-    body, _ = await _stream(client, _url(pid, method="basic", query="q", token=token))
+    ticket = await _ticket(client, bob, pid)
+    body, _ = await _stream(client, _url(pid, method="basic", query="q", ticket=ticket))
     assert _events(body)[0] == ("chunk", "The ")
     assert any(kind == "done" for kind, _ in _events(body))
 
 
-async def test_token_query_param_invalid_401(client, app, fake_adapter, fake_cache):
-    pid, _, _, _ = await _viewer_setup(client, app)
-    r = await client.get(_url(pid, method="basic", query="q", token="not-a-token"))
+async def test_token_query_param_is_refused(client, app, fake_adapter, fake_cache):
+    """F24-01: the access token no longer travels in the URL."""
+    pid, _, bob, _ = await _viewer_setup(client, app)
+    token = bob["Authorization"].split(" ", 1)[1]
+    r = await client.get(_url(pid, method="basic", query="q", token=token))
+    assert r.status_code == 401
+    r = await client.get(_url(pid, method="basic", query="q", ticket="not-a-ticket"))
     assert r.status_code == 401
     assert r.headers["content-type"].startswith("application/json")
 
 
-async def test_token_must_change_member_403(client, app, fake_adapter, fake_cache):
-    """must-change-password user with a valid ?token= is still 403: the SSE
-    helper's gate is the only guard on this path (the global middleware only
-    inspects Authorization headers). The user is a project MEMBER viewer, so
-    without the gate the stream would be 200 — the test discriminates."""
-    admin, alice, _, _ = await _setup_users(client, app)
-    pid = await _project(client, alice)
-    r = await client.post(
-        "/api/admin/users",
-        headers=admin,
-        json={"email": "mcp-user@example.com", "display_name": "mcp", "password": "mcp-pass-123"},
-    )
-    assert r.status_code == 201, r.text
-    viewer_id = r.json()["id"]
-    r = await client.put(
-        f"/api/projects/{pid}/members/{viewer_id}",
-        headers=alice,
-        json={"role_id": str(ROLE_ID_VIEWER)},
-    )
-    assert r.status_code in (200, 201), r.text
-    r = await client.post(
-        "/api/auth/login", json={"email": "mcp-user@example.com", "password": "mcp-pass-123"}
-    )
-    token = r.json()["access_token"]
-    r = await client.get(_url(pid, method="basic", query="q", token=token))
-    assert r.status_code == 403
-    assert r.json()["detail"] == "password change required"
+async def test_ticket_for_another_project_is_refused(client, app, fake_adapter, fake_cache):
+    pid, alice, _, _ = await _viewer_setup(client, app)
+    other = await _project(client, alice, name="Other")
+    ticket = await _ticket(client, alice, other)
+    r = await client.get(_url(pid, method="basic", query="q", ticket=ticket))
+    assert r.status_code == 401
 
 
 async def test_rate_limit_third_stream_is_one_error_frame(

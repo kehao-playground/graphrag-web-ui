@@ -161,6 +161,30 @@ def create_access_token(user: User) -> str:
     )
 
 
+# SSE ticket lifetime (F24-01). EventSource cannot send a header, so the
+# credential rides the URL and lands in any log that records it (the nginx
+# error log has no redacting format). A ticket is good for one path and
+# one minute: long enough for EventSource's own retries after a blip,
+# short enough that a logged one is spent by the time anyone reads it.
+SSE_TICKET_SECONDS = 60
+
+
+def issue_sse_ticket(user: User, path: str) -> str:
+    """A signed, short-lived credential for one SSE request path."""
+    now = datetime.now(UTC)
+    return jwt.encode(
+        {
+            "sub": str(user.id),
+            "type": "sse",
+            "path": path,
+            "iat": now,
+            "exp": now + timedelta(seconds=SSE_TICKET_SECONDS),
+        },
+        get_settings().jwt_secret,
+        algorithm="HS256",
+    )
+
+
 # Absolute lifetime of a refresh-token family (one login's rotation chain):
 # rotation slides the 7-day window but never past this (decision D4).
 REFRESH_FAMILY_MAX_AGE = timedelta(days=30)

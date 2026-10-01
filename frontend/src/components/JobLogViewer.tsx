@@ -2,18 +2,17 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Button, Drawer, Space, Typography } from "antd";
 import { sseUrl } from "../api/client";
-import { refreshOnce, useAuth } from "../stores/auth";
 
 // A reader this close to the bottom is following the tail.
 const FOLLOW_SLACK_PX = 8;
 
 type StreamState = "live" | "reconnecting" | "lost";
 
-// Live job log viewer: native EventSource over the SSE route (Task 4);
-// sseUrl() carries the auth rule. A dropped connection is retried natively
-// with Last-Event-ID; a retry the server refuses (the ?token= expired, a
-// 401) closes the stream for good, and Reconnect resumes it at the last
-// offset with a fresh token (R2-32).
+// Live job log viewer: native EventSource over the SSE route (spec §6.3);
+// sseUrl() mints the one-minute ticket the route takes (F24-01). A dropped
+// connection is retried natively with Last-Event-ID; a retry the server
+// refuses (the ticket expired, a 401) closes the stream for good, and
+// Reconnect resumes it at the last offset with a fresh ticket (R2-32).
 //
 // Chunks are buffered and appended to the <pre> as text nodes once per
 // animation frame (R1-85): a multi-MB index log never re-renders or
@@ -56,18 +55,7 @@ export default function JobLogViewer({ jobId, title, onClose }: {
     if (followRef.current) pre.scrollTop = pre.scrollHeight;
   }, []);
 
-  useEffect(() => {
-    if (!jobId) return;
-    const resume = resumeRef.current;
-    resumeRef.current = false;
-    if (!resume) {
-      // A fresh open replays the whole log.
-      lastIdRef.current = null;
-      pendingRef.current = "";
-      if (preRef.current) preRef.current.textContent = "";
-    }
-    const params: Record<string, string> = resume && lastIdRef.current ? { offset: lastIdRef.current } : {};
-    const es = new EventSource(sseUrl(`/api/jobs/${jobId}/logs`, params));
+  const listen = useCallback((es: EventSource) => {
     es.addEventListener("open", () => setStream("live"));
     // data is a JSON-encoded string chunk; json.dumps keeps it single-line.
     es.addEventListener("log", (e) => {
@@ -85,18 +73,43 @@ export default function JobLogViewer({ jobId, title, onClose }: {
       // CONNECTING: the browser is retrying on its own; CLOSED: it gave up.
       setStream(es.readyState === EventSource.CLOSED ? "lost" : "reconnecting");
     });
+    return es;
+  }, [flush]);
+
+  useEffect(() => {
+    if (!jobId) return;
+    const resume = resumeRef.current;
+    resumeRef.current = false;
+    if (!resume) {
+      // A fresh open replays the whole log.
+      lastIdRef.current = null;
+      pendingRef.current = "";
+      if (preRef.current) preRef.current.textContent = "";
+    }
+    const params: Record<string, string> = resume && lastIdRef.current ? { offset: lastIdRef.current } : {};
+    let es: EventSource | null = null;
+    let closed = false;
+    // The ticket is minted per open; a close before it arrives opens nothing.
+    sseUrl(`/api/jobs/${jobId}/logs`, params, "jobs.logLost").then(
+      (url) => {
+        if (!closed) es = listen(new EventSource(url));
+      },
+      () => {
+        if (!closed) setStream("lost");
+      },
+    );
     return () => {
-      es.close();
+      closed = true;
+      es?.close();
       if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
       frameRef.current = null;
       flush();
     };
-  }, [jobId, attempt, flush]);
+  }, [jobId, attempt, flush, listen]);
 
-  const reconnect = async () => {
-    // The usual cause is an expired access token: get a fresh one first.
-    // A failed refresh still retries; the error listener reports the result.
-    if (useAuth.getState().authMode !== "proxy") await refreshOnce().catch(() => null);
+  const reconnect = () => {
+    // The effect re-runs in resume mode and mints a fresh ticket; api()
+    // refreshes an expired access token on the way.
     resumeRef.current = true;
     setStream("live");
     setAttempt((n) => n + 1);

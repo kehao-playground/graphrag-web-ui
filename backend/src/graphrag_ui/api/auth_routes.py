@@ -12,15 +12,19 @@ from graphrag_ui.api.schemas import (
     LoginOut,
     RefreshIn,
     RefreshOut,
+    SseTicketIn,
+    SseTicketOut,
     UserOut,
     user_out,
 )
 from graphrag_ui.config import get_settings
 from graphrag_ui.domain.sliding_window import SlidingWindow
 from graphrag_ui.services.auth import (
+    SSE_TICKET_SECONDS,
     authenticate,
     create_access_token,
     issue_refresh_token,
+    issue_sse_ticket,
     revoke_refresh,
     rotate_refresh,
     verify_password,
@@ -128,6 +132,14 @@ def register_auth_routes(app):
     async def log_out(body: RefreshIn, db: DbSession):
         await revoke_refresh(db, body.refresh_token)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @router.post("/sse-ticket", response_model=SseTicketOut)
+    async def create_sse_ticket(body: SseTicketIn, user: CurrentUser):
+        """EventSource cannot send the Authorization header: the SPA trades
+        it here for a ticket bound to the one stream it is about to open."""
+        return SseTicketOut(
+            ticket=issue_sse_ticket(user.user, body.path), expires_in=SSE_TICKET_SECONDS
+        )
 
     @router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
     async def change_password(

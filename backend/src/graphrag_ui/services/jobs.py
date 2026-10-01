@@ -94,10 +94,11 @@ async def enqueue(
 
 async def cancel(session: AsyncSession, job: Job, actor: User) -> bool:
     """False when the job is already terminal: nothing changed, nothing is
-    audited. request_cancel commits its own write, so the audit row follows
-    in a second transaction (decision D3)."""
+    audited. Otherwise the status change and its audit row (decision D3)
+    commit together (F24-02)."""
     job_id, job_type, project_id = job.id, job.type, str(job.project_id)
     if not await jobs_repo.request_cancel(session, job_id):
+        await session.rollback()
         return False
     await audit(
         session,

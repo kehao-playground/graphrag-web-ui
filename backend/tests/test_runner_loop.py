@@ -214,11 +214,11 @@ async def test_execute_survives_watch_poll_failure(app, monkeypatch):
     real_heartbeat = jobs_repo.heartbeat
     flaky_calls = {"n": 0}
 
-    async def flaky_heartbeat(session, job_id, worker_id, pid=None):
+    async def flaky_heartbeat(session, job_id, worker_id):
         flaky_calls["n"] += 1
         if flaky_calls["n"] == 1:
             raise RuntimeError("db blip")
-        return await real_heartbeat(session, job_id, worker_id, pid)
+        return await real_heartbeat(session, job_id, worker_id)
 
     monkeypatch.setattr(jobs_repo, "heartbeat", flaky_heartbeat)
     job_id = await _seed_job()
@@ -331,6 +331,7 @@ async def test_a_cancel_flagged_before_spawn_never_runs_or_bumps_the_epoch(app, 
     await _claim(job_id)
     async with get_session_factory()() as s:
         await jobs_repo.request_cancel(s, job_id)
+        await s.commit()
         project_id = (await jobs_repo.get_job(s, job_id)).project_id
         epoch_before = (await s.get(Project, project_id)).artifact_epoch
     await runner_loop._execute(job_id)

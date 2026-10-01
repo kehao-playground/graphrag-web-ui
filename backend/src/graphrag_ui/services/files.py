@@ -89,6 +89,10 @@ def _safe_name(project_input_file_type: str, filename: str) -> str:
         raise FileServiceError(
             "file_name_unsafe", "filename must not contain path separators or '..'"
         )
+    if any(c < " " or c == "\x7f" for c in filename):
+        # NUL makes the OS calls raise; newlines and tabs would be stored
+        # as-is and break the plain-text job log (R2-17).
+        raise FileServiceError("file_name_unsafe", "filename must not contain control characters")
     if filename.startswith("."):
         raise FileServiceError("file_name_leading_dot", "filename must not start with '.'")
     allowed = ALLOWED_EXTENSIONS.get(project_input_file_type, set())
@@ -159,7 +163,7 @@ async def _upsert_project_file(
     actor_id: uuid.UUID | None,
 ) -> None:
     """Insert or refresh the project_files row for an uploaded name: the
-    upload is the source of the row (Task 1's model — a row per file in
+    upload is the source of the row (KM spec §5.1 — a row per file in
     input/), so an upload resets discovered_at to None."""
     row = (
         await session.execute(
@@ -320,7 +324,7 @@ async def bulk_delete(
                         str(project.id),
                         {"name": name, "size": size},
                     )
-                    # file_tag_links cascade at the FK level (Task 1's model)
+                    # file_tag_links cascade at the FK level (KM spec §5.1)
                     await session.execute(
                         delete(ProjectFile).where(
                             ProjectFile.project_id == project.id, ProjectFile.name == name

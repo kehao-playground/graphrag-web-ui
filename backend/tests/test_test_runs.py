@@ -614,5 +614,6 @@ async def test_cancelling_a_queued_run_closes_it(db_session, run_ready):
     is closed with the job — the workbench polls while finished_at is null."""
     async with get_session_factory()() as s:
         assert await jobs_repo.request_cancel(s, run_ready.job_id)
+        await s.commit()
     started_at, finished_at = await _run_times(db_session, run_ready.run_id)
     assert started_at is None and finished_at is not None

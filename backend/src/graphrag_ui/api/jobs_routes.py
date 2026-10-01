@@ -1,5 +1,5 @@
-"""Jobs REST endpoints (spec §6.1). SSE logs live here too (Task 4 adds the
-streaming route). Permission split: start/cancel = project:run_jobs,
+"""Jobs REST endpoints (spec §6.1), including the SSE log stream (spec
+§6.3). Permission split: start/cancel = project:run_jobs,
 read/list/logs = project:view."""
 
 import json
@@ -75,7 +75,7 @@ def register_jobs_routes(app):
     # Same conventions as dry_run_routes: router built inside the function
     # (create_app() is called repeatedly in tests), auth on the router itself.
     # The SSE logs route below cannot live on this router: the router-level
-    # Bearer dependency would 401 the ?token= path before the handler runs.
+    # Bearer dependency would 401 the ?ticket= path before the handler runs.
     router = APIRouter(prefix="/api", dependencies=[Depends(get_current_user)])
     sse_router = APIRouter(prefix="/api")
 

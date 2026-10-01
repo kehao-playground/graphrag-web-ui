@@ -85,7 +85,7 @@
 | `users` | email(唯一)、password_hash(argon2)、display_name、role(admin/user)、is_active、created_at |
 | `projects` | name、slug(唯一)、description、owner_id、input_file_type(text/csv/json,建立後鎖定)、created_at |
 | `project_members` | (project_id, user_id) 唯一、role(owner/editor/viewer) |
-| `jobs` | project_id、type(index/update/dry_run)、method(standard/fast)、argv(實際執行的完整命令)、status、queued_by、**worker_id**、pid、**heartbeat_at**、**cancel_requested_at**、exit_code、error、stats(jsonb)、queued_at/started_at/finished_at |
+| `jobs` | project_id、type(index/update/dry_run)、method(standard/fast)、argv(實際執行的完整命令)、status、queued_by、**worker_id**、**heartbeat_at**、**cancel_requested_at**、exit_code、error、stats(jsonb)、queued_at/started_at/finished_at |
 | `settings_versions` | project_id、content(yaml 文本)、**content_hash**、saved_by、created_at(設定檔版本備份,供回復) |
 | `audit_log` | actor_id、action、target_type、target_id、payload(jsonb)、created_at。**規則:每個改變狀態的路由都寫一筆**(修正波 F24,決策 D3,R2-23/R3-34),含 `job.enqueued`、`job.cancelled`(target 為專案,payload 帶 `job_id`/`type`)與使用者自行改密碼的 `user.password_changed`;被拒絕的請求(409 等)不寫。前端 `AUDIT_ACTIONS` 與後端寫入的 action 集合由 `test_audit_catalog.py` 雙向比對 |
 
@@ -224,7 +224,7 @@ GraphRAG 的 `input.type` 是單一型別 + `input.file_pattern`(regex),一個 r
 
 - **技術棧**:React 19 + Vite + TypeScript、Ant Design 6(管理台表格/表單密集)、TanStack Query v5、React Router v7、Zustand(auth state)。*(2026-08-19 修訂:原定 React 18 + AntD 5 + Router 6,實作時 npm 已上 stable 最新 majors 且 build/tsc/test 全綠,經需求方確認保留新版)*
 - **頁面**:登入、專案列表、專案詳情(tab:Overview / Files / Settings / Jobs / Query / Explore)、Admin 使用者管理
-- **日誌 viewer**:自動跟隨 + 暫停;斷線以 `Last-Event-ID` 續傳。*(2026-09-30 F28 修訂)*:不做虛擬捲動——SSE 片段先緩衝,每個 animation frame 以一個 text node 附加到 `<pre>`,長日誌不再整段重繪(R1-85);往上捲即暫停跟隨,「跟隨最新」回到尾端(R3-19);瀏覽器自動重連時顯示「正在重新連線」,重連被拒(`?token=` 逾期的 401 等,EventSource 進入 CLOSED)時顯示警示與「重新連線」,先換新 access token 再以 `?offset=<最後 event id>` 續傳(R2-32)
+- **日誌 viewer**:自動跟隨 + 暫停;斷線以 `Last-Event-ID` 續傳。*(2026-09-30 F28 修訂)*:不做虛擬捲動——SSE 片段先緩衝,每個 animation frame 以一個 text node 附加到 `<pre>`,長日誌不再整段重繪(R1-85);往上捲即暫停跟隨,「跟隨最新」回到尾端(R3-19);瀏覽器自動重連時顯示「正在重新連線」,重連被拒(票證逾期的 401 等,EventSource 進入 CLOSED)時顯示警示與「重新連線」,換發新票證(access token 逾期時順帶 refresh)再以 `?offset=<最後 event id>` 續傳(R2-32,F33)
 - **查詢介面**:SSE 串流逐字顯示,答案下方以可展開卡片呈現 citations(對應 §6.4 解析結果)
 - **設定編輯器**:409 衝突時顯示 diff 與「重新載入 / 覆寫」兩個明確選項
 - **Explore tab(Phase 5,2026-08-22 定案:雙模式)**:Ant Segmented 切換「圖譜 | 資料表」。圖譜 = react-sigma + graphology(WebGL,萬級節點)+ forceatlas2 佈局,依 community 著色(穩定分類色板),控制項:level 下拉(顯示伺服器選定的層級)、type 過濾、min_degree 滑桿(預設 ≥1 濾孤點)、節點搜尋高亮聚焦(只改高亮,不重新佈局;佈局只在資料、level、type、min_degree 變動時重跑)、社群圖例(節點數前 8 大社群 + 「其他社群」+「未分群」)、縮放/重設視角控制、標籤只畫在達到大小門檻的節點上、點擊節點開啟該實體的明細 Drawer(與資料表共用);API 依 `GRAPH_NODE_LIMIT` 截斷(見 §6.1 graph 端點),其餘過濾交前端。資料表 = 表名下拉(6 表)+ 共用篩選 + Ant Table 伺服器端分頁(每頁 10/20/50/100)+ 行點擊 Drawer 顯示全文/列表/JSON 欄位(明細讀取失敗時在 Drawer 內顯示錯誤;型錄外欄位顯示原始欄名)。stale 時 Explore 頂部 Alert 提示;專案尚未建立索引(`not_indexed`)時兩種模式都以空狀態顯示該句並連到任務頁(F18 修訂)
@@ -264,7 +264,7 @@ GraphRAG 的 `input.type` 是單一型別 + `input.file_pattern`(regex),一個 r
 - 已作廢的 refresh token 在作廢後 30 秒內再次出示、且其接替者尚未被使用時,視為良性重送(多分頁同時 refresh),回傳同一個接替者;超出此寬限或接替者已被使用,才視為重放並撤銷該使用者所有 refresh token(修正波 F6,R2-05)
 - refresh token 存 DB(hash),支援登出與 admin 停用帳號時即刻撤銷
 - 密碼重設:MVP 由 admin 重設(不做郵件流程,與非目標一致)
-- SSE 路由(job 日誌、查詢串流)因 EventSource 無法帶 header,以 `?token=<access token>` 驗證(最長 15 分鐘有效)。**決策 D5(修正波 F24,R2-25)**:保留此機制,但 token 不得進存取日誌——web 的 nginx 以自訂 `log_format` 把含 `token=` 的 query string 記為 `?[redacted]`;api 的 uvicorn 存取日誌以 logging filter 遮蔽 `token=` 的值。已知殘留:nginx 連不上上游時的 error log 行仍含完整請求行(error log 格式不可設定),見 backlog F24-01
+- SSE 路由(job 日誌、查詢串流)因 EventSource 無法帶 header,改以短效票證驗證 *(2026-10-01 F33 修訂,F24-01)*:SPA 開串流前以 Bearer header 呼叫 `POST /api/auth/sse-ticket {path}`,取得綁定該請求路徑(不含 query string)、效期 60 秒的簽章票證,以 `?ticket=` 開啟 EventSource;SSE 路由不再接受 `?token=`,access token 不再出現在任何 URL。票證不是一次性的:60 秒內 EventSource 的原生重連仍可用,逾期後重連被拒(401),「重新連線」會換發新票證。必須更改密碼的使用者無法換發(403)。**決策 D5(修正波 F24,R2-25)** 的日誌遮蔽保留並涵蓋 `ticket=`:web 的 nginx 以自訂 `log_format` 把含 `token=`/`ticket=` 的 query string 記為 `?[redacted]`,api 的 uvicorn 存取日誌以 logging filter 遮蔽其值;nginx 連不上上游時的 error log 行(格式不可設定)最多記到一張只能讀該路徑一分鐘的票證
 
 ## 9. 代碼組織(Clean Architecture 精神)
 

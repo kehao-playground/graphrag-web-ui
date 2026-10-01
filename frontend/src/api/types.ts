@@ -38,6 +38,7 @@ export type PreviewOut = components["schemas"]["PreviewOut"];
 export type EnvOut = components["schemas"]["EnvOut"];
 export type DryRunOut = components["schemas"]["DryRunOut"];
 export type SettingsWriteOut = components["schemas"]["SettingsWriteOut"];
+export type SseTicket = components["schemas"]["SseTicketOut"];
 export type QuestionSetList = components["schemas"]["SetListOut"];
 export type QuestionList = components["schemas"]["QuestionListOut"];
 export type Matrix = components["schemas"]["MatrixOut"];

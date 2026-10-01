@@ -156,6 +156,7 @@ async def test_a_beat_replaces_that_seconds_cancel_poll(db_session, monkeypatch,
             from graphrag_ui.adapters import jobs_repo
 
             await jobs_repo.request_cancel(db_session, job.id)
+            await db_session.commit()
             for _ in range(100):
                 if cancel_requested():
                     return RunResult(status="cancelled", exit_code=-15, error=None, stats=None)

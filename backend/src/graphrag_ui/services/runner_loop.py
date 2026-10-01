@@ -117,9 +117,8 @@ async def _execute(job_id: uuid.UUID) -> None:
         """Owns the DB-side cadence: beat every _HEARTBEAT_S, check
         cancel_requested_at every _CANCEL_POLL_S (spec §5: 1 s, decided
         2026-08-21). A beat returns the cancel flag itself, so a beat
-        iteration skips the separate poll (R1-99). IndexRunner's heartbeat
-        parameter is never invoked by run() — the lambda passed below is a
-        placeholder its signature requires; all cadence lives here."""
+        iteration skips the separate poll (R1-99). IndexRunner only reads
+        the cancel flag this loop sets; all DB cadence lives here."""
         last_beat = float("-inf")  # force a beat on the first iteration
         last_progress: dict[str, int] | None = None
         loop = asyncio.get_running_loop()
@@ -166,7 +165,6 @@ async def _execute(job_id: uuid.UUID) -> None:
                 root=root,
                 log_path=log_path_for(root, job_id),
                 job_type=job_type,
-                heartbeat=lambda: asyncio.sleep(0),  # placeholder: run() never awaits it
                 cancel_requested=lambda: state["cancelled"],
                 since=started_wall,
             )

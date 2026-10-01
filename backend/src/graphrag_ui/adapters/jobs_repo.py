@@ -1,5 +1,10 @@
-"""PG queue operations for indexing jobs (spec §6.3). All functions commit
-their own transaction except insert_job (caller owns enqueue semantics)."""
+"""PG queue operations for indexing jobs (spec §6.3).
+
+The runner-loop writes (claim_next, heartbeat, set_progress, finish) commit
+their own short transactions: each runs on a fresh session the runner opens
+for that one write, and finish keeps the terminal write and the baseline
+promotion in one commit. Request-path writes (insert_job, request_cancel)
+never commit — the service that calls them owns the boundary (R1-35)."""
 
 import logging
 import uuid
@@ -56,17 +61,15 @@ async def claim_next(session: AsyncSession, worker_id: str) -> Job | None:
     return row
 
 
-async def heartbeat(
-    session: AsyncSession, job_id: uuid.UUID, worker_id: str, pid: int | None = None
-) -> bool:
+async def heartbeat(session: AsyncSession, job_id: uuid.UUID, worker_id: str) -> bool:
     """Stamp the beat; True when a cancel has been requested. The flag
     rides the UPDATE's RETURNING, so a beat replaces that second's cancel
     poll (R1-99)."""
-    values: dict = {"heartbeat_at": func.now(), "worker_id": worker_id}
-    if pid is not None:
-        values["pid"] = pid
     res = await session.execute(
-        update(Job).where(Job.id == job_id).values(**values).returning(Job.cancel_requested_at)
+        update(Job)
+        .where(Job.id == job_id)
+        .values(heartbeat_at=func.now(), worker_id=worker_id)
+        .returning(Job.cancel_requested_at)
     )
     cancel_requested = res.scalar_one_or_none() is not None
     await session.commit()
@@ -88,7 +91,9 @@ async def request_cancel(session: AsyncSession, job_id: uuid.UUID) -> bool:
     """A queued job is finished as cancelled on the spot — no claim, no
     snapshot, no epoch bump, no spawn (R2-09). A running job only gets the
     flag its runner polls. claim_next locks the queued row, so a cancel
-    racing a claim re-evaluates against `running` and takes the second path."""
+    racing a claim re-evaluates against `running` and takes the second path.
+    Does not commit: jobs.cancel adds its audit row to the same transaction
+    (F24-02)."""
     res = await session.execute(
         update(Job)
         .where(Job.id == job_id, Job.status == "queued")
@@ -102,7 +107,6 @@ async def request_cancel(session: AsyncSession, job_id: uuid.UUID) -> bool:
             .where(Job.id == job_id, Job.status == "running")
             .values(cancel_requested_at=func.now())
         )
-    await session.commit()
     # The update leaves identity-map instances expired; AsyncSession cannot
     # lazy-load on later attribute access, so reload explicitly.
     await _reload(session, job_id)

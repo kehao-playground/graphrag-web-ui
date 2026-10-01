@@ -1,5 +1,5 @@
 """Settings endpoints: read/write settings.yaml with hash optimistic lock and
-version history (task brief 3).
+version history (spec §6.1, §6.2).
 
 Permissions: write is project:edit_settings, reads are project:view.
 The 409 body carries the exact keys

@@ -72,6 +72,7 @@ const enUS = {
     settings_invalid_placeholder: "Invalid $ placeholder in settings",
     settings_path_escape: "Settings point graphrag outside the project workspace: {{field}}",
     settings_input_locked: "The input format is fixed at project creation: {{field}}",
+    settings_missing: "settings.yaml is missing from the workspace. Save the settings to recreate it.",
     version_not_found: "Version not found",
     env_invalid_key: "Invalid variable name: {{key}}",
     env_reserved_key: "Reserved variable name: {{key}} (process and proxy settings cannot be set per project)",

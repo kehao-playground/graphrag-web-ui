@@ -154,6 +154,32 @@ async def test_cancel_flow(client, app):
     assert r2.status_code == 409
 
 
+async def test_cancel_and_its_audit_row_commit_together(client, app, monkeypatch):
+    """F24-02: the status change and job.cancelled land in one commit, so
+    a failure writing the audit row leaves the job uncancelled."""
+    from graphrag_ui.services import jobs as jobs_service
+
+    _, alice, _ = await _setup_users(client, app)
+    pid = await _project(client, alice)
+    j = (
+        await client.post(
+            f"/api/projects/{pid}/jobs", headers=alice, json={"type": "index", "method": "fast"}
+        )
+    ).json()
+
+    async def _broken_audit(*a, **kw):
+        raise RuntimeError("audit write failed")
+
+    monkeypatch.setattr(jobs_service, "audit", _broken_audit)
+    try:
+        await client.post(f"/api/jobs/{j['id']}/cancel", headers=alice)
+    except RuntimeError:
+        pass  # the transport re-raises the unhandled error
+    monkeypatch.undo()
+    got = (await client.get(f"/api/jobs/{j['id']}", headers=alice)).json()
+    assert got["status"] == "queued" and got["cancel_requested_at"] is None
+
+
 async def test_preflight_shape(client, app):
     _, alice, _ = await _setup_users(client, app)
     pid = await _project(client, alice)

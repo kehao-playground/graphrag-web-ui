@@ -38,6 +38,10 @@ let postedBody: unknown = null;
 let posts: [string, unknown][] = [];
 let setsBody: { sets: { id: string; name: string; created_at: string }[] };
 const apiMock = vi.fn(async (path: string, init?: RequestInit) => {
+  // Every query opens its stream with a freshly minted ticket (F24-01).
+  if (path === "/api/auth/sse-ticket") {
+    return new Response(JSON.stringify({ ticket: "tkt", expires_in: 60 }), { status: 200 });
+  }
   if (init?.method === "POST") {
     postedTo = path;
     postedBody = JSON.parse(init.body as string);
@@ -85,22 +89,27 @@ function mount(canUse = true, canEdit = true) {
   );
 }
 
+async function opened(n: number) {
+  await waitFor(() => expect(MockEventSource.instances.length).toBeGreaterThan(n));
+  return MockEventSource.instances[n]!;
+}
+
 async function startStream() {
   const user = userEvent.setup();
   await user.type(screen.getByRole("textbox"), "什麼是 GraphRAG?");
   await user.click(screen.getByRole("button", { name: /^執\s?行$/ }));
-  return MockEventSource.instances[0]!;
+  return opened(0);
 }
 
-test("執行 opens EventSource with method, encoded query, response_type and token", async () => {
+test("執行 opens EventSource with method, encoded query, response_type and a ticket", async () => {
   mount();
   const user = userEvent.setup();
   await user.type(screen.getByRole("textbox"), "什麼是 GraphRAG?");
   await user.click(screen.getByRole("button", { name: /^執\s?行$/ }));
-  const url = new URL(MockEventSource.instances[0]!.url, "http://x");
+  const url = new URL((await opened(0)).url, "http://x");
   expect(url.pathname).toBe("/api/projects/p1/query/stream");
   expect(Object.fromEntries(url.searchParams)).toEqual({
-    method: "local", query: "什麼是 GraphRAG?", response_type: "multiple paragraphs", token: "test-token",
+    method: "local", query: "什麼是 GraphRAG?", response_type: "multiple paragraphs", ticket: "tkt",
   });
 });
 
@@ -193,6 +202,7 @@ test("Shift+Enter inserts a newline without starting a query; Enter starts it", 
   expect(MockEventSource.instances).toHaveLength(0);
   expect(box.value).toContain("\n");
   await user.type(box, "第二行{Enter}");
+  await opened(0);
   expect(MockEventSource.instances).toHaveLength(1);
 });
 
@@ -222,7 +232,7 @@ test("unmount closes the EventSource", async () => {
   const user = userEvent.setup();
   await user.type(screen.getByRole("textbox"), "q");
   await user.click(screen.getByRole("button", { name: /^執\s?行$/ }));
-  const es = MockEventSource.instances[0]!;
+  const es = await opened(0);
   unmount();
   expect(es.close).toHaveBeenCalled();
 });
@@ -232,25 +242,40 @@ test("canUse=false disables 執行", () => {
   expect(screen.getByRole("button", { name: /^執\s?行$/ })).toBeDisabled();
 });
 
-test("proxy mode: EventSource URL carries no empty token param", async () => {
+test("proxy mode: EventSource URL carries no credential", async () => {
   useAuth.setState({ authMode: "proxy", accessToken: null });
   mount();
   const es = await startStream();
   expect(es.url).not.toContain("token=");
+  expect(es.url).not.toContain("ticket=");
 });
 
-test("local mode: token still included", async () => {
+test("local mode: a ticket, never the access token (F24-01)", async () => {
   useAuth.setState({ authMode: "local", accessToken: "test-token" });
   mount();
   const es = await startStream();
-  expect(es.url).toContain("token=test-token");
+  expect(es.url).toContain("ticket=tkt");
+  expect(es.url).not.toContain("test-token");
+});
+
+test("a refused ticket shows the error and opens no stream", async () => {
+  apiMock.mockImplementationOnce(async () => new Response(
+    JSON.stringify({ detail: "x", code: "auth_must_change_password" }), { status: 403 },
+  ));
+  mount();
+  const user = userEvent.setup();
+  await user.type(screen.getByRole("textbox"), "q");
+  await user.click(screen.getByRole("button", { name: /^執\s?行$/ }));
+  expect(await screen.findByText("需先更改密碼")).toBeInTheDocument();
+  expect(MockEventSource.instances).toHaveLength(0);
+  expect(screen.getByRole("button", { name: /^執\s?行$/ })).not.toBeDisabled();
 });
 
 test("ad-hoc query still streams token by token", async () => {
   mount();
   await userEvent.type(screen.getByPlaceholderText(/輸入問題/), "hello");
   await userEvent.click(screen.getByRole("button", { name: /^執\s?行$/ }));
-  const es = MockEventSource.instances[0]!;
+  const es = await opened(0);
   es.emit("chunk", JSON.stringify("part one "));
   expect(await screen.findByText(/part one/)).toBeInTheDocument();
   es.emit("chunk", JSON.stringify("part two"));
@@ -261,7 +286,7 @@ test("an ad-hoc answer saves into a question set in one action", async () => {
   mount();
   await userEvent.type(screen.getByPlaceholderText(/輸入問題/), "退貨要幾天?");
   await userEvent.click(screen.getByRole("button", { name: /^執\s?行$/ }));
-  const es = MockEventSource.instances[0]!;
+  const es = await opened(0);
   es.emit("chunk", JSON.stringify("three working days"));
   es.emit("done", JSON.stringify(TIMINGS));
 

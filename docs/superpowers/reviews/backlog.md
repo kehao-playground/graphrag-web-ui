@@ -564,6 +564,14 @@ amended). One contract regen.
 
 Commit boundary moved out of `jobs_repo` (or documented), single parquet table map, dead code and inert parameters removed, docstrings corrected, slug collision retry, workspace cleanup on init failure, control characters rejected in names, missing `settings.yaml` → 404 and recreatable.
 
+**Done in PR #PRNUM.** Choices recorded there:
+- R1-35 takes the documented-exception branch. `request_cancel` no longer commits, so `jobs.cancel` writes the status change and its `job.cancelled` row in one commit (F24-02). The runner-loop writes (`claim_next`, `heartbeat`, `set_progress`, `finish` with its promotion hook) still commit their own short transactions, and AGENTS.md now says so.
+- R1-39 drops `jobs.pid` (alembic `e5a2d9c4f170`).
+- R2-24 does not answer 404. A 404 is a dead end, because the SPA has no way to recreate the file. Instead `GET` answers empty content with an empty hash; `PUT` with `expected_hash: ""` writes the file back (the editor already does this on its first save); and `POST /jobs` / dry-run refuse with the new code `settings_missing` (both locales, i18n spec).
+- F24-01 tickets are stateless JWTs bound to the request path (no query string), valid for 60 s and reusable within that minute. They are not one-time, so EventSource's native retries still work. `?token=` is refused on the SSE routes, and the redacting log formats cover `ticket=`. Main spec §8.4 and the proxy-auth spec are amended.
+- F26-02 bakes graphrag's whole chunking bootstrap list and opens the corpus tree to the runtime user: the downloader writes `0600` zips, and wordnet is read from its zip. Verified with `SentenceChunker` under `--network none` as uid 10001.
+- F30-02: `create_project` returns the owner role's atoms.
+
 - **R1-35** (P3/S, `backend/adapters`) `jobs_repo` commits its own transactions (boundary in the adapter)
 - **R1-37** (P3/S, `backend/adapters`) per-method parquet table sets defined twice
 - **R1-38** (P3/S, `backend/adapters`) dead `SearchAdapter` Protocol and builtin-role-id frozensets

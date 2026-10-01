@@ -1,4 +1,3 @@
-# backend/src/graphrag_ui/domain/workspaces.py
 """Pure workspace-path logic (spec A3).
 
 Domain keeps no I/O and no config: this module only joins and lexically

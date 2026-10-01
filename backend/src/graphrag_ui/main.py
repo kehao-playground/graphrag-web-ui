@@ -60,7 +60,7 @@ _LOG_HANDLER_NAME = "graphrag_ui"
 _QUIET_LOGGERS = ("httpx", "LiteLLM", "LiteLLM Router", "LiteLLM Proxy", "graphrag")
 
 
-_TOKEN_PARAM = re.compile(r"((?:^|[?&])token=)[^&\s]*")
+_TOKEN_PARAM = re.compile(r"((?:^|[?&])(?:token|ticket)=)[^&\s]*")
 _PROBE_PATHS = frozenset({"/api/health", "/api/ready"})
 
 
@@ -68,9 +68,10 @@ class _AccessLogFilter(logging.Filter):
     """Two edits to uvicorn's access lines, whose args are (client, method,
     full path, http version, status):
 
-    - The SSE routes take the access token as `?token=` (EventSource cannot
-      set headers), so the token would land in `docker logs api` (R2-25,
-      decision D5): its value is redacted.
+    - The SSE routes take a short-lived `?ticket=` (EventSource cannot set
+      headers; F24-01), which would land in `docker logs api`: its value is
+      redacted, as is a `?token=` an old client may still send (R2-25,
+      decision D5).
     - A successful liveness/readiness probe is dropped (F24-03): the compose
       healthcheck and the kubelet hit them every few seconds. A failing
       probe stays — that is the line an operator is looking for."""
@@ -87,7 +88,7 @@ class _AccessLogFilter(logging.Filter):
         ):
             return False
         if isinstance(record.args, tuple) and any(
-            isinstance(a, str) and "token=" in a for a in record.args
+            isinstance(a, str) and ("token=" in a or "ticket=" in a) for a in record.args
         ):
             record.args = tuple(
                 _TOKEN_PARAM.sub(r"\1[redacted]", a) if isinstance(a, str) else a

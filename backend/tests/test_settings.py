@@ -462,3 +462,30 @@ async def test_versions_page_with_total(client, app, db_session):
     assert len(first["items"]) == 2 and len(rest["items"]) == 1
     assert len({v["id"] for v in first["items"] + rest["items"]}) == 3
     assert (await client.get(f"{url}?limit=201", headers=alice)).status_code == 422
+
+
+async def test_a_removed_settings_file_reads_empty_and_can_be_recreated(client, app):
+    """R2-24: spec §3 lets an operator edit the workspace by hand; a deleted
+    settings.yaml must not 500 the editor, a job start must say why it
+    refuses, and a save must be able to put the file back."""
+    alice = await _alice(client, app)
+    pid = await _make_project(client, alice)
+    original = _settings_path(pid).read_text()
+    _settings_path(pid).unlink()
+
+    got = await client.get(f"/api/projects/{pid}/settings", headers=alice)
+    assert got.status_code == 200
+    assert got.json() == {"content": "", "content_hash": ""}
+
+    start = await client.post(
+        f"/api/projects/{pid}/jobs", headers=alice, json={"type": "index", "method": "standard"}
+    )
+    assert start.status_code == 400 and start.json()["code"] == "settings_missing"
+
+    put = await client.put(
+        f"/api/projects/{pid}/settings",
+        headers=alice,
+        json={"content": original, "expected_hash": ""},
+    )
+    assert put.status_code == 200, put.text
+    assert _settings_path(pid).read_text() == original

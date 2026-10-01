@@ -251,6 +251,10 @@ def test_safe_name_accepts_whitelisted():
         ("text", "../evil.txt"),  # traversal
         ("text", "..\\evil.txt"),  # windows separator
         ("text", "sub/notes.txt"),  # path separator
+        ("text", "nul\x00.txt"),  # NUL: the OS refuses it with a ValueError (R2-17)
+        ("text", "two\nlines.txt"),  # newline breaks the plain-text job log
+        ("text", "tab\there.txt"),
+        ("text", "del\x7f.txt"),
     ],
 )
 def test_safe_name_rejects(ftype, name):
@@ -258,6 +262,19 @@ def test_safe_name_rejects(ftype, name):
 
     with pytest.raises(FileServiceError):
         _safe_name(ftype, name)
+
+
+async def test_a_nul_in_the_path_is_a_400_not_a_500(client):
+    """R2-17: `%00` reached Path.is_file() and raised ValueError."""
+    alice = await _alice(client)
+    pid = await _make_project(client, alice)
+    for method in ("GET", "DELETE"):
+        suffix = "/preview" if method == "GET" else ""
+        r = await client.request(
+            method, f"/api/projects/{pid}/files/a%00.md{suffix}", headers=alice
+        )
+        assert r.status_code == 400, (method, r.text)
+        assert r.json()["code"] == "file_name_unsafe"
 
 
 def test_limit_helpers_read_settings(monkeypatch):

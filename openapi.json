@@ -2690,6 +2690,41 @@
         "title": "SettingsWriteOut",
         "type": "object"
       },
+      "SseTicketIn": {
+        "description": "The SSE request path the ticket is for, without its query string.",
+        "properties": {
+          "path": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "title": "SseTicketIn",
+        "type": "object"
+      },
+      "SseTicketOut": {
+        "description": "Pass as `?ticket=` on that one SSE path; valid for `expires_in`\nseconds (F24-01).",
+        "properties": {
+          "expires_in": {
+            "title": "Expires In",
+            "type": "integer"
+          },
+          "ticket": {
+            "title": "Ticket",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket",
+          "expires_in"
+        ],
+        "title": "SseTicketOut",
+        "type": "object"
+      },
       "TagCatalogOut": {
         "properties": {
           "tags": {
@@ -3868,6 +3903,60 @@
         "summary": "Refresh Session"
       }
     },
+    "/api/auth/sse-ticket": {
+      "post": {
+        "description": "EventSource cannot send the Authorization header: the SPA trades\nit here for a ticket bound to the one stream it is about to open.",
+        "operationId": "create_sse_ticket",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SseTicketIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SseTicketOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorOut"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorOut"
+                }
+              }
+            },
+            "description": "Client Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Sse Ticket"
+      }
+    },
     "/api/health": {
       "get": {
         "operationId": "get_liveness",
@@ -4032,7 +4121,7 @@
           },
           {
             "in": "query",
-            "name": "token",
+            "name": "ticket",
             "required": false,
             "schema": {
               "anyOf": [
@@ -4043,7 +4132,7 @@
                   "type": "null"
                 }
               ],
-              "title": "Token"
+              "title": "Ticket"
             }
           },
           {
@@ -6064,7 +6153,7 @@
           },
           {
             "in": "query",
-            "name": "token",
+            "name": "ticket",
             "required": false,
             "schema": {
               "anyOf": [
@@ -6075,7 +6164,7 @@
                   "type": "null"
                 }
               ],
-              "title": "Token"
+              "title": "Ticket"
             }
           }
         ],

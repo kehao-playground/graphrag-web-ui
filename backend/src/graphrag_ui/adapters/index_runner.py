@@ -9,7 +9,7 @@ import contextlib
 import json
 import logging
 import uuid
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -93,7 +93,6 @@ class IndexRunner:
         root: Path,
         log_path: Path,
         job_type: str,
-        heartbeat: Callable[[], Awaitable[None]],
         cancel_requested: Callable[[], bool],
         since: float | None = None,
     ) -> RunResult:

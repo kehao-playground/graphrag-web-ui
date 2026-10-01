@@ -42,7 +42,7 @@ class QuestionSetTooLargeError(CodedServiceError, RuntimeError):
 
 
 async def _commit_edit(session: AsyncSession) -> None:
-    # Module-level seam: Task 5's lock-barrier tests park between the
+    # Module-level seam: the lock-barrier tests park between the
     # reference check and the commit by patching this one function.
     await session.commit()
 
