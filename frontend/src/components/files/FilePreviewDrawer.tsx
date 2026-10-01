@@ -42,7 +42,7 @@ export default function FilePreviewDrawer({ projectId, name, locator, highlight,
       title={name ?? ""}
       extra={<Typography.Text type="secondary">{t("common.escToClose")}</Typography.Text>}
       width={640}
-      destroyOnClose
+      destroyOnHidden
     >
       {preview.isFetching && <Spin />}
       {preview.error && <Typography.Text type="danger">{preview.error.message}</Typography.Text>}

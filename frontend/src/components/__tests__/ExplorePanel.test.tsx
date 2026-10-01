@@ -129,7 +129,7 @@ function mount(url = "/") {
   render(
     <QueryClientProvider client={createQueryClient()}>
       <MemoryRouter initialEntries={[url]}>
-        <ExplorePanel projectId="p1" canUse />
+        <ExplorePanel projectId="p1" />
       </MemoryRouter>
     </QueryClientProvider>,
   );

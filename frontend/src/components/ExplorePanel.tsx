@@ -77,7 +77,7 @@ function renderHashIds(v: unknown) {
   );
 }
 
-export default function ExplorePanel({ projectId, canUse }: { projectId: string; canUse: boolean }) {
+export default function ExplorePanel({ projectId }: { projectId: string }) {
   const { t } = useTranslation();
   const tables = useQuery(artifactTables());
   const TABLE_OPTIONS = (tables.data?.tables ?? []).map(({ name }) => ({
@@ -127,13 +127,13 @@ export default function ExplorePanel({ projectId, canUse }: { projectId: string;
       type: meta?.type_filter ? typeTags[0] : undefined,
       community: meta?.community_filter && community !== null ? community : undefined,
     }),
-    enabled: canUse && mode === "table" && meta !== undefined,
+    enabled: mode === "table" && meta !== undefined,
     meta: { silent: true },
   });
 
   const detail = useQuery({
     ...artifactDetail(projectId, table, hrid ?? -1),
-    enabled: canUse && hrid !== null,
+    enabled: hrid !== null,
     meta: { silent: true },
   });
 
@@ -170,7 +170,7 @@ export default function ExplorePanel({ projectId, canUse }: { projectId: string;
       {mode === "graph" ? (
         <ErrorBoundary onReset={() => setGraphView(() => loadGraphView())}>
           <Suspense fallback={<Spin style={{ display: "block", marginTop: 64 }} />}>
-            <GraphView projectId={projectId} canUse={canUse} onOpenNode={openEntity} />
+            <GraphView projectId={projectId} onOpenNode={openEntity} />
           </Suspense>
         </ErrorBoundary>
       ) : (
@@ -180,7 +180,6 @@ export default function ExplorePanel({ projectId, canUse }: { projectId: string;
               aria-label={t("explore.modeTable")}
               style={{ width: 140 }}
               value={table}
-              disabled={!canUse}
               options={TABLE_OPTIONS}
               onChange={(name) => { setTable(name); setHrid(null); resetPage(); }}
             />
@@ -188,7 +187,6 @@ export default function ExplorePanel({ projectId, canUse }: { projectId: string;
               aria-label={t("explore.search")}
               placeholder={t("explore.searchPlaceholder")}
               style={{ width: 220 }}
-              disabled={!canUse}
               allowClear
               onSearch={(v) => { setQ(v.trim()); resetPage(); }}
             />
@@ -199,7 +197,6 @@ export default function ExplorePanel({ projectId, canUse }: { projectId: string;
                 maxCount={1}
                 placeholder={t("explore.columns.type")}
                 style={{ minWidth: 160 }}
-                disabled={!canUse}
                 value={typeTags}
                 onChange={(tags) => { setTypeTags(tags); resetPage(); }}
               />
@@ -209,7 +206,6 @@ export default function ExplorePanel({ projectId, canUse }: { projectId: string;
                 aria-label={t("explore.columns.community")}
                 placeholder={t("explore.columns.community")}
                 min={0}
-                disabled={!canUse}
                 value={community}
                 onChange={(v) => { setCommunity(v); resetPage(); }}
               />

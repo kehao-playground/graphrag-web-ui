@@ -10,18 +10,28 @@ import { useTranslation } from "react-i18next";
 import Layout from "./components/Layout";
 import ProtectedRoute from "./components/ProtectedRoute";
 import RequirePermission from "./components/RequirePermission";
+import { lazyPage } from "./components/lazyPage";
+import type { PaneKey } from "./pages/ProjectDetail";
 import Login from "./pages/Login";
 import Projects from "./pages/Projects";
-import ProjectDetail, { ProjectPane } from "./pages/ProjectDetail";
-import AdminUsers from "./pages/AdminUsers";
-import AdminRoles from "./pages/AdminRoles";
-import AdminAudit from "./pages/AdminAudit";
 import { useAuth } from "./stores/auth";
 import { createQueryClient } from "./api/queryClient";
 import { theme } from "./theme";
 import "./i18n";
 
 const queryClient = createQueryClient();
+
+// Route-level chunks (R1-60): the sign-in page and the project list ship in
+// the entry chunk; a project (its panes, js-yaml, the workbench) and the
+// admin pages load on first visit, under Layout's Suspense and boundary.
+// ProjectPane shares ProjectDetail's chunk.
+const ProjectDetail = lazyPage(() => import("./pages/ProjectDetail"));
+const ProjectPane = lazyPage<{ pane: PaneKey }>(
+  () => import("./pages/ProjectDetail").then((m) => ({ default: m.ProjectPane })),
+);
+const AdminUsers = lazyPage(() => import("./pages/AdminUsers"));
+const AdminRoles = lazyPage(() => import("./pages/AdminRoles"));
+const AdminAudit = lazyPage(() => import("./pages/AdminAudit"));
 
 // A data router: useBlocker (the settings pane's unsaved-edits guard) only
 // works under one.

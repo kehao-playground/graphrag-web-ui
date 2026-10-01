@@ -9,8 +9,8 @@ import { runResults } from "../../api/queries";
 import type { TestResult, TestRun } from "../../api/types";
 import AnswerView from "./AnswerView";
 import { runLabel } from "./methods";
-
-type Score = "good" | "fair" | "poor";
+import { RATING_META, SCORES } from "./ratings";
+import type { Score } from "./ratings";
 
 // One cell's full result (spec §9.2 "Cell → drawer"): the question AS ASKED
 // (denormalized at run time, spec §5.3), the answer with citations and
@@ -119,8 +119,7 @@ export default function ResultDrawer({ projectId, run, resultId, onClose, onRate
     const target = e.target as HTMLElement;
     // Typing a note must never rate (spec §9.2).
     if (target.closest("input, textarea, select, [contenteditable]")) return;
-    const scores = { "1": "good", "2": "fair", "3": "poor" } as const;
-    const score = scores[e.key as keyof typeof scores];
+    const score = /^[1-9]$/.test(e.key) ? SCORES[Number(e.key) - 1] : undefined;
     if (!score || !currentId || !runId) return;
     e.preventDefault();
     if (inFlight.current) return;
@@ -158,7 +157,7 @@ export default function ResultDrawer({ projectId, run, resultId, onClose, onRate
           <Alert type="warning" showIcon message={t("workbench.resultMissing")} />
         )
       ) : (
-        <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+        <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
           <div>
             <Typography.Title level={5} style={{ marginTop: 0 }}>
               {current.question_text}
@@ -183,11 +182,7 @@ export default function ResultDrawer({ projectId, run, resultId, onClose, onRate
           <div>
             <Segmented
               value={current.rating?.score ?? undefined}
-              options={[
-                { label: t("workbench.ratingGood"), value: "good" },
-                { label: t("workbench.ratingFair"), value: "fair" },
-                { label: t("workbench.ratingPoor"), value: "poor" },
-              ]}
+              options={SCORES.map((value) => ({ label: t(RATING_META[value].labelKey), value }))}
               disabled={rate.isPending}
               onChange={(v) => rate.mutate(v as Score)}
             />

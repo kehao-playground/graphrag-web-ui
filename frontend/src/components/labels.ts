@@ -22,6 +22,14 @@ export function jobTypeShortLabel(v: string, t: TFunction): string {
     : v;
 }
 
+// An index job's method; a test run's method (local, global, …) is a
+// query method and shows raw.
+export function jobMethodLabel(v: string, t: TFunction): string {
+  return v === "standard" ? t("jobs.methodStandard")
+    : v === "fast" ? t("jobs.methodFast")
+    : v;
+}
+
 // A job's display_status (JobOut): the runner's closed set, with
 // "failed(interrupted)" (a job the API restart found running) spelled as
 // its own catalog key.

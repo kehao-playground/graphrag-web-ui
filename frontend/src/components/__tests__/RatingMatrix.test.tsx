@@ -46,7 +46,7 @@ function renderWorkbench(opts: { activeJob?: { id: string; type: string } | null
       {/* Workbench reads ?regressions=1 (slice ③ overview deep link), so
           it mounts inside a router like every real usage. */}
       <MemoryRouter>
-        <Workbench projectId="p1" canUse canRunJobs canEdit />
+        <Workbench projectId="p1" canRunJobs canEdit />
       </MemoryRouter>
     </QueryClientProvider>,
   );

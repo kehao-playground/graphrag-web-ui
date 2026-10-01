@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Layout as AntLayout, Menu, Typography } from "antd";
+import { Layout as AntLayout, Menu, Spin, Typography } from "antd";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../stores/auth";
 import ChangePasswordModal from "./ChangePasswordModal";
@@ -80,7 +80,10 @@ export default function Layout() {
         {/* A crashed pane stays inside the content area; navigating
             elsewhere clears it. */}
         <ErrorBoundary resetKey={location.pathname}>
-          <Outlet />
+          {/* Route pages are lazy chunks (App.tsx). */}
+          <Suspense fallback={<Spin style={{ display: "block", marginTop: 64 }} />}>
+            <Outlet />
+          </Suspense>
         </ErrorBoundary>
       </AntLayout.Content>
       <ChangePasswordModal

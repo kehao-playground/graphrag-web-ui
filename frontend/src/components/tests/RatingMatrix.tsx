@@ -5,7 +5,8 @@ import { Checkbox, Table, Tag, Tooltip, Typography } from "antd";
 import type { TableProps } from "antd";
 import type { MatrixCell, MatrixRow, TestRun } from "../../api/types";
 import { runAnchor, runLabel } from "./methods";
-import { regressedLineages } from "./ratings";
+import { RATING_META, regressedLineages } from "./ratings";
+import type { Score } from "./ratings";
 
 // The lineage's current wording: the newest cell that actually asked it
 // (spec §5.3 — each cell carries the text as asked).
@@ -31,14 +32,9 @@ function CellView({ cell }: { cell: MatrixCell | null }) {
   if (!cell.rating) {
     return <Tag>{t("workbench.unrated")}</Tag>;
   }
-  const label =
-    cell.rating === "good" ? t("workbench.ratingGood")
-    : cell.rating === "fair" ? t("workbench.ratingFair")
-    : cell.rating === "poor" ? t("workbench.ratingPoor")
-    : cell.rating;
-  const color =
-    cell.rating === "good" ? "green" : cell.rating === "fair" ? "gold" : cell.rating === "poor" ? "red" : "default";
-  return <Tag color={color}>{label}</Tag>;
+  // An unknown score (a newer backend) renders raw rather than vanishing.
+  const meta = RATING_META[cell.rating as Score] as (typeof RATING_META)[Score] | undefined;
+  return <Tag color={meta?.color ?? "default"}>{meta ? t(meta.labelKey) : cell.rating}</Tag>;
 }
 
 export default function RatingMatrix({ runs, rows, regressionsOnly, onRegressionsOnly, onCell, selectedResultId }: {
