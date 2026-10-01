@@ -2,7 +2,7 @@
 
 Ratings are project-shared, one current row per result (spec 5.3). The
 matrix window bound is a domain constant like the question curation
-bounds — no new environment variables (plan Global Constraints).
+bounds — no new environment variables (AGENTS.md fixes the list).
 """
 
 from collections.abc import Mapping

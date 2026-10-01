@@ -1,5 +1,5 @@
 import type {
-  ArtifactDetail, ArtifactPage, ArtifactTableName, GraphData,
+  ArtifactDetail, ArtifactPage, ArtifactTableName, GraphData, SseTicket,
 } from "./types";
 import { useAuth, refreshOnce, redirectToProxyLogin } from "../stores/auth";
 import { i18n } from "../i18n";
@@ -117,16 +117,25 @@ export async function sendOk(path: string, fallbackKey: FallbackKey, init?: Requ
   await requireOk(await api(path, init), fallbackKey);
 }
 
-// EventSource cannot send an Authorization header, so SSE routes take the
-// access token as ?token= (backend accepts it on those routes only). The
-// token is read once, here, at stream-open time: subscribing to the store
-// would re-open the stream on every rotation and replay it. Proxy mode
-// sends no token (cookie auth); an empty token= would read as an invalid
-// bearer upstream (spec §6.4).
-export function sseUrl(path: string, params: Record<string, string> = {}): string {
+// EventSource cannot send an Authorization header, so SSE routes take a
+// ticket (F24-01): POST /api/auth/sse-ticket trades the access token for a
+// credential bound to this one path and valid for a minute, minted right
+// before the stream opens. The access token itself never rides a URL (the
+// nginx error log records full request lines). Proxy mode sends no ticket
+// (cookie auth). A failed mint throws ApiRequestError like apiJson.
+export async function sseUrl(
+  path: string,
+  params: Record<string, string>,
+  fallbackKey: FallbackKey,
+): Promise<string> {
   const usp = new URLSearchParams(params);
-  const { authMode, accessToken } = useAuth.getState();
-  if (authMode !== "proxy" && accessToken) usp.set("token", accessToken);
+  if (useAuth.getState().authMode !== "proxy") {
+    const { ticket } = await apiJson<SseTicket>("/api/auth/sse-ticket", fallbackKey, {
+      method: "POST",
+      body: JSON.stringify({ path }),
+    });
+    usp.set("ticket", ticket);
+  }
   const qs = usp.toString();
   return qs ? `${path}?${qs}` : path;
 }

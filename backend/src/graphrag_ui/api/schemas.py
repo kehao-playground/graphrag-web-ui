@@ -31,6 +31,12 @@ class RefreshIn(BaseModel):
     refresh_token: str
 
 
+class SseTicketIn(BaseModel):
+    """The SSE request path the ticket is for, without its query string."""
+
+    path: str = Field(min_length=1, max_length=512)
+
+
 class ChangePasswordIn(BaseModel):
     current_password: str
     new_password: str = Field(min_length=8)
@@ -121,6 +127,14 @@ class LoginOut(BaseModel):
 class RefreshOut(BaseModel):
     access_token: str
     refresh_token: str
+
+
+class SseTicketOut(BaseModel):
+    """Pass as `?ticket=` on that one SSE path; valid for `expires_in`
+    seconds (F24-01)."""
+
+    ticket: str
+    expires_in: int
 
 
 class AuthConfigOut(BaseModel):

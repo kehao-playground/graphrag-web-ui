@@ -11,10 +11,6 @@ from graphrag_ui.adapters.index_runner import (
 )
 
 
-async def _hb():  # no-op heartbeat; mechanics tested via runner_loop
-    return None
-
-
 async def test_success_captures_log_and_stats(tmp_path):
     root = tmp_path
     # fake "graphrag": sh -c 'echo hello; exit 0'
@@ -25,7 +21,6 @@ async def test_success_captures_log_and_stats(tmp_path):
         root=root,
         log_path=log,
         job_type="index",
-        heartbeat=_hb,
         cancel_requested=lambda: False,
     )
     assert res.status == "succeeded" and res.exit_code == 0 and res.error is None
@@ -42,7 +37,6 @@ async def test_spawn_is_logged_with_the_job_id_and_pid(tmp_path, caplog):
             root=tmp_path,
             log_path=log,
             job_type="index",
-            heartbeat=_hb,
             cancel_requested=lambda: False,
         )
     assert f"job {job_id} spawned: pid=" in caplog.text
@@ -60,7 +54,6 @@ async def test_subprocess_env_silences_litellm_import_warnings(tmp_path):
         root=tmp_path,
         log_path=log,
         job_type="index",
-        heartbeat=_hb,
         cancel_requested=lambda: False,
     )
     assert res.status == "succeeded"
@@ -77,7 +70,6 @@ async def test_subprocess_env_respects_explicit_litellm_log(tmp_path, monkeypatc
         root=tmp_path,
         log_path=log,
         job_type="index",
-        heartbeat=_hb,
         cancel_requested=lambda: False,
     )
     assert b"LITELLM_LOG=DEBUG" in log.read_bytes()
@@ -91,7 +83,6 @@ async def test_failure_error_is_log_tail(tmp_path):
         root=tmp_path,
         log_path=log,
         job_type="index",
-        heartbeat=_hb,
         cancel_requested=lambda: False,
     )
     assert res.status == "failed" and res.exit_code == 3
@@ -108,7 +99,6 @@ async def test_cancel_sigterm_then_cancelled(tmp_path):
             root=tmp_path,
             log_path=log,
             job_type="index",
-            heartbeat=_hb,
             cancel_requested=cancelled.is_set,
         )
     )
@@ -156,7 +146,6 @@ async def test_subprocess_env_is_allowlisted_and_carries_workspace_env(tmp_path,
         root=tmp_path,
         log_path=log,
         job_type="index",
-        heartbeat=_hb,
         cancel_requested=lambda: False,
     )
     assert res.status == "succeeded"
@@ -211,7 +200,6 @@ async def test_cancel_racing_a_child_exit_does_not_fail_the_job(tmp_path, monkey
         root=tmp_path,
         log_path=log_path_for(tmp_path, uuid.uuid4()),
         job_type="index",
-        heartbeat=_hb,
         cancel_requested=lambda: True,
     )
     # the child exited 0 on its own: the cancel lost the race

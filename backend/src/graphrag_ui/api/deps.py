@@ -48,7 +48,7 @@ class Principal:
 
     Read-only on purpose (frozen, properties without setters): any route
     that WRITES to the user row must go through `principal.user`
-    (`auth_routes.change_password` is the one such site — see Step 10).
+    (`auth_routes.change_password` is the one such site).
     """
 
     user: User
@@ -161,8 +161,11 @@ async def _principal_from_token(request: Request, db: AsyncSession, token: str) 
     """An access token → Principal: 401 when invalid or expired, 403 while
     the user must change their password (the backend enforces the forced
     change, not just the SPA's modal) unless the path is on the allowlist.
-    Both the header and the SSE ?token= paths go through here (R1-104)."""
-    user = await resolve_access_user(token, db)
+    The SSE ?ticket= path shares the gate (R1-104)."""
+    return await _gated_principal(request, db, await resolve_access_user(token, db))
+
+
+async def _gated_principal(request: Request, db: AsyncSession, user: User | None) -> Principal:
     if user is None:
         raise ApiError(
             status.HTTP_401_UNAUTHORIZED, "auth_invalid_token", "Invalid or expired token"
@@ -202,30 +205,50 @@ def require_atom(atom: Atom):
 ManageUsers = Annotated[Principal, Depends(require_atom(Atom.users_manage))]
 
 # Auth for SSE routes (job logs, query stream): EventSource cannot send an
-# Authorization header, so these routes accept the access token as a ?token=
-# query parameter (plan Task 7 decision). Tradeoff: the token then appears in
-# access/proxy logs; exposure is bounded by the 15-minute access-token
-# rotation. Revisit with short-lived one-time ticket auth when audit
-# requirements demand it. Single source — extracted from jobs_routes (Task 4).
+# Authorization header, so these routes take a `?ticket=` minted by
+# POST /api/auth/sse-ticket — signed, bound to the request path, valid for
+# a minute (F24-01). The access token itself never rides a URL: the nginx
+# error log has no redacting format and records the full request line
+# whenever the api is unreachable. A header still works (tests, curl).
 _sse_bearer = HTTPBearer(auto_error=False)
+
+
+async def resolve_sse_ticket(ticket: str, path: str, db: AsyncSession) -> User | None:
+    """`?ticket=` → User; invalid, expired, minted for another path, not a
+    ticket (an access token) or a disabled user → None."""
+    try:
+        payload = jwt.decode(ticket, get_settings().jwt_secret, algorithms=["HS256"])
+    except jwt.PyJWTError:
+        return None
+    if payload.get("type") != "sse" or payload.get("path") != path:
+        return None
+    try:
+        user_id = uuid.UUID(payload["sub"])
+    except (KeyError, ValueError):
+        return None
+    user = await db.get(User, user_id)
+    if user is None or not user.is_active:
+        return None
+    return user
 
 
 async def sse_user_from_request(
     request: Request,
     creds: Annotated[HTTPAuthorizationCredentials | None, Depends(_sse_bearer)],
     db: DbSession,
-    token: Annotated[str | None, Query()] = None,
+    ticket: Annotated[str | None, Query()] = None,
 ) -> Principal:
-    """?token= access-token fallback with get_current_user semantics
-    (401 invalid/expired, 403 must-change gate) for SSE-only routes."""
+    """?ticket= with get_current_user semantics (401 invalid/expired, 403
+    must-change gate) for SSE-only routes; the Bearer header otherwise."""
     # No tokens exist in proxy mode; the EventSource request carries the
     # oauth2-proxy cookie, so the injected headers are the only credential.
     if get_settings().auth_mode == "proxy":
         return await resolve_proxy_user(request, db)
-    if token is not None:
-        return await _principal_from_token(request, db, token)
-    # No query token: standard Bearer header semantics.
-    return await get_current_user(request, creds, db)
+    if ticket is None:
+        return await get_current_user(request, creds, db)
+    return await _gated_principal(
+        request, db, await resolve_sse_ticket(ticket, request.url.path, db)
+    )
 
 
 SseUser = Annotated[Principal, Depends(sse_user_from_request)]
@@ -257,7 +280,7 @@ class ProjectAccess:
 def require_project_access(atom: Atom, *, sse: bool = False):
     """Path-`pid` dependency: 404 for an unknown project, then 403 unless
     the caller holds `atom` on it (R1-10). `sse=True` resolves the caller
-    through the ?token= path (SseUser) instead of the Bearer header.
+    through the ?ticket= path (SseUser) instead of the Bearer header.
     Cached so each (atom, sse) is one callable, i.e. one FastAPI
     dependency-cache entry per request.
 

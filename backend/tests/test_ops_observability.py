@@ -114,6 +114,17 @@ def test_uvicorn_access_log_redacts_the_sse_token():
     line = record.getMessage()
     assert "eyJSECRET" not in line
     assert "/api/jobs/j/logs?offset=0&token=[redacted]" in line
+    ticketed = access.makeRecord(
+        "uvicorn.access",
+        logging.INFO,
+        __file__,
+        1,
+        '%s - "%s %s HTTP/%s" %d',
+        ("10.0.0.1:5", "GET", "/api/jobs/j/logs?ticket=eyJTICKET&offset=0", "1.1", 200),
+        None,
+    )
+    assert all(f.filter(ticketed) for f in access.filters)
+    assert "/api/jobs/j/logs?ticket=[redacted]&offset=0" in ticketed.getMessage()
     # a request without a token is untouched
     plain = access.makeRecord(
         "uvicorn.access", logging.INFO, __file__, 1, "%s", ("/api/projects?limit=5",), None

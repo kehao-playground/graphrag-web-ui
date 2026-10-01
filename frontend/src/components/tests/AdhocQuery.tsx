@@ -37,10 +37,14 @@ export default function AdhocQuery({ projectId, canUse, canEdit }: {
   const [saveSet, setSaveSet] = useState<string>();
   const [newSetName, setNewSetName] = useState("");
   const esRef = useRef<EventSource | null>(null);
+  const cancelledRef = useRef(false);
 
   // Close on unmount (mode switch): unlike job logs there is no resume, and
   // auto-reconnect would replay the query and double-charge the rate limit.
-  useEffect(() => () => esRef.current?.close(), []);
+  useEffect(() => () => {
+    cancelledRef.current = true;
+    esRef.current?.close();
+  }, []);
 
   useEffect(() => {
     if (!streaming) return;
@@ -51,12 +55,13 @@ export default function AdhocQuery({ projectId, canUse, canEdit }: {
   // Closing the EventSource ends the request; the server stops the search
   // when the client goes away. The partial answer stays on screen.
   const cancel = () => {
+    cancelledRef.current = true;
     esRef.current?.close();
     setStreaming(false);
     message.info(t("query.cancelled"));
   };
 
-  const run = () => {
+  const run = async () => {
     const q = query.trim();
     if (!canUse || streaming || !q) return;
     setChunks([]);
@@ -66,9 +71,23 @@ export default function AdhocQuery({ projectId, canUse, canEdit }: {
     const t0 = Date.now();
     setStartedAt(t0);
     setNow(t0);
-    const es = new EventSource(sseUrl(`/api/projects/${projectId}/query/stream`, {
-      method, query: q, response_type: RESPONSE_TYPE,
-    }));
+    // The ticket is minted per query (F24-01); Cancel or unmount while it
+    // is in flight leaves cancelledRef set, and no stream is opened.
+    cancelledRef.current = false;
+    let url: string;
+    try {
+      url = await sseUrl(`/api/projects/${projectId}/query/stream`, {
+        method, query: q, response_type: RESPONSE_TYPE,
+      }, "query.failedRetry");
+    } catch (err) {
+      if (!cancelledRef.current) {
+        message.error(err instanceof Error ? err.message : t("query.failedRetry"));
+        setStreaming(false);
+      }
+      return;
+    }
+    if (cancelledRef.current) return;
+    const es = new EventSource(url);
     esRef.current = es;
 
     // data is a JSON-encoded string fragment; json.dumps keeps it single-line.
@@ -160,14 +179,14 @@ export default function AdhocQuery({ projectId, canUse, canEdit }: {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onPressEnter={(e) => {
-            if (!e.shiftKey) run();
+            if (!e.shiftKey) void run();
           }}
           placeholder={t("workbench.adhocPlaceholder")}
           rows={3}
           disabled={busy}
         />
         <Space>
-          <Button type="primary" onClick={run} disabled={!canUse || busy || !query.trim()}>
+          <Button type="primary" onClick={() => void run()} disabled={!canUse || busy || !query.trim()}>
             {t("workbench.adhocRun")}
           </Button>
           {busy && (

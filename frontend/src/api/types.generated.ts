@@ -231,6 +231,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/sse-ticket": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Sse Ticket
+         * @description EventSource cannot send the Authorization header: the SPA trades
+         *     it here for a ticket bound to the one stream it is about to open.
+         */
+        post: operations["create_sse_ticket"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -1948,6 +1969,25 @@ export interface components {
             /** Content Hash */
             content_hash: string;
         };
+        /**
+         * SseTicketIn
+         * @description The SSE request path the ticket is for, without its query string.
+         */
+        SseTicketIn: {
+            /** Path */
+            path: string;
+        };
+        /**
+         * SseTicketOut
+         * @description Pass as `?ticket=` on that one SSE path; valid for `expires_in`
+         *     seconds (F24-01).
+         */
+        SseTicketOut: {
+            /** Expires In */
+            expires_in: number;
+            /** Ticket */
+            ticket: string;
+        };
         /** TagCatalogOut */
         TagCatalogOut: {
             /** Tags */
@@ -2716,6 +2756,48 @@ export interface operations {
             };
         };
     };
+    create_sse_ticket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SseTicketIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SseTicketOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorOut"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorOut"];
+                };
+            };
+        };
+    };
     get_liveness: {
         parameters: {
             query?: never;
@@ -2829,7 +2911,7 @@ export interface operations {
         parameters: {
             query?: {
                 offset?: number;
-                token?: string | null;
+                ticket?: string | null;
             };
             header?: {
                 "last-event-id"?: string | null;
@@ -4116,7 +4198,7 @@ export interface operations {
                 method: "local" | "global" | "drift" | "basic";
                 query: string;
                 response_type?: string | null;
-                token?: string | null;
+                ticket?: string | null;
             };
             header?: never;
             path: {

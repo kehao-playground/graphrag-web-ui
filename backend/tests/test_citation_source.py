@@ -157,7 +157,7 @@ async def indexed_project_api(client, app, db_session, fake_adapter, fake_cache)
 @pytest.fixture
 async def real_shape_project_api(client, app, db_session, fake_adapter, fake_cache):
     """indexed_project_api with the real graphrag frame shapes wired in
-    (see _wire_real_shapes); yields (alice headers, pid, token)."""
+    (see _wire_real_shapes); yields (alice headers, pid)."""
     pid, alice = await _api_project(client, app, name="RS")
     project = await _project_row(db_session, pid)
     root = ws_path(project.id)
@@ -165,12 +165,7 @@ async def real_shape_project_api(client, app, db_session, fake_adapter, fake_cac
     write_documents(root, [("d1", "file-a.md")])
     await promote_baseline(db_session, project, ["file-a.md"], epoch=1)
     _wire_real_shapes(fake_adapter, fake_cache)
-    token = (
-        await client.post(
-            "/api/auth/login", json={"email": "alice@test.local", "password": "alice-pass-2"}
-        )
-    ).json()["access_token"]
-    return alice, pid, token
+    return alice, pid
 
 
 @pytest.fixture
@@ -338,7 +333,7 @@ async def test_post_and_stream_link_the_same_document(client, real_shape_project
     POST /query shipped source_name null, because the non-stream path
     joined the search context (no document_id column) instead of the
     cached parquet frames the search was handed. Both doors must agree."""
-    alice, pid, token = real_shape_project_api
+    alice, pid = real_shape_project_api
     body = (
         await client.post(
             f"/api/projects/{pid}/query", headers=alice, json={"method": "local", "query": "q"}
@@ -351,7 +346,8 @@ async def test_post_and_stream_link_the_same_document(client, real_shape_project
     async with client.stream(
         "GET",
         f"/api/projects/{pid}/query/stream",
-        params={"method": "local", "query": "q", "token": token},
+        headers=alice,
+        params={"method": "local", "query": "q"},
     ) as resp:
         assert resp.status_code == 200
         streamed = "".join([line + "\n" async for line in resp.aiter_lines()])

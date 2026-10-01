@@ -1,4 +1,4 @@
-"""Project .env endpoints: per-key management with masked reads (task brief 4).
+"""Project .env endpoints: per-key management with masked reads (spec §6.1).
 
 Permissions: writes are project:edit_settings (API keys are settings-
 grade), listing is project:view. Audit actions: env.key_set / env.key_deleted with

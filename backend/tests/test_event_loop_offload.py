@@ -83,10 +83,6 @@ async def test_a_finished_update_prunes_off_the_loop(app, monkeypatch):
     assert _off_loop(threads)
 
 
-async def _hb():
-    return None
-
-
 async def test_a_failed_job_keeps_the_tail_of_a_long_log(tmp_path):
     """The error is the log's last characters, read from the end of the
     file rather than the whole log; the child writes the log directly."""
@@ -100,7 +96,6 @@ async def test_a_failed_job_keeps_the_tail_of_a_long_log(tmp_path):
         root=tmp_path,
         log_path=log,
         job_type="index",
-        heartbeat=_hb,
         cancel_requested=lambda: False,
     )
     assert res.status == "failed"

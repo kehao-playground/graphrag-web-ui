@@ -1,5 +1,5 @@
 """Settings.yaml read/write with hash-based optimistic locking and version
-history (task brief 3).
+history (spec §6.1, §6.2).
 
 The hash is sha256 of the file BYTES on disk (hex) — content is compared as
 bytes so trailing-newline or encoding drift never fools the lock.
@@ -51,9 +51,19 @@ def _hash_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+# The hash of a settings.yaml that does not exist: never a sha256 hex, so
+# only a writer that read the file as missing can recreate it (R2-24).
+MISSING_HASH = ""
+
+
 def read_settings(project: Project) -> tuple[str, str]:
-    """(content, sha256-hex of the bytes on disk)."""
-    data = (ws_path(project.id) / "settings.yaml").read_bytes()
+    """(content, sha256-hex of the bytes on disk); ("", MISSING_HASH) when
+    the file was removed by hand (spec §3 permits CLI edits), so the editor
+    opens empty and a save puts the file back."""
+    try:
+        data = (ws_path(project.id) / "settings.yaml").read_bytes()
+    except FileNotFoundError:
+        return "", MISSING_HASH
     return data.decode(), _hash_bytes(data)
 
 
@@ -140,7 +150,9 @@ def check_workspace_settings(project: Project) -> None:
     is not enough on its own: the file may predate the validator, and a
     `${DIR}` path that was confined when written moves with the .env.
     Sync file reads — callers run it in a thread."""
-    content, _ = read_settings(project)
+    content, content_hash = read_settings(project)
+    if content_hash == MISSING_HASH:
+        raise SettingsValidationError("settings_missing", "settings.yaml is missing")
     validate_settings_content(ws_path(project.id), content, project.input_file_type)
 
 

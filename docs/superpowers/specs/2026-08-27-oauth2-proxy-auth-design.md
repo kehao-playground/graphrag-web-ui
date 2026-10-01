@@ -172,8 +172,9 @@ have no password, and a local-mode user stuck with
 `must_change_password=True` must not be locked out after the switch
 (they can never satisfy the gate — the change-password route is gone).
 
-`sse_user_from_request` in proxy mode ignores `?token=` and the
-Bearer header entirely (no tokens exist) and delegates to the shared
+`sse_user_from_request` in proxy mode ignores `?ticket=` (the SSE
+ticket that replaced `?token=` in fix wave F33, F24-01; the SPA mints
+none in proxy mode) and the Bearer header entirely (no tokens exist) and delegates to the shared
 resolver; EventSource requests carry the oauth2-proxy cookie, so the
 headers are present.
 

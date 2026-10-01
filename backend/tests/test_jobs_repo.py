@@ -85,13 +85,14 @@ async def test_cancel_and_heartbeat(db_session):
     j = await _insert(db_session, p, u)
     assert await request_cancel(db_session, j.id) is True
     assert (await get_job(db_session, j.id)).cancel_requested_at is not None
+    await db_session.commit()
     await finish(db_session, j.id, "cancelled", exit_code=-15)
     assert await request_cancel(db_session, j.id) is False  # terminal: no-op
     j2 = await _insert(db_session, p, u)
     await claim_next(db_session, "w1")
-    await heartbeat(db_session, j2.id, "w1", pid=4242)
+    await heartbeat(db_session, j2.id, "w2")
     row = await get_job(db_session, j2.id)
-    assert row.pid == 4242
+    assert row.worker_id == "w2"
 
 
 async def test_find_stale_running(db_session):
@@ -224,5 +225,5 @@ async def test_a_loaded_instance_still_sees_the_server_values(db_session):
     j = await _insert(db_session, p, u)
     await claim_next(db_session, "w1")
     before = j.heartbeat_at
-    await heartbeat(db_session, j.id, "w1", pid=7)
-    assert j.pid == 7 and j.heartbeat_at >= before
+    await heartbeat(db_session, j.id, "w2")
+    assert j.worker_id == "w2" and j.heartbeat_at >= before

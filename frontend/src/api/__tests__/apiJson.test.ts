@@ -73,15 +73,26 @@ test("sendOk resolves without reading a body and throws on failure", async () =>
   await expect(sendOk("/api/x", "files.deleteFailed")).rejects.toMatchObject({ status: 403, message: "nope" });
 });
 
-test("sseUrl adds the access token read at call time and encodes params", () => {
-  expect(sseUrl("/api/jobs/1/logs")).toBe("/api/jobs/1/logs?token=tok");
-  expect(sseUrl("/api/q", { query: "a b&c", method: "local" }))
-    .toBe("/api/q?query=a+b%26c&method=local&token=tok");
+test("sseUrl mints a ticket for the path and never puts the access token in the URL (F24-01)", async () => {
+  stubFetch(200, { ticket: "tkt", expires_in: 60 });
+  const url = await sseUrl("/api/q", { query: "a b&c", method: "local" }, "query.failedRetry");
+  expect(url).toBe("/api/q?query=a+b%26c&method=local&ticket=tkt");
+  expect(url).not.toContain("token=");
+  expect(calls[0].path).toBe("/api/auth/sse-ticket");
+  expect(calls[0].init.method).toBe("POST");
+  expect(JSON.parse(calls[0].init.body as string)).toEqual({ path: "/api/q" });
+  expect((calls[0].init.headers as Record<string, string>).Authorization).toBe("Bearer tok");
 });
 
-test("sseUrl omits the token when there is none and in proxy mode", () => {
-  useAuth.setState({ authMode: "local", accessToken: null });
-  expect(sseUrl("/api/jobs/1/logs")).toBe("/api/jobs/1/logs");
+test("sseUrl throws when the ticket is refused", async () => {
+  stubFetch(403, { detail: "password change required", code: "auth_must_change_password" });
+  await expect(sseUrl("/api/jobs/1/logs", {}, "jobs.logLost")).rejects.toBeInstanceOf(ApiRequestError);
+});
+
+test("sseUrl asks for no ticket in proxy mode", async () => {
+  stubFetch(200, {});
   useAuth.setState({ authMode: "proxy", accessToken: "stale" });
-  expect(sseUrl("/api/q", { method: "local" })).toBe("/api/q?method=local");
+  expect(await sseUrl("/api/q", { method: "local" }, "query.failedRetry")).toBe("/api/q?method=local");
+  expect(await sseUrl("/api/jobs/1/logs", {}, "jobs.logLost")).toBe("/api/jobs/1/logs");
+  expect(calls).toHaveLength(0);
 });

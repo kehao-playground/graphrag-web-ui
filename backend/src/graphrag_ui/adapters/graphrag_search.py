@@ -14,11 +14,12 @@ import time
 from collections import OrderedDict
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 
 import pandas as pd
 import yaml
 
+from graphrag_ui.adapters.frame_cache import tables_for
 from graphrag_ui.adapters.workspace_env import read_workspace_env, substitute_placeholders
 from graphrag_ui.domain.settings_confinement import (
     FILE_STORAGE_SECTIONS,
@@ -68,10 +69,6 @@ logger = logging.getLogger(__name__)
 # graphrag CLI's default `--community-level` (2) — what our index jobs build
 # with, since index_runner never overrides it.
 DEFAULT_COMMUNITY_LEVEL = 2
-
-# Frame names handed to graphrag per method (plan Global Constraints map).
-_LOCAL_TABLES = ("entities", "communities", "community_reports", "text_units", "relationships")
-_GLOBAL_TABLES = ("entities", "communities", "community_reports")
 
 
 class ConfigLoadError(RuntimeError):
@@ -204,28 +201,6 @@ def _load_config_uncached(root: Path):
         raise ConfigLoadError(str(exc)) from exc
 
 
-class SearchAdapter(Protocol):
-    """Seam for tests (and Task 4 streaming): search + stream callables."""
-
-    async def search(
-        self,
-        method: str,
-        config: Any,
-        frames: dict[str, pd.DataFrame],
-        query: str,
-        response_type: str,
-    ) -> tuple[str, dict[str, pd.DataFrame]]: ...
-
-    def stream(
-        self,
-        method: str,
-        config: Any,
-        frames: dict[str, pd.DataFrame],
-        query: str,
-        response_type: str,
-    ) -> AsyncIterator[str]: ...
-
-
 class GraphragSearchAdapter:
     """Calls graphrag.api search functions; raises through on any failure."""
 
@@ -281,12 +256,8 @@ class GraphragSearchAdapter:
 
 def _frames_kwargs(method: str, config: Any, frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
     """Per-mode required-arg wiring from the loaded frames dict."""
-    kwargs: dict[str, Any] = {}
-    if method == "basic":
-        kwargs["text_units"] = frames["text_units"]
-    else:
-        tables = _GLOBAL_TABLES if method == "global" else _LOCAL_TABLES
-        kwargs = {name: frames[name] for name in tables}
+    kwargs: dict[str, Any] = {name: frames[name] for name in tables_for(method)}
+    if method != "basic":
         # graphrag CLI default --community-level 2 (index_runner never overrides)
         kwargs["community_level"] = (
             getattr(config, "community_level", None) or DEFAULT_COMMUNITY_LEVEL

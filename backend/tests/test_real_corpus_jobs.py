@@ -1,7 +1,7 @@
 """Real-corpus slow test (plan Task 8, closes spec §13 rows 1-4): drives the
 real graphrag CLI end-to-end through the app — real `graphrag init`, three
 tiny .txt uploads, env key, settings model switch (YAML mode), a
-runner-executed `index --method standard` job, SSE logs via ?token=, then an
+runner-executed `index --method standard` job, SSE logs via ?ticket=, then an
 incremental `update --method standard` with delta stats and retention checks.
 
 Skipped unless GRAPHRAG_API_KEY is set (real LLM endpoint; the key value must
@@ -75,8 +75,8 @@ MUTATED_SENTENCE = (
 
 def _graphrag_rss_kib(ws_root: Path) -> int:  # noqa: F811  (fixture imported above)
     """Sum resident memory (KiB) of the live `graphrag` subprocess for this
-    workspace (spec §13 row 3 measurement). Job.pid is deliberately never
-    recorded (spec demotes it to same-runner internal), so the CLI is found
+    workspace (spec §13 row 3 measurement). The job row carries no pid
+    (spec demotes it to same-runner internal), so the CLI is found
     by scanning our direct children's command lines for its --root argument.
     Best-effort: a failed probe reads as 0, never fails the test."""
     try:
@@ -131,16 +131,6 @@ async def _upload(client, headers, pid, name: str, text: str):
 async def test_real_corpus_standard_index_then_incremental_update(runner_client, ws_root):  # noqa: F811  (fixtures imported above)
     client = runner_client
     admin = await _setup_two_users(client)
-    # Fresh access token for the SSE ?token= path (helpers return only headers).
-    token = (
-        await client.post(
-            "/api/auth/login",
-            json={
-                "email": "admin@test.local",
-                "password": "admin-new-1",
-            },
-        )
-    ).json()["access_token"]
 
     # Real init: graphrag CLI actually forks here (~7 s).
     pid = (
@@ -208,8 +198,11 @@ async def test_real_corpus_standard_index_then_incremental_update(runner_client,
         await client.get(f"/api/projects/{pid}/jobs/preflight", headers=admin)
     ).status_code == 200
 
-    # SSE via ?token= (EventSource cannot send headers): log chunks + done.
-    sse = await client.get(f"/api/jobs/{job['id']}/logs?token={token}")
+    # SSE via ?ticket= (EventSource cannot send headers): log chunks + done.
+    path = f"/api/jobs/{job['id']}/logs"
+    minted = await client.post("/api/auth/sse-ticket", headers=admin, json={"path": path})
+    ticket = minted.json()["ticket"]
+    sse = await client.get(f"{path}?ticket={ticket}")
     assert sse.status_code == 200
     assert "event: log" in sse.text and "event: done" in sse.text
     assert '"status": "succeeded"' in sse.text

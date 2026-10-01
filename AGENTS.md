@@ -30,6 +30,9 @@ briefs; their Global Constraints always apply.
   - `services/` — use cases; must not import FastAPI or raise
     `HTTPException`; own the transaction boundary (`audit()` adds, services
     commit; `flush → external work → commit` with rollback on failure).
+    One exception: the runner-loop writes in `adapters/jobs_repo.py`
+    (`claim_next`, `heartbeat`, `set_progress`, `finish`) commit their own
+    short transactions; request-path callers never rely on that.
   - `adapters/` — Postgres repos, FS workspace, graphrag integration.
     All graphrag touchpoints live here: subprocess CLI for indexing
     (adapters), and in-process `graphrag.api` imports ONLY via

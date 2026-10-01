@@ -9,23 +9,13 @@ import pandas as pd
 
 from graphrag_ui.config import get_settings
 
-# Mode -> parquet tables required by graphrag.api search (spec §6.4).
+# Mode -> parquet tables required by graphrag.api search (spec §6.4); the
+# one map, read by graphrag_search to wire the search call (R1-37).
+_LOCAL_TABLES = ("entities", "communities", "community_reports", "text_units", "relationships")
 TABLES: dict[str, tuple[str, ...]] = {
     "basic": ("text_units",),
-    "local": (
-        "entities",
-        "communities",
-        "community_reports",
-        "text_units",
-        "relationships",
-    ),
-    "drift": (
-        "entities",
-        "communities",
-        "community_reports",
-        "text_units",
-        "relationships",
-    ),
+    "local": _LOCAL_TABLES,
+    "drift": _LOCAL_TABLES,
     "global": ("entities", "communities", "community_reports"),
 }
 

@@ -6,9 +6,11 @@ import secrets
 import shutil
 import uuid
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.adapters.models import Project, ProjectMember, Role, User
@@ -74,12 +76,48 @@ async def create_project(
     input_file_type: str,
     creator: User,
     initializer: WorkspaceInitializer,
-) -> Project:
+) -> tuple[Project, frozenset[str]]:
+    """Create the row, the owner membership and the workspace; returns the
+    project and the owner role's atoms (the caller's my_permissions)."""
     # No permission check: projects:create is every active user's baseline
     # (spec §4.1), and activeness is settled at the auth boundary (R1-88).
+    slug = await _unique_slug(session, name)
+    try:
+        project = await _insert_project(session, name, slug, description, input_file_type, creator)
+    except IntegrityError:
+        # R1-91: a concurrent create took the slug between the check and
+        # this flush (the flush waits on the unique index until that create
+        # commits). Retry once with a suffixed slug.
+        await session.rollback()
+        await session.refresh(creator)  # rollback expired it
+        slug = f"{_slugify(name)}-{secrets.token_hex(3)}"
+        project = await _insert_project(session, name, slug, description, input_file_type, creator)
+    owner_role = await session.get(Role, ROLE_ID_OWNER)
+    owner_perms = frozenset(owner_role.permissions or ()) if owner_role else frozenset()
+    root = ws_path(project.id)
+    try:
+        await initializer.init(root, input_file_type)
+    except WorkspaceInitError as e:
+        await session.rollback()  # a failed init leaves no half-baked row
+        # ...and no half-built directory (R1-28): the next attempt gets a
+        # fresh id, so nothing would ever sweep this one.
+        await asyncio.to_thread(shutil.rmtree, root, ignore_errors=True)
+        raise ProjectInitError("graphrag init failed") from e
+    await session.commit()
+    return project, owner_perms
+
+
+async def _insert_project(
+    session: AsyncSession,
+    name: str,
+    slug: str,
+    description: str | None,
+    input_file_type: str,
+    creator: User,
+) -> Project:
     project = Project(
         name=name,
-        slug=await _unique_slug(session, name),
+        slug=slug,
         description=description,
         owner_id=creator.id,
         input_file_type=input_file_type,
@@ -93,14 +131,8 @@ async def create_project(
         "project.created",
         "project",
         str(project.id),
-        payload={"name": name, "slug": project.slug, "input_file_type": input_file_type},
+        payload={"name": name, "slug": slug, "input_file_type": input_file_type},
     )
-    try:
-        await initializer.init(ws_path(project.id), input_file_type)
-    except WorkspaceInitError as e:
-        await session.rollback()  # a failed init leaves no half-baked row
-        raise ProjectInitError("graphrag init failed") from e
-    await session.commit()
     return project
 
 
@@ -239,6 +271,27 @@ class MemberNotFoundError(CodedServiceError, LookupError):
     """remove_member for a user who is not a member of the project."""
 
     code = "member_not_found"
+
+
+@dataclass(frozen=True)
+class MemberRow:
+    user_id: uuid.UUID
+    email: str
+    display_name: str
+    role_id: uuid.UUID
+    role_name: str
+
+
+async def list_members(session: AsyncSession, project_id: uuid.UUID) -> list[MemberRow]:
+    """The project's members with their role, ordered by email."""
+    rows = await session.execute(
+        select(ProjectMember.user_id, User.email, User.display_name, Role.id, Role.name)
+        .join(User, User.id == ProjectMember.user_id)
+        .join(Role, Role.id == ProjectMember.role_id)
+        .where(ProjectMember.project_id == project_id)
+        .order_by(User.email)
+    )
+    return [MemberRow(*r) for r in rows.all()]
 
 
 async def set_member(

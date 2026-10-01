@@ -162,6 +162,56 @@ async def test_init_failure_leaves_no_row(client, app):
     assert "Exploder" not in names  # rollback left no residual row
 
 
+async def test_init_failure_removes_the_half_built_workspace(client, app):
+    """R1-28: init mkdirs before graphrag runs; a failure must not leave an
+    orphan directory nothing would ever sweep."""
+    from graphrag_ui.adapters.workspace import WorkspaceInitError
+    from graphrag_ui.services.projects import workspaces_root
+
+    class HalfwayInitializer:
+        async def init(self, root, input_file_type):
+            (root / "input").mkdir(parents=True)
+            (root / "settings.yaml").write_text("partial: true\n")
+            raise WorkspaceInitError("simulated graphrag init failure")
+
+    app.dependency_overrides[get_initializer] = lambda: HalfwayInitializer()
+    await _setup_two_users(client)
+    alice = await _activate(client, "alice@test.local", "alice-pass-1", "alice-pass-2")
+    root = workspaces_root()
+    before = set(root.iterdir()) if root.exists() else set()
+    r = await client.post(
+        "/api/projects", headers=alice, json={"name": "Halfway", "input_file_type": "text"}
+    )
+    assert r.status_code == 500
+    after = set(root.iterdir()) if root.exists() else set()
+    assert after == before
+
+
+async def test_concurrent_creates_with_one_name_both_succeed(client, app):
+    """R1-91: both slug checks pass before either commits; the second
+    insert then hits the unique index. It retries with a suffixed slug
+    instead of answering a bare 500."""
+    import asyncio
+
+    class SlowInitializer(FakeInitializer):
+        async def init(self, root, input_file_type):
+            await asyncio.sleep(0.5)
+            await super().init(root, input_file_type)
+
+    app.dependency_overrides[get_initializer] = lambda: SlowInitializer()
+    await _setup_two_users(client)
+    alice = await _activate(client, "alice@test.local", "alice-pass-1", "alice-pass-2")
+    body = {"name": "Twin", "input_file_type": "text"}
+    a, b = await asyncio.gather(
+        client.post("/api/projects", headers=alice, json=body),
+        client.post("/api/projects", headers=alice, json=body),
+    )
+    assert (a.status_code, b.status_code) == (201, 201), (a.text, b.text)
+    slugs = {a.json()["slug"], b.json()["slug"]}
+    assert len(slugs) == 2 and "twin" in slugs
+    assert all(r.json()["my_permissions"] for r in (a, b))
+
+
 async def test_owner_role_not_grantable(client, app):
     # Single-owner policy: owner is fixed to the creator and not grantable via API.
     app.dependency_overrides[get_initializer] = FakeInitializer

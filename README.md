@@ -387,8 +387,9 @@ it; otherwise stream it out of the api pod while no job runs,
   per job step — enqueued, claimed, started, spawned (with the process id), cancel
   requested, and finished with status, exit code and duration — plus a warning for
   each job found interrupted at startup and the totals of the daily retention sweep.
-  Health-check requests are left out of the access log, and the SSE access token is
-  replaced by `[redacted]`.
+  Health-check requests are left out of the access log. Live streams sign in with a
+  one-minute ticket valid for that stream only (never the access token), and the
+  access log shows it as `[redacted]`.
 - **A job's own output** (graphrag's log) is on the Jobs page, live while it runs; on
   disk it is `logs/jobs/<job id>.log` in the project's workspace. Log files are kept
   `JOB_LOG_RETENTION_DAYS` (30) days after success and `JOB_LOG_FAILED_RETENTION_DAYS`

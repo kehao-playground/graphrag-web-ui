@@ -352,7 +352,8 @@ Helm —— 資料庫：設定了 `externalDatabase.url` 時，使用託管資�
 - **api 日誌**（`docker compose logs api`、`kubectl logs`）對任務的每個步驟記一行帶時間
   的紀錄——排入、領取、開始、產生子程序（含 process id）、要求取消，以及結束時的狀態、
   結束代碼與耗時——另外，啟動時發現被中斷的每個任務會記一則警告，每日保留清理也會
-  記下總數。健康檢查的請求不進存取日誌，SSE 存取權杖以 `[redacted]` 取代。
+  記下總數。健康檢查的請求不進存取日誌。即時串流以只對該串流有效、效期一分鐘的票證
+  登入（從不使用存取權杖），存取日誌中以 `[redacted]` 取代。
 - **任務本身的輸出**（graphrag 的日誌）在「任務」頁，執行中即時顯示；在磁碟上是專案
   工作區的 `logs/jobs/<job id>.log`。日誌檔在成功後保留 `JOB_LOG_RETENTION_DAYS`（30）
   天、失敗後保留 `JOB_LOG_FAILED_RETENTION_DAYS`（90）天；任務紀錄會永久保留錯誤

@@ -71,8 +71,8 @@ def register_query_routes(app):
     # Same conventions as dry_run_routes: router built inside the function
     # (create_app() is called repeatedly in tests), auth on the router itself.
     # The stream route cannot live on this router: the router-level Bearer
-    # dependency would 401 the ?token= path before the handler runs — it gets
-    # its auth from SseUser (header OR query token) instead.
+    # dependency would 401 the ?ticket= path before the handler runs — it gets
+    # its auth from SseUser (header OR ticket) instead.
     router = APIRouter(prefix="/api/projects", dependencies=[Depends(get_current_user)])
     sse_router = APIRouter(prefix="/api/projects")
 
@@ -91,7 +91,7 @@ def register_query_routes(app):
         query: str = Query(min_length=1, max_length=MAX_QUESTION_CHARS),
         response_type: str | None = Query(default=None, max_length=MAX_RESPONSE_TYPE_CHARS),
     ):
-        # NOTE: the access token may travel as ?token= (EventSource cannot
+        # NOTE: an SSE ticket may travel as ?ticket= (EventSource cannot
         # send headers) — never log this request or echo query params in any
         # error; details are fixed messages only.
 

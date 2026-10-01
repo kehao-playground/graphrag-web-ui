@@ -161,30 +161,70 @@ async def test_sse_unknown_job_404(client, app):
     assert r.status_code == 404
 
 
-async def test_sse_token_query_param_streams(client, app):
-    """?token= auth (EventSource cannot send headers) yields the same stream."""
+async def _ticket(client, hdr, path):
+    r = await client.post("/api/auth/sse-ticket", headers=hdr, json={"path": path})
+    assert r.status_code == 200, r.text
+    return r.json()["ticket"]
+
+
+async def test_sse_ticket_streams(client, app):
+    """F24-01: EventSource cannot send headers, so the SPA mints a short-lived
+    ticket for the one path and opens the stream with ?ticket=."""
     hdr = await _owner(client, app)
-    pid, job = await _queued_job(client, hdr, "sse-query-token")
-    token = hdr["Authorization"].split(" ", 1)[1]
-    _log_of(pid, job["id"]).write_text("token path\n", encoding="utf-8")
+    pid, job = await _queued_job(client, hdr, "sse-ticket")
+    path = f"/api/jobs/{job['id']}/logs"
+    r = await client.post("/api/auth/sse-ticket", headers=hdr, json={"path": path})
+    assert r.status_code == 200
+    assert 0 < r.json()["expires_in"] <= 60
+    _log_of(pid, job["id"]).write_text("ticket path\n", encoding="utf-8")
     await _finish(job["id"])
-    body = await _stream_body(client, f"/api/jobs/{job['id']}/logs?token={token}")
-    assert "token path" in body
+    body = await _stream_body(client, f"{path}?ticket={r.json()['ticket']}")
+    assert "ticket path" in body
     assert "event: done" in body
 
 
-async def test_sse_token_query_param_invalid_401(client, app):
+async def test_sse_no_longer_takes_the_access_token(client, app):
+    """F24-01: the access token stays out of URLs (and so out of the nginx
+    error log); only a ticket is accepted in the query string."""
     hdr = await _owner(client, app)
-    _, job = await _queued_job(client, hdr, "sse-bad-token")
-    r = await client.get(f"/api/jobs/{job['id']}/logs?token=not-a-token")
+    _, job = await _queued_job(client, hdr, "sse-old-token")
+    token = hdr["Authorization"].split(" ", 1)[1]
+    path = f"/api/jobs/{job['id']}/logs"
+    assert (await client.get(f"{path}?token={token}")).status_code == 401
+    # nor is an access token accepted where a ticket is expected
+    assert (await client.get(f"{path}?ticket={token}")).status_code == 401
+
+
+async def test_sse_ticket_is_bound_to_its_path_and_lifetime(client, app):
+    import jwt
+
+    from graphrag_ui.config import get_settings
+
+    hdr = await _owner(client, app)
+    _, job = await _queued_job(client, hdr, "sse-ticket-bound")
+    _, other = await _queued_job(client, hdr, "sse-ticket-other")
+    path = f"/api/jobs/{job['id']}/logs"
+    ticket = await _ticket(client, hdr, f"/api/jobs/{other['id']}/logs")
+    assert (await client.get(f"{path}?ticket={ticket}")).status_code == 401
+    assert (await client.get(f"{path}?ticket=not-a-ticket")).status_code == 401
+    claims = jwt.decode(
+        await _ticket(client, hdr, path), get_settings().jwt_secret, algorithms=["HS256"]
+    )
+    claims["exp"] = claims["iat"] - 1
+    expired = jwt.encode(claims, get_settings().jwt_secret, algorithm="HS256")
+    assert (await client.get(f"{path}?ticket={expired}")).status_code == 401
+
+
+async def test_sse_ticket_needs_a_signed_in_user(client, app):
+    hdr = await _owner(client, app)
+    _, job = await _queued_job(client, hdr, "sse-ticket-anon")
+    r = await client.post("/api/auth/sse-ticket", json={"path": f"/api/jobs/{job['id']}/logs"})
     assert r.status_code == 401
 
 
-async def test_sse_token_must_change_password_403(client, app):
-    """must-change-password user with a valid ?token= is still 403: the
-    _sse_user mirror is the only guard on this path (the global middleware
-    only inspects Authorization headers). The user is a project VIEWER, so
-    without this gate the stream would be 200 — the test discriminates."""
+async def test_sse_ticket_must_change_password_403(client, app):
+    """A user who must change their password cannot mint a ticket. The user
+    is a project VIEWER, so without this gate the stream would be 200."""
     hdr = await _owner(client, app)
     pid, job = await _queued_job(client, hdr, "sse-token-must-change")
     r = await client.post(
@@ -200,10 +240,9 @@ async def test_sse_token_must_change_password_403(client, app):
         json={"role_id": str(ROLE_ID_VIEWER)},
     )
     assert r.status_code in (200, 201), r.text
+    viewer = await _login(client, "mcp-user@example.com", "mcp-pass-123")
     r = await client.post(
-        "/api/auth/login", json={"email": "mcp-user@example.com", "password": "mcp-pass-123"}
+        "/api/auth/sse-ticket", headers=viewer, json={"path": f"/api/jobs/{job['id']}/logs"}
     )
-    token = r.json()["access_token"]
-    r = await client.get(f"/api/jobs/{job['id']}/logs?token={token}")
     assert r.status_code == 403
     assert r.json()["detail"] == "password change required"
