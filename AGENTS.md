@@ -98,8 +98,9 @@ helm template deploy/helm/graphrag-ui > /dev/null
   `input.file_pattern` is a regex) — wrong keys are silently ignored
   (`extra="allow"`), so always read back and assert after writing
   `settings.yaml`. graphrag 3.1.2 declares `nltk~=3.9.0`; `[tool.uv]
-  override-dependencies` lifts nltk to `>=3.10.3` for its advisories —
-  on a graphrag bump, drop the override if the new range admits it.
+  override-dependencies` lifts nltk to `>=3.10.3` for its advisories,
+  and litellm (pinned `==1.92.0` by graphrag-llm) to the `1.92.2` patch
+  release — on a graphrag bump, drop each override the new range admits.
 - Dependency advisories: the CI `audit` job is required. An advisory
   with no fixed release that is not reachable here goes on its
   `--ignore-vuln` list with a dated reason; anything else is fixed
