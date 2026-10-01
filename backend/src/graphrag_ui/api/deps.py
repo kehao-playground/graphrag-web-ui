@@ -15,7 +15,7 @@ from graphrag_ui.adapters.models import Project, User
 from graphrag_ui.api.errors import ApiError
 from graphrag_ui.config import get_settings
 from graphrag_ui.domain.permissions import Atom, can
-from graphrag_ui.services.auth import get_or_provision_user
+from graphrag_ui.services.auth import resolve_proxy_identity
 from graphrag_ui.services.projects import get_member_perms
 from graphrag_ui.services.roles import global_perms
 
@@ -138,10 +138,10 @@ async def resolve_proxy_user(request: Request, db: AsyncSession) -> Principal:
             status.HTTP_401_UNAUTHORIZED, "auth_not_authenticated", "Not authenticated"
         ) from None
     display = (request.headers.get("X-Forwarded-Preferred-Username") or "").strip()[:100]
-    user = await get_or_provision_user(db, email, display or email.split("@")[0])
+    user, perms = await resolve_proxy_identity(db, email, display or email.split("@")[0])
     if not user.is_active:
         raise ApiError(status.HTTP_403_FORBIDDEN, "auth_user_disabled", "account disabled")
-    return await _principal(db, user)
+    return Principal(user=user, global_perms=perms)
 
 
 async def get_current_user(

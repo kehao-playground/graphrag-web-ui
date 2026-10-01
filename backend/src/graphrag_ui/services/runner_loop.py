@@ -114,8 +114,10 @@ async def _execute(job_id: uuid.UUID) -> None:
     state: dict[str, bool] = {"cancelled": False}
 
     async def watch() -> None:
-        """Owns the DB-side cadence: beat every _HEARTBEAT_S, poll
-        cancel_requested_at every _CANCEL_POLL_S. IndexRunner's heartbeat
+        """Owns the DB-side cadence: beat every _HEARTBEAT_S, check
+        cancel_requested_at every _CANCEL_POLL_S (spec §5: 1 s, decided
+        2026-08-21). A beat returns the cancel flag itself, so a beat
+        iteration skips the separate poll (R1-99). IndexRunner's heartbeat
         parameter is never invoked by run() — the lambda passed below is a
         placeholder its signature requires; all cadence lives here."""
         last_beat = float("-inf")  # force a beat on the first iteration
@@ -125,7 +127,7 @@ async def _execute(job_id: uuid.UUID) -> None:
             try:
                 if loop.time() - last_beat >= _HEARTBEAT_S:
                     async with get_session_factory()() as s:
-                        await jobs_repo.heartbeat(s, job_id, wid)
+                        cancel_requested = await jobs_repo.heartbeat(s, job_id, wid)
                     last_beat = loop.time()
                     if progress_total is not None:
                         # Workflow progress rides the heartbeat (R3-36); the
@@ -136,7 +138,9 @@ async def _execute(job_id: uuid.UUID) -> None:
                             async with get_session_factory()() as s:
                                 await jobs_repo.set_progress(s, job_id, **progress)
                             last_progress = progress
-                if await _cancel_requested_in_db(job_id):
+                else:
+                    cancel_requested = await _cancel_requested_in_db(job_id)
+                if cancel_requested:
                     state["cancelled"] = True
             except Exception:  # one failed poll must not kill the watcher
                 logger.warning("watch poll failed for job %s", job_id, exc_info=True)

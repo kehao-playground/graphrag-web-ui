@@ -6,11 +6,11 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from sqlalchemy import select, update
+from sqlalchemy import event, select, update
 
 from graphrag_ui.adapters import jobs_repo
 from graphrag_ui.adapters.db import get_session_factory
-from graphrag_ui.adapters.index_runner import RunResult
+from graphrag_ui.adapters.index_runner import RunResult, log_path_for
 from graphrag_ui.adapters.models import IndexSnapshot, IndexSnapshotEntry, Job, Project, User
 from graphrag_ui.config import get_settings
 from graphrag_ui.services import runner_loop
@@ -114,6 +114,44 @@ async def test_sweep_missing_log_file_is_noop(app):
     await _seed_finished_job("succeeded", NOW - timedelta(days=31), with_log=False)
     res = await _sweep(NOW)
     assert res == {"deleted_logs": 0}
+
+
+async def test_sweep_never_recreates_a_deleted_workspace(app):
+    _, log = await _seed_finished_job("succeeded", NOW - timedelta(days=31))
+    ws = log.parents[2]
+    log.unlink()
+    for d in (log.parent, log.parents[1], ws):
+        d.rmdir()
+    assert await _sweep(NOW) == {"deleted_logs": 0}
+    assert not ws.exists()
+
+
+def test_log_path_for_is_a_pure_path_builder(tmp_path):
+    """R1-100: the SSE GET and the sweep build the path too; only the
+    runner, which writes the log, creates its directory."""
+    log_path_for(tmp_path / "ws", uuid.uuid4())
+    assert not (tmp_path / "ws").exists()
+
+
+async def test_sweep_filters_by_window_in_sql(app):
+    """R1-100: one query per retention window, however many terminal jobs
+    exist; rows inside the window never reach Python."""
+    for days in (1, 2, 3):
+        await _seed_finished_job("succeeded", NOW - timedelta(days=days))
+    seen: list[str] = []
+
+    def record(conn, cursor, statement, params, context, executemany):
+        seen.append(statement)
+
+    engine = get_session_factory().kw["bind"].sync_engine
+    event.listen(engine, "before_cursor_execute", record)
+    try:
+        assert await _sweep(NOW) == {"deleted_logs": 0}
+    finally:
+        event.remove(engine, "before_cursor_execute", record)
+    selects = [s for s in seen if s.lstrip().upper().startswith("SELECT")]
+    assert len(selects) == 2, selects
+    assert all("finished_at" in s.split("WHERE", 1)[1] for s in selects)
 
 
 def _make_update_output(root: Path, *names: str) -> None:

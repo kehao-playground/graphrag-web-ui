@@ -135,3 +135,35 @@ async def test_progress_total_follows_a_settings_workflows_override(
     await runner_loop._execute(job.id)
     await db_session.refresh(job)
     assert job.progress == {"done": 0, "total": 3}
+
+
+async def test_a_beat_replaces_that_seconds_cancel_poll(db_session, monkeypatch, _workspaces):
+    """R1-99: while every iteration beats, the cancel flag arrives with the
+    heartbeat's RETURNING and the separate poll never runs."""
+    job = await _running_job(db_session, type_="index")
+    polls = {"n": 0}
+    real_poll = runner_loop._cancel_requested_in_db
+
+    async def counting(job_id):
+        polls["n"] += 1
+        return await real_poll(job_id)
+
+    monkeypatch.setattr(runner_loop, "_cancel_requested_in_db", counting)
+    monkeypatch.setattr(runner_loop, "_HEARTBEAT_S", 0.0)
+
+    class CancelledRunner:
+        async def run(self, *, cancel_requested, **kwargs):
+            from graphrag_ui.adapters import jobs_repo
+
+            await jobs_repo.request_cancel(db_session, job.id)
+            for _ in range(100):
+                if cancel_requested():
+                    return RunResult(status="cancelled", exit_code=-15, error=None, stats=None)
+                await asyncio.sleep(0.02)
+            return RunResult(status="succeeded", exit_code=0, error=None, stats=None)
+
+    monkeypatch.setattr(runner_loop, "IndexRunner", CancelledRunner)
+    await runner_loop._execute(job.id)
+    await db_session.refresh(job)
+    assert job.status == "cancelled"
+    assert polls["n"] == 0

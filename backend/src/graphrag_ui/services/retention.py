@@ -21,51 +21,51 @@ from graphrag_ui.config import get_settings
 from graphrag_ui.domain.jobs import TERMINAL_STATUSES
 from graphrag_ui.services.projects import ws_path
 
-_BATCH = 500
-
 logger = logging.getLogger(__name__)
 
 
-async def sweep_job_logs(session, now: datetime) -> dict:
-    """Delete log files of terminal jobs past their retention window.
-    succeeded → job_log_retention_days, anything else → the longer
-    job_log_failed_retention_days. Commits nothing (file ops only)."""
+def _log_windows() -> tuple[tuple[tuple[str, ...], int], ...]:
+    """(terminal statuses, retention days): succeeded logs keep
+    job_log_retention_days, every other terminal status the longer
+    job_log_failed_retention_days. Logs and start snapshots share it."""
     settings = get_settings()
+    return (
+        (("succeeded",), settings.job_log_retention_days),
+        (tuple(TERMINAL_STATUSES - {"succeeded"}), settings.job_log_failed_retention_days),
+    )
+
+
+def _unlink_logs(jobs: list[tuple[uuid.UUID, uuid.UUID]]) -> int:
+    """Blocking file half of sweep_job_logs, run in a worker thread. A
+    missing log (or workspace) is simply not counted."""
     deleted = 0
-    offset = 0
-    while True:
-        # Rows are never deleted by the sweep, so offset paging is stable.
+    for job_id, project_id in jobs:
+        try:
+            log_path_for(ws_path(project_id), job_id).unlink()
+        except FileNotFoundError:
+            continue
+        deleted += 1
+    return deleted
+
+
+async def sweep_job_logs(session, now: datetime) -> dict:
+    """Delete log files of terminal jobs past their retention window
+    (_log_windows). The window is filtered in SQL, one query per status
+    group, so jobs inside it never leave the database. Commits nothing
+    (file ops only)."""
+    expired: list[tuple[uuid.UUID, uuid.UUID]] = []
+    for statuses, days in _log_windows():
         res = await session.execute(
-            select(Job.id, Job.project_id, Job.status, Job.finished_at)
-            .where(Job.status.in_(TERMINAL_STATUSES))
-            .order_by(Job.queued_at, Job.id)
-            .limit(_BATCH)
-            .offset(offset)
-        )
-        rows = res.all()
-        for job_id, project_id, status, finished_at in rows:
-            if finished_at is None:
-                continue  # defensive: finish() always stamps it
-            days = (
-                settings.job_log_failed_retention_days
-                if status != "succeeded"
-                else settings.job_log_retention_days
+            select(Job.id, Job.project_id).where(
+                Job.status.in_(statuses),
+                # keep while finished_at + window >= now
+                Job.finished_at + timedelta(days=days) < now,
             )
-            if finished_at + timedelta(days=days) >= now:
-                continue
-            # log_path_for mkdirs parents — skip deleted projects so the
-            # sweep never recreates their workspace dirs.
-            ws = ws_path(project_id)
-            if not ws.is_dir():
-                continue
-            log = log_path_for(ws, job_id)
-            if log.is_file():
-                log.unlink()
-                deleted += 1
-        if len(rows) < _BATCH:
-            break
-        offset += _BATCH
-    return {"deleted_logs": deleted}
+        )
+        expired.extend((job_id, project_id) for job_id, project_id in res.all())
+    if not expired:
+        return {"deleted_logs": 0}
+    return {"deleted_logs": await asyncio.to_thread(_unlink_logs, expired)}
 
 
 async def sweep_index_snapshots(session, now: datetime) -> dict:
@@ -74,7 +74,6 @@ async def sweep_index_snapshots(session, now: datetime) -> dict:
     projects.baseline_snapshot_id, nor the start row of the job that produced
     it - those are the current evidence, not superseded input hashes.
     `baseline` rows are never pruned here."""
-    settings = get_settings()
     # The job ids behind every current baseline pointer: their start rows
     # stay even once past the window (current evidence beats retention).
     protected_jobs = select(IndexSnapshot.job_id).where(
@@ -82,12 +81,8 @@ async def sweep_index_snapshots(session, now: datetime) -> dict:
             select(Project.baseline_snapshot_id).where(Project.baseline_snapshot_id.is_not(None))
         )
     )
-    windows = (
-        (("succeeded",), settings.job_log_retention_days),
-        (tuple(TERMINAL_STATUSES - {"succeeded"}), settings.job_log_failed_retention_days),
-    )
     deleted = 0
-    for statuses, days in windows:
+    for statuses, days in _log_windows():
         res = await session.execute(
             select(IndexSnapshot.id)
             .join(Job, Job.id == IndexSnapshot.job_id)

@@ -18,7 +18,7 @@ from graphrag_ui.adapters.models import RefreshToken, User, UserRole
 from graphrag_ui.config import get_settings
 from graphrag_ui.domain.role_catalog import ROLE_ID_OPS, ROLE_ID_USER_ADMIN
 from graphrag_ui.services.audit import audit
-from graphrag_ui.services.roles import manager_holders_stmt
+from graphrag_ui.services.roles import global_grants, manager_holders_stmt
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +88,7 @@ async def get_or_provision_user(session: AsyncSession, email: str, display_name:
             await session.flush()
             if addr in settings.proxy_admin_set:
                 # Granted in the insert's own transaction, not left to the
-                # reconciliation below: concurrent first logins would both
+                # reconcile in resolve_proxy_identity: concurrent first logins would both
                 # find the grants missing and race on the user_roles PK.
                 session.add_all(
                     [
@@ -112,17 +112,25 @@ async def get_or_provision_user(session: AsyncSession, email: str, display_name:
             user = await _lookup()
             assert user is not None
 
-    # Authoritative-upward reconciliation (spec §5.2 / decision 7): a
-    # listed email is granted whatever part of the composition it lacks,
-    # on every resolve. Grant-set difference, not role-name equality —
-    # a user holding only user_admin gets ops added, and so on.
-    if addr in settings.proxy_admin_set:
-        have = set(
-            (await session.execute(select(UserRole.role_id).where(UserRole.user_id == user.id)))
-            .scalars()
-            .all()
-        )
-        missing = [rid for rid in (ROLE_ID_USER_ADMIN, ROLE_ID_OPS) if rid not in have]
+    return user
+
+
+async def resolve_proxy_identity(
+    session: AsyncSession, email: str, display_name: str
+) -> tuple[User, frozenset[str]]:
+    """The proxy-mode user and their global atoms (spec §5.2).
+
+    Authoritative-upward reconciliation (decision 7): a listed email is
+    granted whatever part of the composition it lacks, on every resolve.
+    Grant-set difference, not role-name equality — a user holding only
+    user_admin gets ops added, and so on. The one grants query serves both
+    the reconcile and the Principal's atoms, so a known user resolves in two
+    queries and no commit (R2-29); only an actual promotion writes.
+    """
+    user = await get_or_provision_user(session, email, display_name)
+    held, perms = await global_grants(session, user.id)
+    if normalize_email(email) in get_settings().proxy_admin_set:
+        missing = [rid for rid in (ROLE_ID_USER_ADMIN, ROLE_ID_OPS) if rid not in held]
         if missing:
             session.add_all([UserRole(user_id=user.id, role_id=rid) for rid in missing])
             await audit(
@@ -134,7 +142,8 @@ async def get_or_provision_user(session: AsyncSession, email: str, display_name:
                 payload={"via": "proxy_admin_emails"},
             )
             await session.commit()
-    return user
+            _, perms = await global_grants(session, user.id)
+    return user, perms
 
 
 def create_access_token(user: User) -> str:

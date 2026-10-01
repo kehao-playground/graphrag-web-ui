@@ -1,3 +1,5 @@
+from contextlib import contextmanager
+
 import pandas as pd
 import pytest
 
@@ -173,7 +175,7 @@ def test_unknown_ids_are_absent_not_none(docs_ws):
 def test_empty_id_set_reads_nothing(docs_ws, monkeypatch):
     """A question that cites no sources must not open duckdb at all."""
     root = docs_ws(documents=[("d1", "a.md")])
-    monkeypatch.setattr(artifacts_module.duckdb, "connect", _explode("no read for an empty id set"))
+    monkeypatch.setattr(artifacts_module, "_cursor", _explode("no read for an empty id set"))
     assert resolve_document_titles(root, set()) == {}
 
 
@@ -185,13 +187,138 @@ def test_missing_parquet_yields_an_empty_mapping(tmp_path):
 
 def test_one_read_for_many_ids(docs_ws, monkeypatch):
     root = docs_ws(documents=[(f"d{i}", f"f{i}.md") for i in range(50)])
-    reads = {"n": 0}
-    real = artifacts_module.duckdb.connect
-
-    def counting(*a, **kw):
-        reads["n"] += 1
-        return real(*a, **kw)
-
-    monkeypatch.setattr(artifacts_module.duckdb, "connect", counting)
+    spy = _spy(monkeypatch)
     out = resolve_document_titles(root, {f"d{i}" for i in range(50)})
-    assert len(out) == 50 and reads["n"] == 1
+    assert len(out) == 50 and len(spy.statements) == 1
+
+
+class _Spy:
+    """Records every statement the adapter runs and how many rows it pulled
+    into Python."""
+
+    def __init__(self):
+        self.statements: list[str] = []
+        self.rows_fetched = 0
+
+
+def _spy(monkeypatch) -> _Spy:
+    spy = _Spy()
+    real = artifacts_module._cursor
+
+    class Recording:
+        def __init__(self, cur):
+            self._cur = cur
+
+        def execute(self, sql, params=None):
+            spy.statements.append(sql)
+            self._cur.execute(sql, params)
+            return self
+
+        @property
+        def description(self):
+            return self._cur.description
+
+        def fetchall(self):
+            rows = self._cur.fetchall()
+            spy.rows_fetched += len(rows)
+            return rows
+
+        def fetchone(self):
+            row = self._cur.fetchone()
+            spy.rows_fetched += row is not None
+            return row
+
+    @contextmanager
+    def recording():
+        with real() as cur:
+            yield Recording(cur)
+
+    monkeypatch.setattr(artifacts_module, "_cursor", recording)
+    return spy
+
+
+@pytest.fixture
+def big_ws(tmp_path):
+    """200 entities in a chain plus 300 relationships: big enough that a
+    full read is distinguishable from a capped one."""
+    out = tmp_path / "output"
+    out.mkdir()
+    n = 200
+    titles = [f"E{i}" for i in range(n)]
+    pd.DataFrame(
+        {
+            "id": [f"e{i}" for i in range(n)],
+            "human_readable_id": list(range(n)),
+            "title": titles,
+            "type": ["T"] * n,
+            "frequency": [1] * n,
+            "degree": list(range(n)),  # E199 is the biggest hub
+            "description": [""] * n,
+        }
+    ).to_parquet(out / "entities.parquet")
+    pd.DataFrame(
+        {
+            "id": [f"r{i}" for i in range(300)],
+            "human_readable_id": list(range(300)),
+            "source": [titles[i % n] for i in range(300)],
+            "target": [titles[(i + 1) % n] for i in range(300)],
+            "weight": [1.0] * 300,
+        }
+    ).to_parquet(out / "relationships.parquet")
+    pd.DataFrame(
+        {
+            "id": ["c0"],
+            "human_readable_id": [0],
+            "community": [7],
+            "level": [0],
+            "entity_ids": [[f"e{i}" for i in range(n)]],
+        }
+    ).to_parquet(out / "communities.parquet")
+    return tmp_path
+
+
+def test_a_capped_graph_pulls_only_the_kept_rows_into_python(big_ws, monkeypatch):
+    """R1-78: the cap, the edge filter and the community lookup run in
+    duckdb; Python sees the kept nodes and their edges, not the corpus."""
+    spy = _spy(monkeypatch)
+    data = graph(big_ws, node_limit=5)
+    assert [n["title"] for n in data["nodes"]] == ["E199", "E198", "E197", "E196", "E195"]
+    assert all(n["community"] == 7 for n in data["nodes"])
+    assert {(e["source"], e["target"]) for e in data["edges"]} == {
+        ("E195", "E196"),
+        ("E196", "E197"),
+        ("E197", "E198"),
+        ("E198", "E199"),
+    }
+    assert data["truncated"] is True
+    # levels (1) + count (1) + nodes (5) + edges (a handful), never ~500
+    assert spy.rows_fetched < 20
+
+
+def test_an_uncapped_graph_still_returns_everything(big_ws):
+    data = graph(big_ws, node_limit=None)
+    assert len(data["nodes"]) == 200 and data["truncated"] is False
+    assert len(data["edges"]) == 300
+
+
+def test_list_rows_runs_one_statement_per_page(ws, monkeypatch):
+    """R1-102: the total rides the page query (COUNT(*) OVER ())."""
+    spy = _spy(monkeypatch)
+    rows, total = list_rows(ws, "entities", limit=2, offset=0)
+    assert len(rows) == 2 and total == 3
+    assert len(spy.statements) == 1
+
+
+def test_list_rows_total_survives_an_offset_past_the_end(ws):
+    rows, total = list_rows(ws, "entities", limit=2, offset=10)
+    assert rows == [] and total == 3
+
+
+def test_reads_share_one_duckdb_database(ws, monkeypatch):
+    """R1-102: no fresh in-memory database per call."""
+    list_rows(ws, "entities", limit=1, offset=0)  # warm the shared connection
+    monkeypatch.setattr(artifacts_module.duckdb, "connect", _explode("connect per call"))
+    list_rows(ws, "entities", limit=1, offset=0)
+    get_row(ws, "entities", 1)
+    graph(ws)
+    resolve_document_titles(ws, {"x"})

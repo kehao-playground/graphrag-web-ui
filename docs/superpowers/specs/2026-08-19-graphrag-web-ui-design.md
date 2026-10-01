@@ -146,14 +146,14 @@ CREATE UNIQUE INDEX jobs_one_active_per_project
 - **列表慣例(決策 D1,修正波 F15,R1-45)**:分頁列表一律回 `{items, total}`,以 `limit`(1–200,預設 50)+ `offset`(≥ 0)分頁,`total` 為符合篩選條件的總筆數(不受 limit/offset 影響)。目前採用者:jobs、settings versions。其餘列表待其前端呼叫端下次修改時遷移:回傳裸陣列者(projects、members、roles、users)改為 `{items, total}`;audit 與 artifacts 的 `{rows, total}` 為舊拼法,同樣屆時改名為 `items`
 - **錯誤回應契約(修正波 F15,R3-32)**:`openapi.json` 在每個 operation 上宣告 `4XX` → `ApiErrorOut`(`{detail, code, params?}`,i18n spec §4.1),`422` → `ValidationErrorOut`(`{detail: [{type, loc, msg}], code: "validation_failed"}`,取代 FastAPI 的 `HTTPValidationError`);有專屬形狀的狀態碼另行宣告(settings PUT 的 409 → `SettingsConflictOut`)。前端的錯誤型別由此產生,不再手寫
 - `POST /api/projects/{id}/dry-run`:同步執行 `graphrag index --dry-run`,不進隊列,直接回傳驗證結果
-- `GET /api/jobs/{id}/logs`:SSE 即時日誌(支援 `Last-Event-ID` 以位元組 offset 續傳);`POST /api/jobs/{id}/cancel`:running 寫入 `cancel_requested_at`、queued 直接轉 `cancelled`,立即回 202
+- `GET /api/jobs/{id}/logs`:SSE 即時日誌(支援 `Last-Event-ID` 以位元組 offset 續傳)。*(F31 修訂)*:每次最多讀 256 KiB(在工作執行緒),片段不切在 UTF-8 字元中間,每個 offset 都可續傳;job 是否結束只在檔案無新內容時查,且最多每 5s 一次,`done` 因此可能晚到數秒(R1-79);`POST /api/jobs/{id}/cancel`:running 寫入 `cancel_requested_at`、queued 直接轉 `cancelled`,立即回 202
 - `/api/projects/{id}/query`:method(local/global/drift/basic)+ query + 參數
   - `POST .../query` 一次性回覆(短查詢)
   - `GET .../query/stream` SSE 串流(預設路徑;global search 常見 30–90s,見 §6.4)
 - `/api/projects/{id}/artifacts/*`(Phase 5,2026-08-22 定案:DuckDB 讀取路徑):
   - `GET .../artifacts/{table}`:table ∈ entities/relationships/communities/community_reports/text_units/documents;伺服器端分頁(`limit/offset`)+ 篩選(關鍵字 `q`、`type`、`community`)。**列投影白名單**(documents 列表不含 `text`/`raw_data`、community_reports 列表不含 `full_content`),DuckDB 直查 parquet(predicate/projection pushdown),不整表載入記憶體,與查詢路徑 FrameCache 各自獨立
   - `GET .../artifacts/{table}/{hrid}`:單行全欄(詳情 Drawer 用)
-  - `GET .../artifacts/graph?level=`:`{nodes:[{title,type,degree,frequency,community}], edges:[{source,target,weight}]}`;community 由 `communities(level)` 的 `entity_ids` 反查(entities 表無 community 欄,§13 實測),預設 level=MAX(level),懸空邊剃除
+  - `GET .../artifacts/graph?level=`:`{nodes:[{title,type,degree,frequency,community}], edges:[{source,target,weight}]}`;community 由 `communities(level)` 的 `entity_ids` 反查(entities 表無 community 欄,§13 實測),預設 level=MAX(level),懸空邊剃除。*(2026-10-01 F31 修訂)*:節點依 `degree` 降冪最多 `GRAPH_NODE_LIMIT` 個,回應帶 `truncated`/`node_limit`;截斷、community 反查與邊過濾(兩端都須留存)都在 duckdb 內完成,記憶體與延遲隨上限而非語料成長(R1-78)
   - 專案有 running 索引任務時,回應標記 `stale: true`,前端顯示「索引進行中,結果可能不完整」;無 `output/` 索引輸出 → **409** + zh-TW 錯誤訊息(與 query 路徑前例一致)
 - `GET /api/health`:輕量 liveness(僅檢查行程與 DB);`GET /api/ready`:readiness,含 graphrag 版本與 workspace 掛載檢查。**graphrag 版本在啟動時偵測一次後快取**,不在每次 probe fork 子程序
 
@@ -179,7 +179,7 @@ CREATE UNIQUE INDEX jobs_one_active_per_project
 - stdout/stderr 即時寫入該 job 的 log 檔;結束時記錄 exit_code、掃描 stats 檔進 stats 欄位。**stats 檔路徑依 job.type**(2026-08-21 實測定案,見 §13 實測表):index → `output/stats.json`;update → `update_output/<timestamp>/delta/stats.json`(**merge 後 `output/stats.json` 不回寫**)。**stats.json 在每個 workflow 完成後增量寫入**,Indexing 階段可據此做真實進度(已完成 workflow 數 / 總數),不必只靠日誌行數。*(2026-09-30 F28 實作,R3-36)*:watch 迴圈每次 heartbeat 讀取該 stats 檔(mtime 早於本次開始者視為上一次執行的殘檔、不計),`len(workflows)` 寫入 `jobs.progress = {done, total}`,僅在數字變動時寫;`total` 為 graphrag 3.1.2 內建 pipeline 的 workflow 數(index 10、update 18,清單存於 `domain/jobs.py`,測試逐項對照釘選版 graphrag),settings.yaml 若有非空 `workflows:` 清單則以其長度為準。結束時的 `jobs.stats` 也套用同一 mtime 規則
 - **heartbeat**:running 期間每 10s 更新 `jobs.heartbeat_at` 與 `worker_id`
 - **啟動時 reconcile**:DB 為 running 但 `heartbeat_at` 逾時(預設 60s)→ `failed(interrupted)`
-- **取消**:迴圈每 1s 檢查自己持有的 job 是否被設定 `cancel_requested_at` → SIGTERM → 30s 寬限 → SIGKILL → 標記 `cancelled`(2026-08-21 實作裁定:1s 輪詢,加快取消且查詢成本可忽略)
+- **取消**:迴圈每 1s 檢查自己持有的 job 是否被設定 `cancel_requested_at` → SIGTERM → 30s 寬限 → SIGKILL → 標記 `cancelled`(2026-08-21 實作裁定:1s 輪詢,加快取消且查詢成本可忽略)。*(2026-10-01 F31 修訂)*:heartbeat 的 UPDATE 以 `RETURNING cancel_requested_at` 帶回取消旗標,該秒不再另行查詢;1s 輪詢維持(R1-99)
 
 ### 6.4 查詢服務
 
@@ -226,7 +226,7 @@ GraphRAG 的 `input.type` 是單一型別 + `input.file_pattern`(regex),一個 r
 - **日誌 viewer**:自動跟隨 + 暫停;斷線以 `Last-Event-ID` 續傳。*(2026-09-30 F28 修訂)*:不做虛擬捲動——SSE 片段先緩衝,每個 animation frame 以一個 text node 附加到 `<pre>`,長日誌不再整段重繪(R1-85);往上捲即暫停跟隨,「跟隨最新」回到尾端(R3-19);瀏覽器自動重連時顯示「正在重新連線」,重連被拒(`?token=` 逾期的 401 等,EventSource 進入 CLOSED)時顯示警示與「重新連線」,先換新 access token 再以 `?offset=<最後 event id>` 續傳(R2-32)
 - **查詢介面**:SSE 串流逐字顯示,答案下方以可展開卡片呈現 citations(對應 §6.4 解析結果)
 - **設定編輯器**:409 衝突時顯示 diff 與「重新載入 / 覆寫」兩個明確選項
-- **Explore tab(Phase 5,2026-08-22 定案:雙模式)**:Ant Segmented 切換「圖譜 | 資料表」。圖譜 = react-sigma + graphology(WebGL,萬級節點)+ forceatlas2 佈局,依 community 著色(穩定分類色板),控制項:level 下拉(顯示伺服器選定的層級)、type 過濾、min_degree 滑桿(預設 ≥1 濾孤點)、節點搜尋高亮聚焦(只改高亮,不重新佈局;佈局只在資料、level、type、min_degree 變動時重跑)、社群圖例(節點數前 8 大社群 + 「其他社群」+「未分群」)、縮放/重設視角控制、標籤只畫在達到大小門檻的節點上、點擊節點開啟該實體的明細 Drawer(與資料表共用);API 不限節點數,過濾交前端。資料表 = 表名下拉(6 表)+ 共用篩選 + Ant Table 伺服器端分頁(每頁 10/20/50/100)+ 行點擊 Drawer 顯示全文/列表/JSON 欄位(明細讀取失敗時在 Drawer 內顯示錯誤;型錄外欄位顯示原始欄名)。stale 時 Explore 頂部 Alert 提示;專案尚未建立索引(`not_indexed`)時兩種模式都以空狀態顯示該句並連到任務頁(F18 修訂)
+- **Explore tab(Phase 5,2026-08-22 定案:雙模式)**:Ant Segmented 切換「圖譜 | 資料表」。圖譜 = react-sigma + graphology(WebGL,萬級節點)+ forceatlas2 佈局,依 community 著色(穩定分類色板),控制項:level 下拉(顯示伺服器選定的層級)、type 過濾、min_degree 滑桿(預設 ≥1 濾孤點)、節點搜尋高亮聚焦(只改高亮,不重新佈局;佈局只在資料、level、type、min_degree 變動時重跑)、社群圖例(節點數前 8 大社群 + 「其他社群」+「未分群」)、縮放/重設視角控制、標籤只畫在達到大小門檻的節點上、點擊節點開啟該實體的明細 Drawer(與資料表共用);API 依 `GRAPH_NODE_LIMIT` 截斷(見 §6.1 graph 端點),其餘過濾交前端。資料表 = 表名下拉(6 表)+ 共用篩選 + Ant Table 伺服器端分頁(每頁 10/20/50/100)+ 行點擊 Drawer 顯示全文/列表/JSON 欄位(明細讀取失敗時在 Drawer 內顯示錯誤;型錄外欄位顯示原始欄名)。stale 時 Explore 頂部 Alert 提示;專案尚未建立索引(`not_indexed`)時兩種模式都以空狀態顯示該句並連到任務頁(F18 修訂)
 - **目錄結構**:feature 導向(`features/projects`、`features/jobs`…),共用元件放 `shared/`
 
 ## 8. 部署

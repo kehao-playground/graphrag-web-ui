@@ -5,7 +5,7 @@ import asyncio
 import pytest
 from asgi_lifespan import LifespanManager
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import func, select, text
+from sqlalchemy import event, func, select, text
 from starlette.requests import Request
 
 from graphrag_ui.adapters.db import make_engine, make_session_factory, reset_engine
@@ -17,6 +17,7 @@ from graphrag_ui.main import create_app
 from graphrag_ui.services.auth import (
     UNUSABLE_PASSWORD_HASH,
     get_or_provision_user,
+    resolve_proxy_identity,
     verify_password,
 )
 
@@ -120,8 +121,9 @@ async def test_admin_reconcile_promotes_existing_user(db_session, monkeypatch):
     ).scalar_one()
     db_session.add(UserRole(user_id=boss_id, role_id=ROLE_ID_USER_ADMIN))
     await db_session.commit()
-    await get_or_provision_user(db_session, "boss@ex.com", "Boss")
+    _, perms = await resolve_proxy_identity(db_session, "boss@ex.com", "Boss")
     assert await _grants(db_session, "boss@ex.com") == {"user_admin", "ops"}
+    assert perms == frozenset({"users:manage", "projects:view_any", "projects:act_any"})
 
 
 async def test_admin_reconcile_never_demotes(db_session, monkeypatch):
@@ -139,7 +141,7 @@ async def test_admin_reconcile_never_demotes(db_session, monkeypatch):
         ]
     )
     await db_session.commit()
-    await get_or_provision_user(db_session, "other@ex.com", "O")
+    await resolve_proxy_identity(db_session, "other@ex.com", "O")
     assert await _grants(db_session, "other@ex.com") == {"user_admin", "ops"}
 
 
@@ -305,6 +307,42 @@ async def test_resolver_provisions_and_returns_user(db_session, proxy_env):
     # composition's atom union
     assert user.global_perms == frozenset({"users:manage", "projects:view_any", "projects:act_any"})
     assert user.display_name == "The Admin"
+
+
+async def test_a_known_admin_resolves_in_two_queries(db_session, proxy_env):
+    """R2-29: the steady-state proxy resolve is one user lookup plus one
+    grants query that serves both the admin reconcile and the Principal's
+    atoms — no separate user_roles read, no commit."""
+    req = make_request({"X-Proxy-Secret": SECRET, "X-Forwarded-Email": "admin@test.local"})
+    await resolve_proxy_user(req, db_session)  # first login provisions
+    seen: list[str] = []
+
+    def record(conn, cursor, statement, params, context, executemany):
+        seen.append(statement)
+
+    engine = db_session.bind.sync_engine
+    event.listen(engine, "before_cursor_execute", record)
+    try:
+        user = await resolve_proxy_user(req, db_session)
+    finally:
+        event.remove(engine, "before_cursor_execute", record)
+    assert user.global_perms == frozenset({"users:manage", "projects:view_any", "projects:act_any"})
+    assert len(seen) == 2, seen
+    assert all(s.lstrip().upper().startswith("SELECT") for s in seen)
+
+
+async def test_a_dropped_admin_grant_is_restored_on_the_next_resolve(db_session, proxy_env):
+    req = make_request({"X-Proxy-Secret": SECRET, "X-Forwarded-Email": "admin@test.local"})
+    first = await resolve_proxy_user(req, db_session)
+    await db_session.execute(
+        UserRole.__table__.delete().where(
+            UserRole.user_id == first.id, UserRole.role_id == ROLE_ID_OPS
+        )
+    )
+    await db_session.commit()
+    again = await resolve_proxy_user(req, db_session)
+    assert again.global_perms == first.global_perms
+    assert await _grants(db_session, "admin@test.local") == {"user_admin", "ops"}
 
 
 async def test_resolver_display_name_falls_back_to_local_part(db_session, proxy_env):
