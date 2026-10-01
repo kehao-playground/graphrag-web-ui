@@ -11,10 +11,10 @@ dependencies = [
     "duckdb>=1.5.5",
     "email-validator>=2.2.0",
     "fastapi>=0.141.1",
-    "graphrag==3.1.2",
+    "graphrag==3.2.0",
     # Imported directly (query, citations, frame cache); declared so a
     # graphrag bump cannot silently move the API this code relies on.
-    "pandas>=3.0,<4",
+    "pandas>=3.0.6,<4",
     "pydantic-settings>=2.15.0",
     "pyjwt>=2.14.0",
     "python-dotenv>=1.1.0",
@@ -22,7 +22,7 @@ dependencies = [
     "pyyaml>=6.0.3",
     "sqlalchemy[asyncio]>=2.0.52",
     # main.py imports starlette.routing.Match directly; fastapi pins it tightly.
-    "starlette>=1.6",
+    "starlette>=1.7.0",
     "uvicorn[standard]>=0.52.4",
 ]
 
@@ -38,7 +38,7 @@ dev = [
     "pytest-cov>=7.0.0",
     "pytest-asyncio>=1.4.0",
     "mypy>=1.19.0",
-    "ruff>=0.16.7",
+    "ruff>=0.16.9",
     "testcontainers[postgres]>=4.15.0",
 ]
 
