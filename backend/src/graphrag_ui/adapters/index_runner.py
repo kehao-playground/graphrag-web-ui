@@ -43,9 +43,9 @@ class RunResult:
 
 
 def log_path_for(root: Path, job_id: uuid.UUID) -> Path:
-    p = root / "logs" / "jobs" / f"{job_id}.log"
-    p.parent.mkdir(parents=True, exist_ok=True)
-    return p
+    """Pure: the readers (SSE tail, retention sweep) must never recreate a
+    deleted workspace; IndexRunner.run creates the directory it writes to."""
+    return root / "logs" / "jobs" / f"{job_id}.log"
 
 
 def read_stats(job_type: str, root: Path, since: float | None = None) -> dict | None:
@@ -102,6 +102,7 @@ class IndexRunner:
         # since settings.yaml `${VAR}` placeholders resolve from its environ.
         # stdout+stderr go straight to the log file: the child writes it
         # itself, so no per-chunk write runs on the event loop (R1-73).
+        log_path.parent.mkdir(parents=True, exist_ok=True)
         with log_path.open("ab") as log:
             proc = await asyncio.create_subprocess_exec(
                 *self._prefix,

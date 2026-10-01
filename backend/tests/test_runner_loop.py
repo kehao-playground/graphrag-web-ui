@@ -264,8 +264,8 @@ async def test_execute_dispatches_test_run_to_the_service_never_indexrunner(
 
 async def test_execute_still_dispatches_index_to_indexrunner(db_session, monkeypatch, tmp_path):
     """Regression guard: the dispatch must not change the existing path."""
-    # log_path_for mkdirs under WORKSPACES_DIR; the default ./data/workspaces
-    # would leak test directories into the repo.
+    # The runner resolves the workspace under WORKSPACES_DIR; the default
+    # ./data/workspaces would leak test directories into the repo.
     monkeypatch.setenv("WORKSPACES_DIR", str(tmp_path))
     get_settings.cache_clear()
     await reset_engine()  # db_session leaves shared-pool connections on an old loop

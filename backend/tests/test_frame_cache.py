@@ -5,6 +5,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from graphrag_ui.adapters import frame_cache as frame_cache_module
 from graphrag_ui.adapters.frame_cache import (
     TABLES,
     FrameCache,
@@ -109,6 +110,41 @@ async def test_missing_file_raises_not_indexed(tmp_path: Path) -> None:
     with pytest.raises(WorkspaceNotIndexedError) as exc:
         await cache.get(tmp_path / "empty", "text_units")
     assert str(exc.value) == "not indexed yet — run an indexing job first"
+
+
+async def test_frame_sizes_are_measured_once_per_insert(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R1-103: deep memory_usage walks every object cell; eviction and
+    invalidation reuse the size taken at insert."""
+    calls = {"n": 0}
+    real = frame_cache_module._frame_bytes
+
+    def counting(df: pd.DataFrame) -> int:
+        calls["n"] += 1
+        return real(df)
+
+    monkeypatch.setattr(frame_cache_module, "_frame_bytes", counting)
+    one = real(pd.read_parquet(root / "output" / "text_units.parquet"))
+    cache = FrameCache(budget_bytes=2 * one)
+    for table in ("text_units", "entities", "communities"):  # third evicts the first
+        await cache.get(root, table)
+    assert calls["n"] == 3
+    cache.invalidate(root)
+    assert calls["n"] == 3 and cache.frames_bytes() == 0
+
+
+async def test_a_miss_stats_the_file_once(root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = {"n": 0}
+    real = FrameCache._validity
+
+    def counting(path: Path):
+        calls["n"] += 1
+        return real(path)
+
+    monkeypatch.setattr(FrameCache, "_validity", staticmethod(counting))
+    await FrameCache(budget_bytes=10_000_000).get(root, "text_units")
+    assert calls["n"] == 1
 
 
 def test_tables_for_matrix() -> None:

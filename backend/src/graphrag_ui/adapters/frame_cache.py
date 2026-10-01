@@ -56,30 +56,28 @@ class FrameCache:
 
     def __init__(self, budget_bytes: int) -> None:
         self.budget_bytes = budget_bytes
-        # (root_str, table) -> (validity_key, DataFrame)
-        self._entries: OrderedDict[tuple[str, str], tuple[tuple, pd.DataFrame]] = OrderedDict()
+        # (root_str, table) -> (validity_key, DataFrame, deep bytes at insert);
+        # the size is kept so eviction never walks the frame again (R1-103)
+        self._entries: OrderedDict[tuple[str, str], tuple[tuple, pd.DataFrame, int]] = OrderedDict()
         self._bytes = 0
 
     async def get(self, root: Path, table: str) -> pd.DataFrame:
         path = root / "output" / f"{table}.parquet"
-        root_str = str(root)
-        key = (root_str, table)
+        key = (str(root), table)
+        validity = self._validity(path)
         entry = self._entries.get(key)
         if entry is not None:
-            validity, df = entry
-            if validity == self._validity(path):
+            if validity is not None and entry[0] == validity:
                 self._entries.move_to_end(key)
-                return df
+                return entry[1]
             self._remove(key)
-        try:
-            stat = path.stat()
-        except FileNotFoundError as exc:
-            raise WorkspaceNotIndexedError("not indexed yet — run an indexing job first") from exc
+        if validity is None:
+            raise WorkspaceNotIndexedError("not indexed yet — run an indexing job first")
         try:
             df = await asyncio.to_thread(pd.read_parquet, path)
-        except FileNotFoundError as exc:
+        except FileNotFoundError as exc:  # removed between the stat and the read
             raise WorkspaceNotIndexedError("not indexed yet — run an indexing job first") from exc
-        self._insert(key, (path, stat.st_mtime_ns, stat.st_size), df)
+        self._insert(key, validity, df)
         return df
 
     def frames_bytes(self) -> int:
@@ -99,25 +97,21 @@ class FrameCache:
         return (path, stat.st_mtime_ns, stat.st_size)
 
     def _remove(self, key: tuple[str, str]) -> None:
-        _, df = self._entries.pop(key)
-        self._bytes -= _frame_bytes(df)
+        self._bytes -= self._entries.pop(key)[2]
 
     def _insert(self, key: tuple[str, str], validity: tuple, df: pd.DataFrame) -> None:
-        size = _frame_bytes(df)
-        superseded = self._entries.get(key)
-        if superseded is not None:
+        if key in self._entries:
             # Same-key overwrite (concurrent miss): release the superseded
             # entry's bytes first or they stay counted on top of the new one.
-            self._bytes -= _frame_bytes(superseded[1])
-        self._entries[key] = (validity, df)
+            self._remove(key)
+        size = _frame_bytes(df)
+        self._entries[key] = (validity, df, size)
         self._bytes += size
         # Evict LRU until within budget. The incoming frame itself is kept
         # even when it alone exceeds the budget: a single oversized table is
         # still queryable (one-shot cost) rather than a hard failure.
         while self._bytes > self.budget_bytes and len(self._entries) > 1:
-            oldest_key, (_, oldest_df) = next(iter(self._entries.items()))
-            self._entries.pop(oldest_key)
-            self._bytes -= _frame_bytes(oldest_df)
+            self._remove(next(iter(self._entries)))
 
 
 @lru_cache

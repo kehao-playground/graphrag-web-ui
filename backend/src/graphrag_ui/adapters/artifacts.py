@@ -7,12 +7,20 @@ filter values, limit/offset) is bound with ``?``; the table name never
 reaches SQL text — it only selects a registry-validated file name, and
 list columns come from the frozen domain registry (schemas probed in
 §13 against graphrag 3.1.0).
+
+Every read runs on a cursor of one process-wide in-memory duckdb database
+(R1-102): ``connect(":memory:")`` per call built a whole database per
+request. A duckdb cursor is a duplicate connection, safe to use from the
+worker thread that ``asyncio.to_thread`` hands the call to, one cursor per
+call. The database holds no tables; parquet is read with ``read_parquet``.
 """
 
 from __future__ import annotations
 
 import datetime
-from collections.abc import Collection
+import threading
+from collections.abc import Collection, Iterator
+from contextlib import contextmanager
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -24,6 +32,24 @@ from graphrag_ui.domain.artifacts import TableSpec, table_spec
 
 class ArtifactsNotIndexedError(RuntimeError):
     """Workspace has no indexed parquet for the table (index job not run)."""
+
+
+_db: duckdb.DuckDBPyConnection | None = None
+_db_lock = threading.Lock()
+
+
+@contextmanager
+def _cursor() -> Iterator[duckdb.DuckDBPyConnection]:
+    """A fresh cursor on the shared database, closed after the read."""
+    global _db
+    with _db_lock:
+        if _db is None:
+            _db = duckdb.connect(":memory:")
+        cur = _db.cursor()
+    try:
+        yield cur
+    finally:
+        cur.close()
 
 
 def _parquet(root: Path, table: str) -> tuple[Path, TableSpec]:
@@ -93,23 +119,30 @@ def list_rows(
     base_params: list[Any] = [str(path), *join_params, *where_params]
     list_columns = ", ".join(f"t.{c}" for c in spec.list_columns)
 
-    with duckdb.connect(":memory:") as con:
-        count_row = con.execute(f"SELECT COUNT(*) {base_sql}", base_params).fetchone()
-        assert count_row is not None, "COUNT(*) always yields one row"
-        total = count_row[0]
+    with _cursor() as con:
+        # The window total rides the page: one scan instead of COUNT + page.
         cur = con.execute(
-            f"SELECT {list_columns} {base_sql} ORDER BY t.human_readable_id LIMIT ? OFFSET ?",
+            f"SELECT {list_columns}, COUNT(*) OVER () AS _total {base_sql}"
+            " ORDER BY t.human_readable_id LIMIT ? OFFSET ?",
             [*base_params, limit, offset],
         )
-        names = [d[0] for d in cur.description]
-        rows = [_clean(dict(zip(names, row))) for row in cur.fetchall()]
+        names = [d[0] for d in cur.description][:-1]
+        fetched = cur.fetchall()
+        if fetched:
+            total = fetched[0][-1]
+        else:
+            # An offset past the end returns no row to carry the total.
+            count_row = con.execute(f"SELECT COUNT(*) {base_sql}", base_params).fetchone()
+            assert count_row is not None, "COUNT(*) always yields one row"
+            total = count_row[0]
+        rows = [_clean(dict(zip(names, row[:-1]))) for row in fetched]
     return rows, int(total)
 
 
 def get_row(root: Path, table: str, hrid: int) -> dict[str, Any] | None:
     """Full row (all parquet columns) by human_readable_id, or None."""
     path, _ = _parquet(root, table)
-    with duckdb.connect(":memory:") as con:
+    with _cursor() as con:
         cur = con.execute(
             "SELECT * FROM read_parquet(?) AS t WHERE t.human_readable_id = ?",
             [str(path), hrid],
@@ -127,19 +160,21 @@ def graph(root: Path, level: int | None = None, node_limit: int | None = None) -
     endpoints (a title missing from entities) are dropped.
 
     At most ``node_limit`` nodes are returned, highest ``degree`` first, with
-    ``truncated`` saying whether anything was cut. The whole entities and
-    relationships tables used to be read into memory and serialized into one
-    response, which is fine on a demo corpus and a memory/latency cliff on a
-    real one — and the WebGL view cannot draw that many nodes legibly either.
-    Degree order is what makes a capped graph still worth looking at: the
-    hubs survive, and cutting the long tail of degree-0 entities first costs
-    the reader nothing. ``node_limit=None`` disables the cap.
+    ``truncated`` saying whether anything was cut — the WebGL view cannot
+    draw a real corpus legibly either. Degree order is what makes a capped
+    graph still worth looking at: the hubs survive, and cutting the long
+    tail of degree-0 entities first costs the reader nothing.
+    ``node_limit=None`` disables the cap.
+
+    The cap, the community lookup and the edge filter all run in duckdb
+    (R1-78): Python only ever holds the kept nodes and the edges between
+    them, so memory and latency follow ``node_limit``, not the corpus.
     """
     ent_path, _ = _parquet(root, "entities")
     rel_path, _ = _parquet(root, "relationships")
     com_path, _ = _parquet(root, "communities")
 
-    with duckdb.connect(":memory:") as con:
+    with _cursor() as con:
         levels = [
             int(r[0])
             for r in con.execute(
@@ -148,47 +183,52 @@ def graph(root: Path, level: int | None = None, node_limit: int | None = None) -
             ).fetchall()
         ]
         chosen = level if level is not None else (levels[-1] if levels else 0)
-        community_of = {
-            eid: int(comm)
-            for eid, comm in con.execute(
-                "SELECT UNNEST(entity_ids) AS eid, community FROM read_parquet(?) WHERE level = ?",
-                [str(com_path), chosen],
-            ).fetchall()
-        }
-        nodes = [
-            {
-                "hrid": int(hrid),
-                "title": title,
-                # graph filters key on the type; a null one is "untyped"
-                "type": type_ or "",
-                "degree": int(degree),
-                "frequency": int(frequency),
-                "community": community_of.get(eid),
-            }
-            for eid, hrid, title, type_, degree, frequency in con.execute(
-                "SELECT id, human_readable_id, title, type, degree, frequency FROM read_parquet(?)",
-                [str(ent_path)],
-            ).fetchall()
-        ]
-        edges_raw = con.execute(
-            "SELECT source, target, weight FROM read_parquet(?)",
-            [str(rel_path)],
-        ).fetchall()
-
-    truncated = node_limit is not None and len(nodes) > node_limit
-    if truncated:
-        # Sort only when the cap bites; the common case stays O(n).
-        nodes.sort(key=lambda n: n["degree"], reverse=True)
-        nodes = nodes[:node_limit]
-
-    # Built from the surviving titles, so an edge whose endpoint was cut is
-    # dropped with it rather than dangling into a node the client never got.
-    titles = {n["title"] for n in nodes}
-    edges = [
-        {"source": source, "target": target, "weight": float(weight)}
-        for source, target, weight in edges_raw
-        if source in titles and target in titles
-    ]
+        count_row = con.execute("SELECT COUNT(*) FROM read_parquet(?)", [str(ent_path)]).fetchone()
+        assert count_row is not None, "COUNT(*) always yields one row"
+        truncated = node_limit is not None and int(count_row[0]) > node_limit
+        # LIMIT NULL is no limit; id breaks degree ties so the cut is stable.
+        con.execute(
+            "CREATE TEMP TABLE kept AS"
+            " SELECT id, human_readable_id, title, type, degree, frequency"
+            " FROM read_parquet(?) ORDER BY degree DESC, human_readable_id LIMIT ?",
+            [str(ent_path), node_limit],
+        )
+        try:
+            nodes = [
+                {
+                    "hrid": int(hrid),
+                    "title": title,
+                    # graph filters key on the type; a null one is "untyped"
+                    "type": type_ or "",
+                    "degree": int(degree),
+                    "frequency": int(frequency),
+                    "community": None if comm is None else int(comm),
+                }
+                for hrid, title, type_, degree, frequency, comm in con.execute(
+                    "SELECT k.human_readable_id, k.title, k.type, k.degree, k.frequency,"
+                    " c.community FROM kept AS k LEFT JOIN ("
+                    "  SELECT eid, ANY_VALUE(community) AS community FROM ("
+                    "   SELECT UNNEST(entity_ids) AS eid, community"
+                    "   FROM read_parquet(?) WHERE level = ?"
+                    "  ) GROUP BY eid"
+                    " ) AS c ON k.id = c.eid"
+                    " ORDER BY k.degree DESC, k.human_readable_id",
+                    [str(com_path), chosen],
+                ).fetchall()
+            ]
+            # Both endpoints must survive the cut: an edge into a node the
+            # client never got (or a dangling title) is dropped with it.
+            edges = [
+                {"source": source, "target": target, "weight": float(weight)}
+                for source, target, weight in con.execute(
+                    "SELECT r.source, r.target, r.weight FROM read_parquet(?) AS r"
+                    " WHERE r.source IN (SELECT title FROM kept)"
+                    " AND r.target IN (SELECT title FROM kept)",
+                    [str(rel_path)],
+                ).fetchall()
+            ]
+        finally:
+            con.execute("DROP TABLE kept")
     return {
         "level": int(chosen),
         "levels": levels,
@@ -206,7 +246,7 @@ def read_document_titles(root: Path) -> list[str] | None:
     path = root / "output" / "documents.parquet"
     if not path.is_file():
         return None
-    with duckdb.connect(":memory:") as con:
+    with _cursor() as con:
         rows = con.execute("SELECT title FROM read_parquet(?)", [str(path)]).fetchall()
     return [str(r[0]) for r in rows if r[0] is not None]
 
@@ -230,7 +270,7 @@ def resolve_document_titles(root: Path, document_ids: Collection[str]) -> dict[s
         return {}
     ids = list(document_ids)
     placeholders = ", ".join("?" for _ in ids)
-    with duckdb.connect(":memory:") as con:
+    with _cursor() as con:
         rows = con.execute(
             f"SELECT id, title FROM read_parquet(?) WHERE id IN ({placeholders})",
             [str(path), *ids],

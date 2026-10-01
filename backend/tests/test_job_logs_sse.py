@@ -57,8 +57,11 @@ async def _queued_job(client, hdr, name):
 
 
 def _log_of(pid: str, job_id: str):
-    # ws_path is what the route uses — same resolution rules, no /tmp symlink drift
-    return log_path_for(ws_path(uuid.UUID(pid)), uuid.UUID(job_id))
+    # ws_path is what the route uses — same resolution rules, no /tmp symlink
+    # drift; log_path_for is pure, the runner creates the directory.
+    log = log_path_for(ws_path(uuid.UUID(pid)), uuid.UUID(job_id))
+    log.parent.mkdir(parents=True, exist_ok=True)
+    return log
 
 
 async def _finish(job_id: str, status: str = "succeeded"):

@@ -2,6 +2,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from sqlalchemy import event
 from sqlalchemy.exc import IntegrityError
 
 from graphrag_ui.adapters.jobs_repo import (
@@ -15,6 +16,7 @@ from graphrag_ui.adapters.jobs_repo import (
     last_succeeded,
     list_jobs,
     request_cancel,
+    set_progress,
 )
 from graphrag_ui.adapters.models import Project, User
 
@@ -168,3 +170,59 @@ async def test_cancelling_a_running_job_only_flags_it(db_session):
     assert await request_cancel(db_session, j.id) is True
     got = await get_job(db_session, j.id)
     assert got.status == "running" and got.cancel_requested_at is not None
+
+
+class _Statements:
+    def __init__(self, session):
+        self.engine = session.bind.sync_engine
+        self.seen: list[str] = []
+
+    def _record(self, conn, cursor, statement, params, context, executemany):
+        self.seen.append(statement)
+
+    def __enter__(self):
+        event.listen(self.engine, "before_cursor_execute", self._record)
+        return self.seen
+
+    def __exit__(self, *exc):
+        event.remove(self.engine, "before_cursor_execute", self._record)
+
+
+async def test_runner_writes_on_a_fresh_session_issue_one_statement(db_session, migrated_db):
+    """R1-99: the runner's heartbeat and progress writes run on a session
+    that holds no Job instance; nothing needs a reload, so nothing is
+    re-SELECTed after the UPDATE."""
+    from graphrag_ui.adapters.db import make_engine, make_session_factory
+
+    p, u = await _mk_project(db_session)
+    j = await _insert(db_session, p, u)
+    await claim_next(db_session, "w1")
+    engine = make_engine(migrated_db)
+    try:
+        async with make_session_factory(engine)() as fresh:
+            with _Statements(fresh) as seen:
+                assert await heartbeat(fresh, j.id, "w1") is False
+                await set_progress(fresh, j.id, 1, 10)
+            assert [s.split()[0] for s in seen] == ["UPDATE", "UPDATE"], seen
+    finally:
+        await engine.dispose()
+
+
+async def test_heartbeat_reports_a_requested_cancel(db_session):
+    """R1-99: the beat returns cancel_requested_at, so a beat replaces that
+    second's separate cancel poll."""
+    p, u = await _mk_project(db_session)
+    j = await _insert(db_session, p, u)
+    await claim_next(db_session, "w1")
+    assert await heartbeat(db_session, j.id, "w1") is False
+    assert await request_cancel(db_session, j.id) is True
+    assert await heartbeat(db_session, j.id, "w1") is True
+
+
+async def test_a_loaded_instance_still_sees_the_server_values(db_session):
+    p, u = await _mk_project(db_session)
+    j = await _insert(db_session, p, u)
+    await claim_next(db_session, "w1")
+    before = j.heartbeat_at
+    await heartbeat(db_session, j.id, "w1", pid=7)
+    assert j.pid == 7 and j.heartbeat_at >= before

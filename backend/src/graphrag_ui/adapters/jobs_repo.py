@@ -9,6 +9,7 @@ from typing import cast
 
 from sqlalchemy import CursorResult, Result, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 
 from graphrag_ui.adapters.models import Job, TestRun
 from graphrag_ui.domain.jobs import ACTIVE_STATUSES, TERMINAL_STATUSES
@@ -57,13 +58,20 @@ async def claim_next(session: AsyncSession, worker_id: str) -> Job | None:
 
 async def heartbeat(
     session: AsyncSession, job_id: uuid.UUID, worker_id: str, pid: int | None = None
-) -> None:
+) -> bool:
+    """Stamp the beat; True when a cancel has been requested. The flag
+    rides the UPDATE's RETURNING, so a beat replaces that second's cancel
+    poll (R1-99)."""
     values: dict = {"heartbeat_at": func.now(), "worker_id": worker_id}
     if pid is not None:
         values["pid"] = pid
-    await session.execute(update(Job).where(Job.id == job_id).values(**values))
+    res = await session.execute(
+        update(Job).where(Job.id == job_id).values(**values).returning(Job.cancel_requested_at)
+    )
+    cancel_requested = res.scalar_one_or_none() is not None
     await session.commit()
     await _reload(session, job_id)
+    return cancel_requested
 
 
 async def set_progress(session: AsyncSession, job_id: uuid.UUID, done: int, total: int) -> None:
@@ -180,10 +188,12 @@ def _rowcount(res: Result) -> int:
 
 
 async def _reload(session: AsyncSession, job_id: uuid.UUID) -> None:
-    """Re-SELECT the row so identity-map instances hold server-generated
-    values (func.now() timestamps expire attributes after Core updates —
-    AsyncSession has no lazy-load-on-attribute-access)."""
-    obj = await session.get(Job, job_id)
+    """Refresh the row's identity-map instance, if the session holds one,
+    so it carries the server-generated values (func.now() timestamps expire
+    attributes after the UPDATE, and AsyncSession has no
+    lazy-load-on-attribute-access). The runner writes on fresh sessions
+    that hold no instance: those pay nothing (R1-99)."""
+    obj = session.sync_session.identity_map.get(Session.identity_key(Job, job_id))
     if obj is not None:
         await session.refresh(obj)
 

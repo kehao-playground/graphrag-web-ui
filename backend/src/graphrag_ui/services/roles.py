@@ -214,20 +214,24 @@ async def list_roles_for_user(session: AsyncSession, user_id: uuid.UUID) -> list
     )
 
 
+async def global_grants(
+    session: AsyncSession, user_id: uuid.UUID
+) -> tuple[frozenset[uuid.UUID], frozenset[str]]:
+    """The user's global role ids and the union of the atoms they grant,
+    in one query."""
+    rows = (
+        await session.execute(
+            select(Role.id, Role.permissions)
+            .join(UserRole, UserRole.role_id == Role.id)
+            .where(UserRole.user_id == user_id)
+        )
+    ).all()
+    return frozenset(r[0] for r in rows), frozenset().union(*(r[1] for r in rows))
+
+
 async def global_perms(session: AsyncSession, user_id: uuid.UUID) -> frozenset[str]:
     """The union of the atoms the user's global roles grant."""
-    rows = (
-        (
-            await session.execute(
-                select(Role.permissions)
-                .join(UserRole, UserRole.role_id == Role.id)
-                .where(UserRole.user_id == user_id)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    return frozenset().union(*rows) if rows else frozenset()
+    return (await global_grants(session, user_id))[1]
 
 
 async def load_roles(session: AsyncSession, role_ids: list[uuid.UUID]) -> list[Role]:
