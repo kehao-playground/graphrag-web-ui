@@ -46,6 +46,27 @@ def test_untyped_endpoints_ratchet():
     assert untyped == KNOWN_UNTYPED, f"response_model debt changed: {untyped ^ KNOWN_UNTYPED}"
 
 
+# R1-44: operationIds are the handler names, so the names are contract.
+# HTTP-verb prefixes repeat the method; a bare noun says nothing.
+_HTTP_VERB_PREFIXES = ("post_", "put_", "patch_")
+_READ_PREFIXES = ("get_", "list_")
+
+
+def test_operation_ids_are_verb_resource_handler_names():
+    schema = create_app().openapi()
+    ids: list[str] = []
+    for name, op in _operations(schema):
+        method, _ = name.split(" ", 1)
+        op_id = op["operationId"]
+        ids.append(op_id)
+        assert "_api_" not in op_id, f"{name}: path leaked into operationId {op_id}"
+        assert "_" in op_id, f"{name}: {op_id} is not <verb>_<resource>"
+        assert not op_id.startswith(_HTTP_VERB_PREFIXES), f"{name}: {op_id} names the HTTP verb"
+        if op_id.startswith(_READ_PREFIXES):
+            assert method == "GET", f"{name}: {op_id} reads but is not a GET"
+    assert len(ids) == len(set(ids)), sorted(i for i in ids if ids.count(i) > 1)
+
+
 def _operations(schema: dict):
     for path, item in schema["paths"].items():
         for method, op in item.items():

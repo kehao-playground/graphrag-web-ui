@@ -107,6 +107,62 @@
         "title": "ArtifactPageOut",
         "type": "object"
       },
+      "ArtifactTableOut": {
+        "description": "One Explore table: the list projection and the filters it offers.",
+        "properties": {
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "community_filter": {
+            "title": "Community Filter",
+            "type": "boolean"
+          },
+          "name": {
+            "enum": [
+              "entities",
+              "relationships",
+              "communities",
+              "community_reports",
+              "text_units",
+              "documents"
+            ],
+            "title": "Name",
+            "type": "string"
+          },
+          "type_filter": {
+            "title": "Type Filter",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "columns",
+          "type_filter",
+          "community_filter"
+        ],
+        "title": "ArtifactTableOut",
+        "type": "object"
+      },
+      "ArtifactTablesOut": {
+        "properties": {
+          "tables": {
+            "items": {
+              "$ref": "#/components/schemas/ArtifactTableOut"
+            },
+            "title": "Tables",
+            "type": "array"
+          }
+        },
+        "required": [
+          "tables"
+        ],
+        "title": "ArtifactTablesOut",
+        "type": "object"
+      },
       "AuditEntryOut": {
         "description": "One audit row, with the actor resolved to an email.\n\nactor_id/actor_email are both null for rows the system wrote with no\nsigned-in actor (bootstrap admin creation), and actor_email alone is\nnull when the actor's user row is gone \u2014 the history stays readable\neither way.",
         "properties": {
@@ -347,7 +403,7 @@
         "title": "BatchLastIndexOut",
         "type": "object"
       },
-      "Body_upload_file_api_projects__pid__files_post": {
+      "Body_upload_file": {
         "properties": {
           "file": {
             "contentMediaType": "application/octet-stream",
@@ -358,7 +414,7 @@
         "required": [
           "file"
         ],
-        "title": "Body_upload_file_api_projects__pid__files_post",
+        "title": "Body_upload_file",
         "type": "object"
       },
       "BulkDeleteIn": {
@@ -1735,6 +1791,14 @@
             "title": "Name",
             "type": "string"
           },
+          "owner_display_name": {
+            "title": "Owner Display Name",
+            "type": "string"
+          },
+          "owner_email": {
+            "title": "Owner Email",
+            "type": "string"
+          },
           "owner_id": {
             "title": "Owner Id",
             "type": "string"
@@ -1751,6 +1815,8 @@
           "description",
           "input_file_type",
           "owner_id",
+          "owner_email",
+          "owner_display_name",
           "created_at"
         ],
         "title": "ProjectOut",
@@ -2907,6 +2973,7 @@
             "type": "string"
           },
           "created_at": {
+            "format": "date-time",
             "title": "Created At",
             "type": "string"
           },
@@ -2936,6 +3003,7 @@
             "type": "string"
           },
           "created_at": {
+            "format": "date-time",
             "title": "Created At",
             "type": "string"
           },
@@ -2995,7 +3063,7 @@
   "paths": {
     "/api/admin/audit": {
       "get": {
-        "operationId": "get_audit_api_admin_audit_get",
+        "operationId": "list_audit_entries",
         "parameters": [
           {
             "in": "query",
@@ -3109,12 +3177,12 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Get Audit"
+        "summary": "List Audit Entries"
       }
     },
     "/api/admin/roles": {
       "get": {
-        "operationId": "admin_get_roles_api_admin_roles_get",
+        "operationId": "list_admin_roles",
         "responses": {
           "200": {
             "content": {
@@ -3123,7 +3191,7 @@
                   "items": {
                     "$ref": "#/components/schemas/RoleOut"
                   },
-                  "title": "Response Admin Get Roles Api Admin Roles Get",
+                  "title": "Response List Admin Roles",
                   "type": "array"
                 }
               }
@@ -3146,10 +3214,10 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Admin Get Roles"
+        "summary": "List Admin Roles"
       },
       "post": {
-        "operationId": "post_role_api_admin_roles_post",
+        "operationId": "create_role",
         "requestBody": {
           "content": {
             "application/json": {
@@ -3197,12 +3265,12 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Post Role"
+        "summary": "Create Role"
       }
     },
     "/api/admin/roles/{role_id}": {
       "delete": {
-        "operationId": "delete_one_api_admin_roles__role_id__delete",
+        "operationId": "delete_role",
         "parameters": [
           {
             "in": "path",
@@ -3245,10 +3313,10 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Delete One"
+        "summary": "Delete Role"
       },
       "patch": {
-        "operationId": "patch_one_api_admin_roles__role_id__patch",
+        "operationId": "update_role",
         "parameters": [
           {
             "in": "path",
@@ -3308,12 +3376,12 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Patch One"
+        "summary": "Update Role"
       }
     },
     "/api/admin/users": {
       "get": {
-        "operationId": "list_users_api_admin_users_get",
+        "operationId": "list_users",
         "responses": {
           "200": {
             "content": {
@@ -3322,7 +3390,7 @@
                   "items": {
                     "$ref": "#/components/schemas/UserOut"
                   },
-                  "title": "Response List Users Api Admin Users Get",
+                  "title": "Response List Users",
                   "type": "array"
                 }
               }
@@ -3348,7 +3416,7 @@
         "summary": "List Users"
       },
       "post": {
-        "operationId": "post_user_api_admin_users_post",
+        "operationId": "create_user",
         "requestBody": {
           "content": {
             "application/json": {
@@ -3396,12 +3464,12 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Post User"
+        "summary": "Create User"
       }
     },
     "/api/admin/users/{user_id}": {
       "patch": {
-        "operationId": "patch_user_api_admin_users__user_id__patch",
+        "operationId": "update_user",
         "parameters": [
           {
             "in": "path",
@@ -3461,12 +3529,12 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Patch User"
+        "summary": "Update User"
       }
     },
     "/api/admin/users/{user_id}/reset-password": {
       "post": {
-        "operationId": "post_reset_password_api_admin_users__user_id__reset_password_post",
+        "operationId": "reset_user_password",
         "parameters": [
           {
             "in": "path",
@@ -3519,12 +3587,45 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Post Reset Password"
+        "summary": "Reset User Password"
+      }
+    },
+    "/api/artifact-tables": {
+      "get": {
+        "operationId": "list_artifact_tables",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactTablesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorOut"
+                }
+              }
+            },
+            "description": "Client Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Artifact Tables"
       }
     },
     "/api/auth/change-password": {
       "post": {
-        "operationId": "change_password_api_auth_change_password_post",
+        "operationId": "change_password",
         "requestBody": {
           "content": {
             "application/json": {
@@ -3571,7 +3672,7 @@
     "/api/auth/config": {
       "get": {
         "description": "Public mode probe: the SPA's single source of truth (spec \u00a75.3).",
-        "operationId": "auth_config_api_auth_config_get",
+        "operationId": "get_auth_config",
         "responses": {
           "200": {
             "content": {
@@ -3594,12 +3695,12 @@
             "description": "Client Error"
           }
         },
-        "summary": "Auth Config"
+        "summary": "Get Auth Config"
       }
     },
     "/api/auth/login": {
       "post": {
-        "operationId": "login_api_auth_login_post",
+        "operationId": "log_in",
         "requestBody": {
           "content": {
             "application/json": {
@@ -3642,12 +3743,12 @@
             "description": "Client Error"
           }
         },
-        "summary": "Login"
+        "summary": "Log In"
       }
     },
     "/api/auth/logout": {
       "post": {
-        "operationId": "logout_api_auth_logout_post",
+        "operationId": "log_out",
         "requestBody": {
           "content": {
             "application/json": {
@@ -3683,12 +3784,12 @@
             "description": "Client Error"
           }
         },
-        "summary": "Logout"
+        "summary": "Log Out"
       }
     },
     "/api/auth/me": {
       "get": {
-        "operationId": "me_api_auth_me_get",
+        "operationId": "get_me",
         "responses": {
           "200": {
             "content": {
@@ -3716,12 +3817,12 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Me"
+        "summary": "Get Me"
       }
     },
     "/api/auth/refresh": {
       "post": {
-        "operationId": "refresh_api_auth_refresh_post",
+        "operationId": "refresh_session",
         "requestBody": {
           "content": {
             "application/json": {
@@ -3764,12 +3865,12 @@
             "description": "Client Error"
           }
         },
-        "summary": "Refresh"
+        "summary": "Refresh Session"
       }
     },
     "/api/health": {
       "get": {
-        "operationId": "health_api_health_get",
+        "operationId": "get_liveness",
         "responses": {
           "200": {
             "content": {
@@ -3792,12 +3893,12 @@
             "description": "Client Error"
           }
         },
-        "summary": "Health"
+        "summary": "Get Liveness"
       }
     },
     "/api/jobs/{job_id}": {
       "get": {
-        "operationId": "get_job_api_jobs__job_id__get",
+        "operationId": "get_job",
         "parameters": [
           {
             "in": "path",
@@ -3852,7 +3953,7 @@
     },
     "/api/jobs/{job_id}/cancel": {
       "post": {
-        "operationId": "cancel_job_api_jobs__job_id__cancel_post",
+        "operationId": "cancel_job",
         "parameters": [
           {
             "in": "path",
@@ -3907,7 +4008,7 @@
     },
     "/api/jobs/{job_id}/logs": {
       "get": {
-        "operationId": "job_logs_api_jobs__job_id__logs_get",
+        "operationId": "stream_job_logs",
         "parameters": [
           {
             "in": "path",
@@ -3997,12 +4098,12 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Job Logs"
+        "summary": "Stream Job Logs"
       }
     },
     "/api/projects": {
       "get": {
-        "operationId": "list_all_api_projects_get",
+        "operationId": "list_projects",
         "responses": {
           "200": {
             "content": {
@@ -4011,7 +4112,7 @@
                   "items": {
                     "$ref": "#/components/schemas/ProjectOut"
                   },
-                  "title": "Response List All Api Projects Get",
+                  "title": "Response List Projects",
                   "type": "array"
                 }
               }
@@ -4034,10 +4135,10 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "List All"
+        "summary": "List Projects"
       },
       "post": {
-        "operationId": "post_project_api_projects_post",
+        "operationId": "create_project",
         "requestBody": {
           "content": {
             "application/json": {
@@ -4085,12 +4186,12 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Post Project"
+        "summary": "Create Project"
       }
     },
     "/api/projects/health": {
       "get": {
-        "operationId": "batch_api_projects_health_get",
+        "operationId": "get_projects_health",
         "parameters": [
           {
             "in": "query",
@@ -4140,12 +4241,12 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Batch"
+        "summary": "Get Projects Health"
       }
     },
     "/api/projects/{pid}": {
       "delete": {
-        "operationId": "delete_one_api_projects__pid__delete",
+        "operationId": "delete_project",
         "parameters": [
           {
             "in": "path",
@@ -4188,10 +4289,10 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Delete One"
+        "summary": "Delete Project"
       },
       "get": {
-        "operationId": "get_one_api_projects__pid__get",
+        "operationId": "get_project",
         "parameters": [
           {
             "in": "path",
@@ -4241,10 +4342,10 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Get One"
+        "summary": "Get Project"
       },
       "patch": {
-        "operationId": "patch_one_api_projects__pid__patch",
+        "operationId": "update_project",
         "parameters": [
           {
             "in": "path",
@@ -4304,12 +4405,12 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Patch One"
+        "summary": "Update Project"
       }
     },
     "/api/projects/{pid}/artifacts/graph": {
       "get": {
-        "operationId": "get_graph_api_projects__pid__artifacts_graph_get",
+        "operationId": "get_artifact_graph",
         "parameters": [
           {
             "in": "path",
@@ -4375,12 +4476,12 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Get Graph"
+        "summary": "Get Artifact Graph"
       }
     },
     "/api/projects/{pid}/artifacts/{table}": {
       "get": {
-        "operationId": "list_table_api_projects__pid__artifacts__table__get",
+        "operationId": "list_artifact_rows",
         "parameters": [
           {
             "in": "path",
@@ -4510,12 +4611,12 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "List Table"
+        "summary": "List Artifact Rows"
       }
     },
     "/api/projects/{pid}/artifacts/{table}/{hrid}": {
       "get": {
-        "operationId": "get_row_detail_api_projects__pid__artifacts__table___hrid__get",
+        "operationId": "get_artifact_row",
         "parameters": [
           {
             "in": "path",
@@ -4583,13 +4684,13 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Get Row Detail"
+        "summary": "Get Artifact Row"
       }
     },
     "/api/projects/{pid}/cache:clear": {
       "post": {
         "description": "Empty the project's graphrag cache/ (the launch warning's action).\n409 job_conflict while any job is queued or running.",
-        "operationId": "clear_cache_api_projects__pid__cache_clear_post",
+        "operationId": "clear_cache",
         "parameters": [
           {
             "in": "path",
@@ -4644,7 +4745,7 @@
     },
     "/api/projects/{pid}/dry-run": {
       "post": {
-        "operationId": "run_dry_run_api_projects__pid__dry_run_post",
+        "operationId": "run_dry_run",
         "parameters": [
           {
             "in": "path",
@@ -4699,7 +4800,7 @@
     },
     "/api/projects/{pid}/env": {
       "get": {
-        "operationId": "get_env_api_projects__pid__env_get",
+        "operationId": "get_env",
         "parameters": [
           {
             "in": "path",
@@ -4752,7 +4853,7 @@
         "summary": "Get Env"
       },
       "patch": {
-        "operationId": "patch_env_api_projects__pid__env_patch",
+        "operationId": "set_env_key",
         "parameters": [
           {
             "in": "path",
@@ -4805,12 +4906,12 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Patch Env"
+        "summary": "Set Env Key"
       }
     },
     "/api/projects/{pid}/env/{key}": {
       "delete": {
-        "operationId": "delete_env_api_projects__pid__env__key__delete",
+        "operationId": "delete_env_key",
         "parameters": [
           {
             "in": "path",
@@ -4862,12 +4963,12 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Delete Env"
+        "summary": "Delete Env Key"
       }
     },
     "/api/projects/{pid}/files": {
       "get": {
-        "operationId": "list_files_api_projects__pid__files_get",
+        "operationId": "list_files",
         "parameters": [
           {
             "in": "path",
@@ -4920,7 +5021,7 @@
         "summary": "List Files"
       },
       "post": {
-        "operationId": "upload_file_api_projects__pid__files_post",
+        "operationId": "upload_file",
         "parameters": [
           {
             "in": "path",
@@ -4937,7 +5038,7 @@
           "content": {
             "multipart/form-data": {
               "schema": {
-                "$ref": "#/components/schemas/Body_upload_file_api_projects__pid__files_post"
+                "$ref": "#/components/schemas/Body_upload_file"
               }
             }
           },
@@ -4985,7 +5086,7 @@
     },
     "/api/projects/{pid}/files/{filename}": {
       "delete": {
-        "operationId": "delete_file_api_projects__pid__files__filename__delete",
+        "operationId": "delete_file",
         "parameters": [
           {
             "in": "path",
@@ -5042,7 +5143,7 @@
     },
     "/api/projects/{pid}/files/{filename}/preview": {
       "get": {
-        "operationId": "get_preview_api_projects__pid__files__filename__preview_get",
+        "operationId": "get_file_preview",
         "parameters": [
           {
             "in": "path",
@@ -5101,10 +5202,10 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Get Preview"
+        "summary": "Get File Preview"
       },
       "post": {
-        "operationId": "post_preview_api_projects__pid__files__filename__preview_post",
+        "operationId": "locate_file_preview",
         "parameters": [
           {
             "in": "path",
@@ -5173,12 +5274,12 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Post Preview"
+        "summary": "Locate File Preview"
       }
     },
     "/api/projects/{pid}/files/{filename}/tags": {
       "delete": {
-        "operationId": "remove_tags_api_projects__pid__files__filename__tags_delete",
+        "operationId": "remove_file_tags",
         "parameters": [
           {
             "in": "path",
@@ -5240,10 +5341,10 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Remove Tags"
+        "summary": "Remove File Tags"
       },
       "post": {
-        "operationId": "add_tags_api_projects__pid__files__filename__tags_post",
+        "operationId": "add_file_tags",
         "parameters": [
           {
             "in": "path",
@@ -5305,12 +5406,12 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Add Tags"
+        "summary": "Add File Tags"
       }
     },
     "/api/projects/{pid}/files:bulk-delete": {
       "post": {
-        "operationId": "bulk_delete_files_api_projects__pid__files_bulk_delete_post",
+        "operationId": "bulk_delete_files",
         "parameters": [
           {
             "in": "path",
@@ -5375,7 +5476,7 @@
     },
     "/api/projects/{pid}/health": {
       "get": {
-        "operationId": "one_api_projects__pid__health_get",
+        "operationId": "get_project_health",
         "parameters": [
           {
             "in": "path",
@@ -5425,13 +5526,13 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "One"
+        "summary": "Get Project Health"
       }
     },
     "/api/projects/{pid}/jobs": {
       "get": {
         "description": "Newest first, paged (at most 200 per page); total counts every\njob matching `type`. Server-side exclusion so the jobs page can\ndrop test_run rows (spec 8).",
-        "operationId": "list_jobs_api_projects__pid__jobs_get",
+        "operationId": "list_jobs",
         "parameters": [
           {
             "in": "path",
@@ -5531,7 +5632,7 @@
         "summary": "List Jobs"
       },
       "post": {
-        "operationId": "start_job_api_projects__pid__jobs_post",
+        "operationId": "start_job",
         "parameters": [
           {
             "in": "path",
@@ -5596,7 +5697,7 @@
     },
     "/api/projects/{pid}/jobs/preflight": {
       "get": {
-        "operationId": "preflight_api_projects__pid__jobs_preflight_get",
+        "operationId": "get_job_preflight",
         "parameters": [
           {
             "in": "path",
@@ -5646,12 +5747,12 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Preflight"
+        "summary": "Get Job Preflight"
       }
     },
     "/api/projects/{pid}/members": {
       "get": {
-        "operationId": "members_api_projects__pid__members_get",
+        "operationId": "list_members",
         "parameters": [
           {
             "in": "path",
@@ -5672,7 +5773,7 @@
                   "items": {
                     "$ref": "#/components/schemas/MemberOut"
                   },
-                  "title": "Response Members Api Projects  Pid  Members Get",
+                  "title": "Response List Members",
                   "type": "array"
                 }
               }
@@ -5705,12 +5806,12 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Members"
+        "summary": "List Members"
       }
     },
     "/api/projects/{pid}/members/{user_id}": {
       "delete": {
-        "operationId": "delete_member_api_projects__pid__members__user_id__delete",
+        "operationId": "remove_member",
         "parameters": [
           {
             "in": "path",
@@ -5763,10 +5864,10 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Delete Member"
+        "summary": "Remove Member"
       },
       "put": {
-        "operationId": "put_member_api_projects__pid__members__user_id__put",
+        "operationId": "set_member",
         "parameters": [
           {
             "in": "path",
@@ -5836,12 +5937,12 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Put Member"
+        "summary": "Set Member"
       }
     },
     "/api/projects/{pid}/query": {
       "post": {
-        "operationId": "post_query_api_projects__pid__query_post",
+        "operationId": "run_project_query",
         "parameters": [
           {
             "in": "path",
@@ -5901,12 +6002,12 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Post Query"
+        "summary": "Run Project Query"
       }
     },
     "/api/projects/{pid}/query/stream": {
       "get": {
-        "operationId": "get_query_stream_api_projects__pid__query_stream_get",
+        "operationId": "stream_project_query",
         "parameters": [
           {
             "in": "path",
@@ -6013,12 +6114,12 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Get Query Stream"
+        "summary": "Stream Project Query"
       }
     },
     "/api/projects/{pid}/question-sets": {
       "get": {
-        "operationId": "list_sets_api_projects__pid__question_sets_get",
+        "operationId": "list_question_sets",
         "parameters": [
           {
             "in": "path",
@@ -6068,10 +6169,10 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "List Sets"
+        "summary": "List Question Sets"
       },
       "post": {
-        "operationId": "create_set_api_projects__pid__question_sets_post",
+        "operationId": "create_question_set",
         "parameters": [
           {
             "in": "path",
@@ -6131,12 +6232,12 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Create Set"
+        "summary": "Create Question Set"
       }
     },
     "/api/projects/{pid}/question-sets/{sid}": {
       "delete": {
-        "operationId": "archive_set_api_projects__pid__question_sets__sid__delete",
+        "operationId": "archive_question_set",
         "parameters": [
           {
             "in": "path",
@@ -6189,10 +6290,10 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Archive Set"
+        "summary": "Archive Question Set"
       },
       "patch": {
-        "operationId": "rename_set_api_projects__pid__question_sets__sid__patch",
+        "operationId": "rename_question_set",
         "parameters": [
           {
             "in": "path",
@@ -6262,12 +6363,12 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Rename Set"
+        "summary": "Rename Question Set"
       }
     },
     "/api/projects/{pid}/question-sets/{sid}/questions": {
       "get": {
-        "operationId": "list_questions_api_projects__pid__question_sets__sid__questions_get",
+        "operationId": "list_questions",
         "parameters": [
           {
             "in": "path",
@@ -6330,7 +6431,7 @@
         "summary": "List Questions"
       },
       "post": {
-        "operationId": "add_question_api_projects__pid__question_sets__sid__questions_post",
+        "operationId": "add_question",
         "parameters": [
           {
             "in": "path",
@@ -6405,7 +6506,7 @@
     },
     "/api/projects/{pid}/question-sets/{sid}/questions/{qid}": {
       "delete": {
-        "operationId": "archive_question_api_projects__pid__question_sets__sid__questions__qid__delete",
+        "operationId": "archive_question",
         "parameters": [
           {
             "in": "path",
@@ -6471,7 +6572,7 @@
         "summary": "Archive Question"
       },
       "patch": {
-        "operationId": "edit_question_api_projects__pid__question_sets__sid__questions__qid__patch",
+        "operationId": "update_question",
         "parameters": [
           {
             "in": "path",
@@ -6551,12 +6652,12 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Edit Question"
+        "summary": "Update Question"
       }
     },
     "/api/projects/{pid}/settings": {
       "get": {
-        "operationId": "get_settings_api_projects__pid__settings_get",
+        "operationId": "get_project_settings",
         "parameters": [
           {
             "in": "path",
@@ -6606,10 +6707,10 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Get Settings"
+        "summary": "Get Project Settings"
       },
       "put": {
-        "operationId": "put_settings_api_projects__pid__settings_put",
+        "operationId": "save_project_settings",
         "parameters": [
           {
             "in": "path",
@@ -6679,13 +6780,13 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Put Settings"
+        "summary": "Save Project Settings"
       }
     },
     "/api/projects/{pid}/settings/versions": {
       "get": {
         "description": "Newest first, paged (at most 200 per page).",
-        "operationId": "list_settings_versions_api_projects__pid__settings_versions_get",
+        "operationId": "list_settings_versions",
         "parameters": [
           {
             "in": "path",
@@ -6763,7 +6864,7 @@
     },
     "/api/projects/{pid}/settings/versions/{vid}": {
       "get": {
-        "operationId": "get_settings_version_api_projects__pid__settings_versions__vid__get",
+        "operationId": "get_settings_version",
         "parameters": [
           {
             "in": "path",
@@ -6827,7 +6928,7 @@
     },
     "/api/projects/{pid}/tags": {
       "get": {
-        "operationId": "list_tags_api_projects__pid__tags_get",
+        "operationId": "list_tags",
         "parameters": [
           {
             "in": "path",
@@ -6882,7 +6983,7 @@
     },
     "/api/projects/{pid}/test-runs": {
       "get": {
-        "operationId": "get_matrix_api_projects__pid__test_runs_get",
+        "operationId": "get_test_matrix",
         "parameters": [
           {
             "in": "path",
@@ -6900,6 +7001,7 @@
             "required": false,
             "schema": {
               "default": 5,
+              "maximum": 50,
               "minimum": 1,
               "title": "Runs",
               "type": "integer"
@@ -6943,10 +7045,10 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Get Matrix"
+        "summary": "Get Test Matrix"
       },
       "post": {
-        "operationId": "start_run_api_projects__pid__test_runs_post",
+        "operationId": "start_test_run",
         "parameters": [
           {
             "in": "path",
@@ -7006,12 +7108,12 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Start Run"
+        "summary": "Start Test Run"
       }
     },
     "/api/ready": {
       "get": {
-        "operationId": "ready_api_ready_get",
+        "operationId": "get_readiness",
         "responses": {
           "200": {
             "content": {
@@ -7044,12 +7146,12 @@
             "description": "Service Unavailable"
           }
         },
-        "summary": "Ready"
+        "summary": "Get Readiness"
       }
     },
     "/api/roles": {
       "get": {
-        "operationId": "get_roles_api_roles_get",
+        "operationId": "list_roles",
         "parameters": [
           {
             "in": "query",
@@ -7077,7 +7179,7 @@
                   "items": {
                     "$ref": "#/components/schemas/RoleOut"
                   },
-                  "title": "Response Get Roles Api Roles Get",
+                  "title": "Response List Roles",
                   "type": "array"
                 }
               }
@@ -7110,12 +7212,12 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Get Roles"
+        "summary": "List Roles"
       }
     },
     "/api/test-results/{rid}/rating": {
       "put": {
-        "operationId": "put_rating_api_test_results__rid__rating_put",
+        "operationId": "rate_test_result",
         "parameters": [
           {
             "in": "path",
@@ -7175,12 +7277,12 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Put Rating"
+        "summary": "Rate Test Result"
       }
     },
     "/api/test-runs/{rid}/results": {
       "get": {
-        "operationId": "get_results_api_test_runs__rid__results_get",
+        "operationId": "list_test_results",
         "parameters": [
           {
             "in": "path",
@@ -7230,12 +7332,12 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Get Results"
+        "summary": "List Test Results"
       }
     },
     "/api/users": {
       "get": {
-        "operationId": "list_users_brief_api_users_get",
+        "operationId": "list_users_brief",
         "responses": {
           "200": {
             "content": {
@@ -7244,7 +7346,7 @@
                   "items": {
                     "$ref": "#/components/schemas/UserBriefOut"
                   },
-                  "title": "Response List Users Brief Api Users Get",
+                  "title": "Response List Users Brief",
                   "type": "array"
                 }
               }

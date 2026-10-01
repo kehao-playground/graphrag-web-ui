@@ -11,8 +11,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Audit */
-        get: operations["get_audit_api_admin_audit_get"];
+        /** List Audit Entries */
+        get: operations["list_audit_entries"];
         put?: never;
         post?: never;
         delete?: never;
@@ -28,11 +28,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Admin Get Roles */
-        get: operations["admin_get_roles_api_admin_roles_get"];
+        /** List Admin Roles */
+        get: operations["list_admin_roles"];
         put?: never;
-        /** Post Role */
-        post: operations["post_role_api_admin_roles_post"];
+        /** Create Role */
+        post: operations["create_role"];
         delete?: never;
         options?: never;
         head?: never;
@@ -49,12 +49,12 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Delete One */
-        delete: operations["delete_one_api_admin_roles__role_id__delete"];
+        /** Delete Role */
+        delete: operations["delete_role"];
         options?: never;
         head?: never;
-        /** Patch One */
-        patch: operations["patch_one_api_admin_roles__role_id__patch"];
+        /** Update Role */
+        patch: operations["update_role"];
         trace?: never;
     };
     "/api/admin/users": {
@@ -65,10 +65,10 @@ export interface paths {
             cookie?: never;
         };
         /** List Users */
-        get: operations["list_users_api_admin_users_get"];
+        get: operations["list_users"];
         put?: never;
-        /** Post User */
-        post: operations["post_user_api_admin_users_post"];
+        /** Create User */
+        post: operations["create_user"];
         delete?: never;
         options?: never;
         head?: never;
@@ -88,8 +88,8 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Patch User */
-        patch: operations["patch_user_api_admin_users__user_id__patch"];
+        /** Update User */
+        patch: operations["update_user"];
         trace?: never;
     };
     "/api/admin/users/{user_id}/reset-password": {
@@ -101,8 +101,25 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Post Reset Password */
-        post: operations["post_reset_password_api_admin_users__user_id__reset_password_post"];
+        /** Reset User Password */
+        post: operations["reset_user_password"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/artifact-tables": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Artifact Tables */
+        get: operations["list_artifact_tables"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -119,7 +136,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Change Password */
-        post: operations["change_password_api_auth_change_password_post"];
+        post: operations["change_password"];
         delete?: never;
         options?: never;
         head?: never;
@@ -134,10 +151,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Auth Config
+         * Get Auth Config
          * @description Public mode probe: the SPA's single source of truth (spec §5.3).
          */
-        get: operations["auth_config_api_auth_config_get"];
+        get: operations["get_auth_config"];
         put?: never;
         post?: never;
         delete?: never;
@@ -155,8 +172,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Login */
-        post: operations["login_api_auth_login_post"];
+        /** Log In */
+        post: operations["log_in"];
         delete?: never;
         options?: never;
         head?: never;
@@ -172,8 +189,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Logout */
-        post: operations["logout_api_auth_logout_post"];
+        /** Log Out */
+        post: operations["log_out"];
         delete?: never;
         options?: never;
         head?: never;
@@ -187,8 +204,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Me */
-        get: operations["me_api_auth_me_get"];
+        /** Get Me */
+        get: operations["get_me"];
         put?: never;
         post?: never;
         delete?: never;
@@ -206,8 +223,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Refresh */
-        post: operations["refresh_api_auth_refresh_post"];
+        /** Refresh Session */
+        post: operations["refresh_session"];
         delete?: never;
         options?: never;
         head?: never;
@@ -221,8 +238,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Health */
-        get: operations["health_api_health_get"];
+        /** Get Liveness */
+        get: operations["get_liveness"];
         put?: never;
         post?: never;
         delete?: never;
@@ -239,7 +256,7 @@ export interface paths {
             cookie?: never;
         };
         /** Get Job */
-        get: operations["get_job_api_jobs__job_id__get"];
+        get: operations["get_job"];
         put?: never;
         post?: never;
         delete?: never;
@@ -258,7 +275,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Cancel Job */
-        post: operations["cancel_job_api_jobs__job_id__cancel_post"];
+        post: operations["cancel_job"];
         delete?: never;
         options?: never;
         head?: never;
@@ -272,8 +289,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Job Logs */
-        get: operations["job_logs_api_jobs__job_id__logs_get"];
+        /** Stream Job Logs */
+        get: operations["stream_job_logs"];
         put?: never;
         post?: never;
         delete?: never;
@@ -289,11 +306,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List All */
-        get: operations["list_all_api_projects_get"];
+        /** List Projects */
+        get: operations["list_projects"];
         put?: never;
-        /** Post Project */
-        post: operations["post_project_api_projects_post"];
+        /** Create Project */
+        post: operations["create_project"];
         delete?: never;
         options?: never;
         head?: never;
@@ -307,8 +324,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Batch */
-        get: operations["batch_api_projects_health_get"];
+        /** Get Projects Health */
+        get: operations["get_projects_health"];
         put?: never;
         post?: never;
         delete?: never;
@@ -324,16 +341,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get One */
-        get: operations["get_one_api_projects__pid__get"];
+        /** Get Project */
+        get: operations["get_project"];
         put?: never;
         post?: never;
-        /** Delete One */
-        delete: operations["delete_one_api_projects__pid__delete"];
+        /** Delete Project */
+        delete: operations["delete_project"];
         options?: never;
         head?: never;
-        /** Patch One */
-        patch: operations["patch_one_api_projects__pid__patch"];
+        /** Update Project */
+        patch: operations["update_project"];
         trace?: never;
     };
     "/api/projects/{pid}/artifacts/graph": {
@@ -343,8 +360,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Graph */
-        get: operations["get_graph_api_projects__pid__artifacts_graph_get"];
+        /** Get Artifact Graph */
+        get: operations["get_artifact_graph"];
         put?: never;
         post?: never;
         delete?: never;
@@ -360,8 +377,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Table */
-        get: operations["list_table_api_projects__pid__artifacts__table__get"];
+        /** List Artifact Rows */
+        get: operations["list_artifact_rows"];
         put?: never;
         post?: never;
         delete?: never;
@@ -377,8 +394,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Row Detail */
-        get: operations["get_row_detail_api_projects__pid__artifacts__table___hrid__get"];
+        /** Get Artifact Row */
+        get: operations["get_artifact_row"];
         put?: never;
         post?: never;
         delete?: never;
@@ -401,7 +418,7 @@ export interface paths {
          * @description Empty the project's graphrag cache/ (the launch warning's action).
          *     409 job_conflict while any job is queued or running.
          */
-        post: operations["clear_cache_api_projects__pid__cache_clear_post"];
+        post: operations["clear_cache"];
         delete?: never;
         options?: never;
         head?: never;
@@ -418,7 +435,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Run Dry Run */
-        post: operations["run_dry_run_api_projects__pid__dry_run_post"];
+        post: operations["run_dry_run"];
         delete?: never;
         options?: never;
         head?: never;
@@ -433,14 +450,14 @@ export interface paths {
             cookie?: never;
         };
         /** Get Env */
-        get: operations["get_env_api_projects__pid__env_get"];
+        get: operations["get_env"];
         put?: never;
         post?: never;
         delete?: never;
         options?: never;
         head?: never;
-        /** Patch Env */
-        patch: operations["patch_env_api_projects__pid__env_patch"];
+        /** Set Env Key */
+        patch: operations["set_env_key"];
         trace?: never;
     };
     "/api/projects/{pid}/env/{key}": {
@@ -453,8 +470,8 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Delete Env */
-        delete: operations["delete_env_api_projects__pid__env__key__delete"];
+        /** Delete Env Key */
+        delete: operations["delete_env_key"];
         options?: never;
         head?: never;
         patch?: never;
@@ -468,10 +485,10 @@ export interface paths {
             cookie?: never;
         };
         /** List Files */
-        get: operations["list_files_api_projects__pid__files_get"];
+        get: operations["list_files"];
         put?: never;
         /** Upload File */
-        post: operations["upload_file_api_projects__pid__files_post"];
+        post: operations["upload_file"];
         delete?: never;
         options?: never;
         head?: never;
@@ -489,7 +506,7 @@ export interface paths {
         put?: never;
         post?: never;
         /** Delete File */
-        delete: operations["delete_file_api_projects__pid__files__filename__delete"];
+        delete: operations["delete_file"];
         options?: never;
         head?: never;
         patch?: never;
@@ -502,11 +519,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Preview */
-        get: operations["get_preview_api_projects__pid__files__filename__preview_get"];
+        /** Get File Preview */
+        get: operations["get_file_preview"];
         put?: never;
-        /** Post Preview */
-        post: operations["post_preview_api_projects__pid__files__filename__preview_post"];
+        /** Locate File Preview */
+        post: operations["locate_file_preview"];
         delete?: never;
         options?: never;
         head?: never;
@@ -522,10 +539,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Add Tags */
-        post: operations["add_tags_api_projects__pid__files__filename__tags_post"];
-        /** Remove Tags */
-        delete: operations["remove_tags_api_projects__pid__files__filename__tags_delete"];
+        /** Add File Tags */
+        post: operations["add_file_tags"];
+        /** Remove File Tags */
+        delete: operations["remove_file_tags"];
         options?: never;
         head?: never;
         patch?: never;
@@ -541,7 +558,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Bulk Delete Files */
-        post: operations["bulk_delete_files_api_projects__pid__files_bulk_delete_post"];
+        post: operations["bulk_delete_files"];
         delete?: never;
         options?: never;
         head?: never;
@@ -555,8 +572,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** One */
-        get: operations["one_api_projects__pid__health_get"];
+        /** Get Project Health */
+        get: operations["get_project_health"];
         put?: never;
         post?: never;
         delete?: never;
@@ -578,10 +595,10 @@ export interface paths {
          *     job matching `type`. Server-side exclusion so the jobs page can
          *     drop test_run rows (spec 8).
          */
-        get: operations["list_jobs_api_projects__pid__jobs_get"];
+        get: operations["list_jobs"];
         put?: never;
         /** Start Job */
-        post: operations["start_job_api_projects__pid__jobs_post"];
+        post: operations["start_job"];
         delete?: never;
         options?: never;
         head?: never;
@@ -595,8 +612,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Preflight */
-        get: operations["preflight_api_projects__pid__jobs_preflight_get"];
+        /** Get Job Preflight */
+        get: operations["get_job_preflight"];
         put?: never;
         post?: never;
         delete?: never;
@@ -612,8 +629,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Members */
-        get: operations["members_api_projects__pid__members_get"];
+        /** List Members */
+        get: operations["list_members"];
         put?: never;
         post?: never;
         delete?: never;
@@ -630,11 +647,11 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** Put Member */
-        put: operations["put_member_api_projects__pid__members__user_id__put"];
+        /** Set Member */
+        put: operations["set_member"];
         post?: never;
-        /** Delete Member */
-        delete: operations["delete_member_api_projects__pid__members__user_id__delete"];
+        /** Remove Member */
+        delete: operations["remove_member"];
         options?: never;
         head?: never;
         patch?: never;
@@ -649,8 +666,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Post Query */
-        post: operations["post_query_api_projects__pid__query_post"];
+        /** Run Project Query */
+        post: operations["run_project_query"];
         delete?: never;
         options?: never;
         head?: never;
@@ -664,8 +681,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Query Stream */
-        get: operations["get_query_stream_api_projects__pid__query_stream_get"];
+        /** Stream Project Query */
+        get: operations["stream_project_query"];
         put?: never;
         post?: never;
         delete?: never;
@@ -681,11 +698,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Sets */
-        get: operations["list_sets_api_projects__pid__question_sets_get"];
+        /** List Question Sets */
+        get: operations["list_question_sets"];
         put?: never;
-        /** Create Set */
-        post: operations["create_set_api_projects__pid__question_sets_post"];
+        /** Create Question Set */
+        post: operations["create_question_set"];
         delete?: never;
         options?: never;
         head?: never;
@@ -702,12 +719,12 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Archive Set */
-        delete: operations["archive_set_api_projects__pid__question_sets__sid__delete"];
+        /** Archive Question Set */
+        delete: operations["archive_question_set"];
         options?: never;
         head?: never;
-        /** Rename Set */
-        patch: operations["rename_set_api_projects__pid__question_sets__sid__patch"];
+        /** Rename Question Set */
+        patch: operations["rename_question_set"];
         trace?: never;
     };
     "/api/projects/{pid}/question-sets/{sid}/questions": {
@@ -718,10 +735,10 @@ export interface paths {
             cookie?: never;
         };
         /** List Questions */
-        get: operations["list_questions_api_projects__pid__question_sets__sid__questions_get"];
+        get: operations["list_questions"];
         put?: never;
         /** Add Question */
-        post: operations["add_question_api_projects__pid__question_sets__sid__questions_post"];
+        post: operations["add_question"];
         delete?: never;
         options?: never;
         head?: never;
@@ -739,11 +756,11 @@ export interface paths {
         put?: never;
         post?: never;
         /** Archive Question */
-        delete: operations["archive_question_api_projects__pid__question_sets__sid__questions__qid__delete"];
+        delete: operations["archive_question"];
         options?: never;
         head?: never;
-        /** Edit Question */
-        patch: operations["edit_question_api_projects__pid__question_sets__sid__questions__qid__patch"];
+        /** Update Question */
+        patch: operations["update_question"];
         trace?: never;
     };
     "/api/projects/{pid}/settings": {
@@ -753,10 +770,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Settings */
-        get: operations["get_settings_api_projects__pid__settings_get"];
-        /** Put Settings */
-        put: operations["put_settings_api_projects__pid__settings_put"];
+        /** Get Project Settings */
+        get: operations["get_project_settings"];
+        /** Save Project Settings */
+        put: operations["save_project_settings"];
         post?: never;
         delete?: never;
         options?: never;
@@ -775,7 +792,7 @@ export interface paths {
          * List Settings Versions
          * @description Newest first, paged (at most 200 per page).
          */
-        get: operations["list_settings_versions_api_projects__pid__settings_versions_get"];
+        get: operations["list_settings_versions"];
         put?: never;
         post?: never;
         delete?: never;
@@ -792,7 +809,7 @@ export interface paths {
             cookie?: never;
         };
         /** Get Settings Version */
-        get: operations["get_settings_version_api_projects__pid__settings_versions__vid__get"];
+        get: operations["get_settings_version"];
         put?: never;
         post?: never;
         delete?: never;
@@ -809,7 +826,7 @@ export interface paths {
             cookie?: never;
         };
         /** List Tags */
-        get: operations["list_tags_api_projects__pid__tags_get"];
+        get: operations["list_tags"];
         put?: never;
         post?: never;
         delete?: never;
@@ -825,11 +842,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Matrix */
-        get: operations["get_matrix_api_projects__pid__test_runs_get"];
+        /** Get Test Matrix */
+        get: operations["get_test_matrix"];
         put?: never;
-        /** Start Run */
-        post: operations["start_run_api_projects__pid__test_runs_post"];
+        /** Start Test Run */
+        post: operations["start_test_run"];
         delete?: never;
         options?: never;
         head?: never;
@@ -843,8 +860,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Ready */
-        get: operations["ready_api_ready_get"];
+        /** Get Readiness */
+        get: operations["get_readiness"];
         put?: never;
         post?: never;
         delete?: never;
@@ -860,8 +877,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Roles */
-        get: operations["get_roles_api_roles_get"];
+        /** List Roles */
+        get: operations["list_roles"];
         put?: never;
         post?: never;
         delete?: never;
@@ -878,8 +895,8 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** Put Rating */
-        put: operations["put_rating_api_test_results__rid__rating_put"];
+        /** Rate Test Result */
+        put: operations["rate_test_result"];
         post?: never;
         delete?: never;
         options?: never;
@@ -894,8 +911,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Results */
-        get: operations["get_results_api_test_runs__rid__results_get"];
+        /** List Test Results */
+        get: operations["list_test_results"];
         put?: never;
         post?: never;
         delete?: never;
@@ -912,7 +929,7 @@ export interface paths {
             cookie?: never;
         };
         /** List Users Brief */
-        get: operations["list_users_brief_api_users_get"];
+        get: operations["list_users_brief"];
         put?: never;
         post?: never;
         delete?: never;
@@ -975,6 +992,28 @@ export interface components {
             stale: boolean;
             /** Total */
             total: number;
+        };
+        /**
+         * ArtifactTableOut
+         * @description One Explore table: the list projection and the filters it offers.
+         */
+        ArtifactTableOut: {
+            /** Columns */
+            columns: string[];
+            /** Community Filter */
+            community_filter: boolean;
+            /**
+             * Name
+             * @enum {string}
+             */
+            name: "entities" | "relationships" | "communities" | "community_reports" | "text_units" | "documents";
+            /** Type Filter */
+            type_filter: boolean;
+        };
+        /** ArtifactTablesOut */
+        ArtifactTablesOut: {
+            /** Tables */
+            tables: components["schemas"]["ArtifactTableOut"][];
         };
         /**
          * AuditEntryOut
@@ -1081,8 +1120,8 @@ export interface components {
              */
             finished_at: string;
         };
-        /** Body_upload_file_api_projects__pid__files_post */
-        Body_upload_file_api_projects__pid__files_post: {
+        /** Body_upload_file */
+        Body_upload_file: {
             /** File */
             file: string;
         };
@@ -1583,6 +1622,10 @@ export interface components {
             my_permissions: string[];
             /** Name */
             name: string;
+            /** Owner Display Name */
+            owner_display_name: string;
+            /** Owner Email */
+            owner_email: string;
             /** Owner Id */
             owner_id: string;
             /** Slug */
@@ -2025,7 +2068,10 @@ export interface components {
             content: string;
             /** Content Hash */
             content_hash: string;
-            /** Created At */
+            /**
+             * Created At
+             * Format: date-time
+             */
             created_at: string;
             /** Id */
             id: number;
@@ -2036,7 +2082,10 @@ export interface components {
         VersionOut: {
             /** Content Hash */
             content_hash: string;
-            /** Created At */
+            /**
+             * Created At
+             * Format: date-time
+             */
             created_at: string;
             /** Id */
             id: number;
@@ -2062,7 +2111,7 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    get_audit_api_admin_audit_get: {
+    list_audit_entries: {
         parameters: {
             query?: {
                 limit?: number;
@@ -2106,7 +2155,7 @@ export interface operations {
             };
         };
     };
-    admin_get_roles_api_admin_roles_get: {
+    list_admin_roles: {
         parameters: {
             query?: never;
             header?: never;
@@ -2135,7 +2184,7 @@ export interface operations {
             };
         };
     };
-    post_role_api_admin_roles_post: {
+    create_role: {
         parameters: {
             query?: never;
             header?: never;
@@ -2177,7 +2226,7 @@ export interface operations {
             };
         };
     };
-    delete_one_api_admin_roles__role_id__delete: {
+    delete_role: {
         parameters: {
             query?: never;
             header?: never;
@@ -2215,7 +2264,7 @@ export interface operations {
             };
         };
     };
-    patch_one_api_admin_roles__role_id__patch: {
+    update_role: {
         parameters: {
             query?: never;
             header?: never;
@@ -2259,7 +2308,7 @@ export interface operations {
             };
         };
     };
-    list_users_api_admin_users_get: {
+    list_users: {
         parameters: {
             query?: never;
             header?: never;
@@ -2288,7 +2337,7 @@ export interface operations {
             };
         };
     };
-    post_user_api_admin_users_post: {
+    create_user: {
         parameters: {
             query?: never;
             header?: never;
@@ -2330,7 +2379,7 @@ export interface operations {
             };
         };
     };
-    patch_user_api_admin_users__user_id__patch: {
+    update_user: {
         parameters: {
             query?: never;
             header?: never;
@@ -2374,7 +2423,7 @@ export interface operations {
             };
         };
     };
-    post_reset_password_api_admin_users__user_id__reset_password_post: {
+    reset_user_password: {
         parameters: {
             query?: never;
             header?: never;
@@ -2416,7 +2465,36 @@ export interface operations {
             };
         };
     };
-    change_password_api_auth_change_password_post: {
+    list_artifact_tables: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactTablesOut"];
+                };
+            };
+            /** @description Client Error */
+            "4XX": {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorOut"];
+                };
+            };
+        };
+    };
+    change_password: {
         parameters: {
             query?: never;
             header?: never;
@@ -2456,7 +2534,7 @@ export interface operations {
             };
         };
     };
-    auth_config_api_auth_config_get: {
+    get_auth_config: {
         parameters: {
             query?: never;
             header?: never;
@@ -2485,7 +2563,7 @@ export interface operations {
             };
         };
     };
-    login_api_auth_login_post: {
+    log_in: {
         parameters: {
             query?: never;
             header?: never;
@@ -2527,7 +2605,7 @@ export interface operations {
             };
         };
     };
-    logout_api_auth_logout_post: {
+    log_out: {
         parameters: {
             query?: never;
             header?: never;
@@ -2567,7 +2645,7 @@ export interface operations {
             };
         };
     };
-    me_api_auth_me_get: {
+    get_me: {
         parameters: {
             query?: never;
             header?: never;
@@ -2596,7 +2674,7 @@ export interface operations {
             };
         };
     };
-    refresh_api_auth_refresh_post: {
+    refresh_session: {
         parameters: {
             query?: never;
             header?: never;
@@ -2638,7 +2716,7 @@ export interface operations {
             };
         };
     };
-    health_api_health_get: {
+    get_liveness: {
         parameters: {
             query?: never;
             header?: never;
@@ -2667,7 +2745,7 @@ export interface operations {
             };
         };
     };
-    get_job_api_jobs__job_id__get: {
+    get_job: {
         parameters: {
             query?: never;
             header?: never;
@@ -2707,7 +2785,7 @@ export interface operations {
             };
         };
     };
-    cancel_job_api_jobs__job_id__cancel_post: {
+    cancel_job: {
         parameters: {
             query?: never;
             header?: never;
@@ -2747,7 +2825,7 @@ export interface operations {
             };
         };
     };
-    job_logs_api_jobs__job_id__logs_get: {
+    stream_job_logs: {
         parameters: {
             query?: {
                 offset?: number;
@@ -2792,7 +2870,7 @@ export interface operations {
             };
         };
     };
-    list_all_api_projects_get: {
+    list_projects: {
         parameters: {
             query?: never;
             header?: never;
@@ -2821,7 +2899,7 @@ export interface operations {
             };
         };
     };
-    post_project_api_projects_post: {
+    create_project: {
         parameters: {
             query?: never;
             header?: never;
@@ -2863,7 +2941,7 @@ export interface operations {
             };
         };
     };
-    batch_api_projects_health_get: {
+    get_projects_health: {
         parameters: {
             query: {
                 ids: string;
@@ -2903,7 +2981,7 @@ export interface operations {
             };
         };
     };
-    get_one_api_projects__pid__get: {
+    get_project: {
         parameters: {
             query?: never;
             header?: never;
@@ -2943,7 +3021,7 @@ export interface operations {
             };
         };
     };
-    delete_one_api_projects__pid__delete: {
+    delete_project: {
         parameters: {
             query?: never;
             header?: never;
@@ -2981,7 +3059,7 @@ export interface operations {
             };
         };
     };
-    patch_one_api_projects__pid__patch: {
+    update_project: {
         parameters: {
             query?: never;
             header?: never;
@@ -3025,7 +3103,7 @@ export interface operations {
             };
         };
     };
-    get_graph_api_projects__pid__artifacts_graph_get: {
+    get_artifact_graph: {
         parameters: {
             query?: {
                 level?: number | null;
@@ -3067,7 +3145,7 @@ export interface operations {
             };
         };
     };
-    list_table_api_projects__pid__artifacts__table__get: {
+    list_artifact_rows: {
         parameters: {
             query?: {
                 limit?: number;
@@ -3114,7 +3192,7 @@ export interface operations {
             };
         };
     };
-    get_row_detail_api_projects__pid__artifacts__table___hrid__get: {
+    get_artifact_row: {
         parameters: {
             query?: never;
             header?: never;
@@ -3156,7 +3234,7 @@ export interface operations {
             };
         };
     };
-    clear_cache_api_projects__pid__cache_clear_post: {
+    clear_cache: {
         parameters: {
             query?: never;
             header?: never;
@@ -3196,7 +3274,7 @@ export interface operations {
             };
         };
     };
-    run_dry_run_api_projects__pid__dry_run_post: {
+    run_dry_run: {
         parameters: {
             query?: never;
             header?: never;
@@ -3236,7 +3314,7 @@ export interface operations {
             };
         };
     };
-    get_env_api_projects__pid__env_get: {
+    get_env: {
         parameters: {
             query?: never;
             header?: never;
@@ -3276,7 +3354,7 @@ export interface operations {
             };
         };
     };
-    patch_env_api_projects__pid__env_patch: {
+    set_env_key: {
         parameters: {
             query?: never;
             header?: never;
@@ -3318,7 +3396,7 @@ export interface operations {
             };
         };
     };
-    delete_env_api_projects__pid__env__key__delete: {
+    delete_env_key: {
         parameters: {
             query?: never;
             header?: never;
@@ -3357,7 +3435,7 @@ export interface operations {
             };
         };
     };
-    list_files_api_projects__pid__files_get: {
+    list_files: {
         parameters: {
             query?: never;
             header?: never;
@@ -3397,7 +3475,7 @@ export interface operations {
             };
         };
     };
-    upload_file_api_projects__pid__files_post: {
+    upload_file: {
         parameters: {
             query?: never;
             header?: never;
@@ -3408,7 +3486,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "multipart/form-data": components["schemas"]["Body_upload_file_api_projects__pid__files_post"];
+                "multipart/form-data": components["schemas"]["Body_upload_file"];
             };
         };
         responses: {
@@ -3441,7 +3519,7 @@ export interface operations {
             };
         };
     };
-    delete_file_api_projects__pid__files__filename__delete: {
+    delete_file: {
         parameters: {
             query?: never;
             header?: never;
@@ -3480,7 +3558,7 @@ export interface operations {
             };
         };
     };
-    get_preview_api_projects__pid__files__filename__preview_get: {
+    get_file_preview: {
         parameters: {
             query?: never;
             header?: never;
@@ -3521,7 +3599,7 @@ export interface operations {
             };
         };
     };
-    post_preview_api_projects__pid__files__filename__preview_post: {
+    locate_file_preview: {
         parameters: {
             query?: never;
             header?: never;
@@ -3566,7 +3644,7 @@ export interface operations {
             };
         };
     };
-    add_tags_api_projects__pid__files__filename__tags_post: {
+    add_file_tags: {
         parameters: {
             query?: never;
             header?: never;
@@ -3609,7 +3687,7 @@ export interface operations {
             };
         };
     };
-    remove_tags_api_projects__pid__files__filename__tags_delete: {
+    remove_file_tags: {
         parameters: {
             query?: never;
             header?: never;
@@ -3652,7 +3730,7 @@ export interface operations {
             };
         };
     };
-    bulk_delete_files_api_projects__pid__files_bulk_delete_post: {
+    bulk_delete_files: {
         parameters: {
             query?: never;
             header?: never;
@@ -3696,7 +3774,7 @@ export interface operations {
             };
         };
     };
-    one_api_projects__pid__health_get: {
+    get_project_health: {
         parameters: {
             query?: never;
             header?: never;
@@ -3736,7 +3814,7 @@ export interface operations {
             };
         };
     };
-    list_jobs_api_projects__pid__jobs_get: {
+    list_jobs: {
         parameters: {
             query?: {
                 limit?: number;
@@ -3780,7 +3858,7 @@ export interface operations {
             };
         };
     };
-    start_job_api_projects__pid__jobs_post: {
+    start_job: {
         parameters: {
             query?: never;
             header?: never;
@@ -3824,7 +3902,7 @@ export interface operations {
             };
         };
     };
-    preflight_api_projects__pid__jobs_preflight_get: {
+    get_job_preflight: {
         parameters: {
             query?: never;
             header?: never;
@@ -3864,7 +3942,7 @@ export interface operations {
             };
         };
     };
-    members_api_projects__pid__members_get: {
+    list_members: {
         parameters: {
             query?: never;
             header?: never;
@@ -3904,7 +3982,7 @@ export interface operations {
             };
         };
     };
-    put_member_api_projects__pid__members__user_id__put: {
+    set_member: {
         parameters: {
             query?: never;
             header?: never;
@@ -3949,7 +4027,7 @@ export interface operations {
             };
         };
     };
-    delete_member_api_projects__pid__members__user_id__delete: {
+    remove_member: {
         parameters: {
             query?: never;
             header?: never;
@@ -3988,7 +4066,7 @@ export interface operations {
             };
         };
     };
-    post_query_api_projects__pid__query_post: {
+    run_project_query: {
         parameters: {
             query?: never;
             header?: never;
@@ -4032,7 +4110,7 @@ export interface operations {
             };
         };
     };
-    get_query_stream_api_projects__pid__query_stream_get: {
+    stream_project_query: {
         parameters: {
             query: {
                 method: "local" | "global" | "drift" | "basic";
@@ -4077,7 +4155,7 @@ export interface operations {
             };
         };
     };
-    list_sets_api_projects__pid__question_sets_get: {
+    list_question_sets: {
         parameters: {
             query?: never;
             header?: never;
@@ -4117,7 +4195,7 @@ export interface operations {
             };
         };
     };
-    create_set_api_projects__pid__question_sets_post: {
+    create_question_set: {
         parameters: {
             query?: never;
             header?: never;
@@ -4161,7 +4239,7 @@ export interface operations {
             };
         };
     };
-    archive_set_api_projects__pid__question_sets__sid__delete: {
+    archive_question_set: {
         parameters: {
             query?: never;
             header?: never;
@@ -4200,7 +4278,7 @@ export interface operations {
             };
         };
     };
-    rename_set_api_projects__pid__question_sets__sid__patch: {
+    rename_question_set: {
         parameters: {
             query?: never;
             header?: never;
@@ -4245,7 +4323,7 @@ export interface operations {
             };
         };
     };
-    list_questions_api_projects__pid__question_sets__sid__questions_get: {
+    list_questions: {
         parameters: {
             query?: never;
             header?: never;
@@ -4286,7 +4364,7 @@ export interface operations {
             };
         };
     };
-    add_question_api_projects__pid__question_sets__sid__questions_post: {
+    add_question: {
         parameters: {
             query?: never;
             header?: never;
@@ -4331,7 +4409,7 @@ export interface operations {
             };
         };
     };
-    archive_question_api_projects__pid__question_sets__sid__questions__qid__delete: {
+    archive_question: {
         parameters: {
             query?: never;
             header?: never;
@@ -4371,7 +4449,7 @@ export interface operations {
             };
         };
     };
-    edit_question_api_projects__pid__question_sets__sid__questions__qid__patch: {
+    update_question: {
         parameters: {
             query?: never;
             header?: never;
@@ -4417,7 +4495,7 @@ export interface operations {
             };
         };
     };
-    get_settings_api_projects__pid__settings_get: {
+    get_project_settings: {
         parameters: {
             query?: never;
             header?: never;
@@ -4457,7 +4535,7 @@ export interface operations {
             };
         };
     };
-    put_settings_api_projects__pid__settings_put: {
+    save_project_settings: {
         parameters: {
             query?: never;
             header?: never;
@@ -4510,7 +4588,7 @@ export interface operations {
             };
         };
     };
-    list_settings_versions_api_projects__pid__settings_versions_get: {
+    list_settings_versions: {
         parameters: {
             query?: {
                 limit?: number;
@@ -4553,7 +4631,7 @@ export interface operations {
             };
         };
     };
-    get_settings_version_api_projects__pid__settings_versions__vid__get: {
+    get_settings_version: {
         parameters: {
             query?: never;
             header?: never;
@@ -4594,7 +4672,7 @@ export interface operations {
             };
         };
     };
-    list_tags_api_projects__pid__tags_get: {
+    list_tags: {
         parameters: {
             query?: never;
             header?: never;
@@ -4634,7 +4712,7 @@ export interface operations {
             };
         };
     };
-    get_matrix_api_projects__pid__test_runs_get: {
+    get_test_matrix: {
         parameters: {
             query?: {
                 runs?: number;
@@ -4676,7 +4754,7 @@ export interface operations {
             };
         };
     };
-    start_run_api_projects__pid__test_runs_post: {
+    start_test_run: {
         parameters: {
             query?: never;
             header?: never;
@@ -4720,7 +4798,7 @@ export interface operations {
             };
         };
     };
-    ready_api_ready_get: {
+    get_readiness: {
         parameters: {
             query?: never;
             header?: never;
@@ -4758,7 +4836,7 @@ export interface operations {
             };
         };
     };
-    get_roles_api_roles_get: {
+    list_roles: {
         parameters: {
             query?: {
                 scope?: string | null;
@@ -4798,7 +4876,7 @@ export interface operations {
             };
         };
     };
-    put_rating_api_test_results__rid__rating_put: {
+    rate_test_result: {
         parameters: {
             query?: never;
             header?: never;
@@ -4842,7 +4920,7 @@ export interface operations {
             };
         };
     };
-    get_results_api_test_runs__rid__results_get: {
+    list_test_results: {
         parameters: {
             query?: never;
             header?: never;
@@ -4882,7 +4960,7 @@ export interface operations {
             };
         };
     };
-    list_users_brief_api_users_get: {
+    list_users_brief: {
         parameters: {
             query?: never;
             header?: never;

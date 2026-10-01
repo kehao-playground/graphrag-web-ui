@@ -368,3 +368,29 @@ async def test_corrupt_parquet_502_list(client, app):
     body = r.json()
     assert body["detail"] == "failed to read the index output"
     assert body["code"] == "explore_read_failed"
+
+
+async def test_artifact_tables_serve_the_registry(client, app):
+    """R1-114: the SPA reads list columns and filter flags from the domain
+    registry instead of mirroring it; any signed-in user may read it."""
+    from typing import get_args
+
+    from graphrag_ui.api.schemas import ArtifactTableName
+    from graphrag_ui.domain.artifacts import TABLES
+
+    assert get_args(ArtifactTableName) == tuple(TABLES)
+    assert (await client.get("/api/artifact-tables")).status_code == 401
+    _, _, _, carol = await _setup_users(client, app)
+    r = await client.get("/api/artifact-tables", headers=carol)
+    assert r.status_code == 200, r.text
+    assert r.json() == {
+        "tables": [
+            {
+                "name": spec.name,
+                "columns": list(spec.list_columns),
+                "type_filter": spec.type_filter,
+                "community_filter": spec.community_filter,
+            }
+            for spec in TABLES.values()
+        ]
+    }

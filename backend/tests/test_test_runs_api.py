@@ -294,6 +294,19 @@ async def test_matrix_runs_window_is_overridable(client, two_runs_with_a_fork):
     assert [c["question_text"] for c in body["rows"][0]["cells"]] == ["reworded"]
 
 
+async def test_matrix_runs_window_is_bounded(client, two_runs_with_a_fork):
+    """R1-107: the window is capped, so no viewer can make one request
+    materialise a project's whole run history."""
+    from graphrag_ui.domain.test_runs import MATRIX_MAX_RUNS
+
+    alice, pid, _lineage_id, _added_lineage_id, _run2 = two_runs_with_a_fork
+    url = f"/api/projects/{pid}/test-runs?runs="
+    assert (await client.get(f"{url}{MATRIX_MAX_RUNS}", headers=alice)).status_code == 200
+    r = await client.get(f"{url}{MATRIX_MAX_RUNS + 1}", headers=alice)
+    assert r.status_code == 422
+    assert r.json()["code"] == "validation_failed"
+
+
 async def test_run_results_are_ordered_by_position(client, two_runs_with_a_fork):
     alice, _pid, _lineage_id, _added_lineage_id, run2 = two_runs_with_a_fork
     body = (await client.get(f"/api/test-runs/{run2}/results", headers=alice)).json()

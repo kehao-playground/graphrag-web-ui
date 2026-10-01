@@ -9,6 +9,8 @@ from collections.abc import Mapping
 
 # How many of the most recent runs the matrix shows by default (spec 9.2).
 MATRIX_DEFAULT_RUNS = 5
+# Upper bound on `?runs=`: each run in the window loads all its results.
+MATRIX_MAX_RUNS = 50
 
 RATING_SCORES: tuple[str, ...] = ("good", "fair", "poor")
 # Ordered best to worst; a regression is a move to a HIGHER index.

@@ -70,7 +70,7 @@ def register_files_routes(app):
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @router.post("/{pid}/files/{filename}/tags", status_code=status.HTTP_204_NO_CONTENT)
-    async def add_tags(
+    async def add_file_tags(
         project: ProjectEditContent, filename: str, body: TagsIn, db: DbSession, user: CurrentUser
     ):
         # Tags are metadata, not input (spec 8): no 409 while an index runs.
@@ -78,7 +78,7 @@ def register_files_routes(app):
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @router.delete("/{pid}/files/{filename}/tags", status_code=status.HTTP_204_NO_CONTENT)
-    async def remove_tags(
+    async def remove_file_tags(
         project: ProjectEditContent, filename: str, body: TagsIn, db: DbSession, user: CurrentUser
     ):
         await file_tags.remove_tags(db, project, filename, body.tags, actor_id=user.id)
@@ -97,11 +97,13 @@ def register_files_routes(app):
         return BulkDeleteOut(**result)
 
     @router.get("/{pid}/files/{filename}/preview", response_model=PreviewOut)
-    async def get_preview(project: ProjectView, filename: str):
+    async def get_file_preview(project: ProjectView, filename: str):
         return PreviewOut(**await file_preview.preview_file(project, filename))
 
     @router.post("/{pid}/files/{filename}/preview", response_model=PreviewOut)
-    async def post_preview(project: ProjectView, filename: str, body: PreviewIn, db: DbSession):
+    async def locate_file_preview(
+        project: ProjectView, filename: str, body: PreviewIn, db: DbSession
+    ):
         if body.result_id is not None:
             # Historic locator: resolve_stored_passage has already bound the
             # result to THIS project and the entry's stored source_name to

@@ -9,6 +9,7 @@ import ExplorePanel from "../ExplorePanel";
 import { useAuth } from "../../stores/auth";
 import type { GraphData } from "../../api/types";
 import { formatDateTime } from "../../i18n/format";
+import { ARTIFACT_TABLES } from "../../testing/artifactTables";
 
 // GraphView (graph mode) pulls in sigma: stub the WebGL layer so jsdom never
 // touches canvas. GraphView.test.tsx covers the graph in depth. GraphView
@@ -75,6 +76,7 @@ const OTHER_TABLES: Record<string, Record<string, unknown>[]> = {
 // wrong endpoint or query string cannot silently pass.
 let listEnvelope = { rows: ROWS, total: ROWS.length, stale: false };
 let errorResponse: Response | null = null;
+let tablesBody = ARTIFACT_TABLES;
 const GRAPH: GraphData = {
   level: 1,
   levels: [0, 1],
@@ -88,8 +90,12 @@ const GRAPH: GraphData = {
   edges: [{ source: "Alan Turing", target: "Ada Lovelace", weight: 4 }],
 };
 const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-  if (errorResponse) return errorResponse;
   const route = String(input).split("?")[0];
+  // The registry is project-independent: an artifact error leaves it be.
+  if (route === "/api/artifact-tables") {
+    return new Response(JSON.stringify(tablesBody), { status: 200 });
+  }
+  if (errorResponse) return errorResponse;
   if (route === "/api/projects/p1/artifacts/entities/2") {
     return new Response(JSON.stringify({ row: DETAIL_ROW, stale: false }), { status: 200 });
   }
@@ -114,6 +120,7 @@ afterEach(() => {
 beforeEach(() => {
   listEnvelope = { rows: ROWS, total: ROWS.length, stale: false };
   errorResponse = null;
+  tablesBody = ARTIFACT_TABLES;
   vi.stubGlobal("fetch", fetchMock);
   useAuth.setState({ accessToken: "test-token" });
 });
@@ -351,4 +358,18 @@ test("an unknown ?table= falls back to entities with no drawer", async () => {
   mount("/?table=nope&row=2");
   await screen.findByText("Alan Turing");
   expect(screen.queryByText("first programmer")).not.toBeInTheDocument();
+});
+
+test("columns and filters follow the server's table registry (R1-114)", async () => {
+  tablesBody = {
+    tables: [
+      { name: "entities", columns: ["human_readable_id", "title"], type_filter: false, community_filter: false },
+    ],
+  };
+  mount();
+  expect(await screen.findByText("Alan Turing")).toBeInTheDocument();
+  expect(screen.getByRole("columnheader", { name: "標題" })).toBeInTheDocument();
+  expect(screen.queryByRole("columnheader", { name: "頻率" })).toBeNull();
+  expect(screen.queryByLabelText("類型")).toBeNull();
+  expect(screen.queryByLabelText("社群")).toBeNull();
 });

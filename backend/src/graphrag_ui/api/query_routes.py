@@ -77,14 +77,14 @@ def register_query_routes(app):
     sse_router = APIRouter(prefix="/api/projects")
 
     @router.post("/{pid}/query", response_model=QueryOut)
-    async def post_query(project: ProjectView, body: QueryIn, user: CurrentUser):
+    async def run_project_query(project: ProjectView, body: QueryIn, user: CurrentUser):
         try:
             return await run_query(project, user.user, body.method, body.query, body.response_type)
         except QueryError as exc:
             raise _query_error_http(exc) from None
 
     @sse_router.get("/{pid}/query/stream")
-    async def get_query_stream(
+    async def stream_project_query(
         project: SseProjectView,
         user: SseUser,
         method: Annotated[Method, Query()],

@@ -28,7 +28,7 @@ from graphrag_ui.api.errors import ApiError
 from graphrag_ui.api.query_routes import Method
 from graphrag_ui.api.schemas import CitationOut, QueryTimingsOut, UuidStr
 from graphrag_ui.domain.permissions import Atom, can
-from graphrag_ui.domain.test_runs import MATRIX_DEFAULT_RUNS
+from graphrag_ui.domain.test_runs import MATRIX_DEFAULT_RUNS, MATRIX_MAX_RUNS
 from graphrag_ui.services import ratings as ratings_service
 from graphrag_ui.services import test_runs as test_runs_service
 from graphrag_ui.services.projects import get_member_perms
@@ -127,10 +127,10 @@ def register_test_runs_routes(app):
     router = APIRouter(prefix="/api", dependencies=[Depends(get_current_user)])
 
     @router.get("/projects/{pid}/test-runs", response_model=MatrixOut)
-    async def get_matrix(
+    async def get_test_matrix(
         project: ProjectView,
         db: DbSession,
-        runs: Annotated[int, Query(ge=1)] = MATRIX_DEFAULT_RUNS,
+        runs: Annotated[int, Query(ge=1, le=MATRIX_MAX_RUNS)] = MATRIX_DEFAULT_RUNS,
     ):
         window, matrix_rows = await test_runs_service.run_matrix(db, project.id, runs)
         return MatrixOut(
@@ -156,7 +156,9 @@ def register_test_runs_routes(app):
         )
 
     @router.post("/projects/{pid}/test-runs", response_model=RunOut, status_code=201)
-    async def start_run(project: ProjectRunJobs, body: RunIn, db: DbSession, user: CurrentUser):
+    async def start_test_run(
+        project: ProjectRunJobs, body: RunIn, db: DbSession, user: CurrentUser
+    ):
         # 400 question_set_empty, 404 question_set_not_found and 409
         # job_conflict render through the app-level table. The conflict has
         # no type predicate: an index, an update or another test run holds
@@ -165,7 +167,7 @@ def register_test_runs_routes(app):
         return RunOut.model_validate(run)
 
     @router.get("/test-runs/{rid}/results", response_model=ResultListOut)
-    async def get_results(rid: uuid.UUID, db: DbSession, user: CurrentUser):
+    async def list_test_results(rid: uuid.UUID, db: DbSession, user: CurrentUser):
         run = await _readable_run_or_404(db, user, rid)
         return ResultListOut(
             results=[
@@ -194,7 +196,7 @@ def register_test_runs_routes(app):
         )
 
     @router.put("/test-results/{rid}/rating", response_model=RatingOut)
-    async def put_rating(rid: uuid.UUID, body: RatingIn, db: DbSession, user: CurrentUser):
+    async def rate_test_result(rid: uuid.UUID, body: RatingIn, db: DbSession, user: CurrentUser):
         # Permission resolves through the result's OWN project (spec 8):
         # run_id -> project_id. Unknown and unreadable are 404; a caller
         # who can view but not curate gets the plain 403.

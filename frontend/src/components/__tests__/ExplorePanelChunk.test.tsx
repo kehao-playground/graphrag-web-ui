@@ -6,6 +6,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import ExplorePanel from "../ExplorePanel";
 import { stubFetch } from "../../testing/stubFetch";
+import { ARTIFACT_TABLES } from "../../testing/artifactTables";
 
 // The lazy graph chunk failing to load (stale deploy, offline) must stay
 // inside the graph area: the mode switch and the table mode keep working.
@@ -14,8 +15,11 @@ vi.mock("../GraphView", () => {
   throw new Error("Failed to fetch dynamically imported module");
 });
 
-stubFetch(async () =>
-  new Response(JSON.stringify({ rows: [], total: 0, stale: false }), { status: 200 }));
+stubFetch(async (path: string) =>
+  new Response(
+    JSON.stringify(path === "/api/artifact-tables" ? ARTIFACT_TABLES : { rows: [], total: 0, stale: false }),
+    { status: 200 },
+  ));
 beforeEach(() => { vi.spyOn(console, "error").mockImplementation(() => {}); });
 afterEach(() => { vi.restoreAllMocks(); });
 

@@ -1340,7 +1340,7 @@ shows the elapsed seconds and a *Cancel* that closes the stream, keeping
 the partial answer (amended by fix wave F16).
 
 - **Matrix**: rows = question **lineages**, columns = the most recent runs
-  (default 5). No virtualization — hundreds of rows × 5 columns is well
+  (default 5, `?runs=` at most 50 — F32). No virtualization — hundreds of rows × 5 columns is well
   within antd's `Table`; complexity for imagined scale is complexity now
   for a benefit later. "Regressions only" uses the same definition the
   backend reports in `/health`. The whole cell is the click target. While

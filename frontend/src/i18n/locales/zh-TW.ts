@@ -649,6 +649,7 @@ export default {
       n_tokens: "詞元數", document_id: "文件 ID", text: "文本",
       raw_data: "原始內容", creation_date: "建立日期",
     },
+    loadTablesFailed: "無法載入探索資料表",
     tableEntities: "實體", tableRelationships: "關係",
     tableCommunities: "社群", tableCommunityReports: "社群報告",
     tableTextUnits: "文本單元", tableDocuments: "文件",

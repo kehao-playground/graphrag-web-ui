@@ -658,6 +658,7 @@ const enUS = {
       n_tokens: "Token count", document_id: "Document ID", text: "Text",
       raw_data: "Raw content", creation_date: "Creation date",
     },
+    loadTablesFailed: "Unable to load the Explore tables",
     tableEntities: "Entities", tableRelationships: "Relationships",
     tableCommunities: "Communities", tableCommunityReports: "Community reports",
     tableTextUnits: "Text units", tableDocuments: "Documents",

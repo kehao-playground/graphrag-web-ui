@@ -31,7 +31,7 @@ def register_audit_routes(app):
     )
 
     @router.get("", response_model=AuditPageOut)
-    async def get_audit(
+    async def list_audit_entries(
         db: DbSession,
         limit: int = Query(50, ge=1, le=200),
         offset: int = Query(0, ge=0),

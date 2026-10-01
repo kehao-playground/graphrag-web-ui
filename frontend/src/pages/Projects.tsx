@@ -7,7 +7,7 @@ import {
 } from "antd";
 import type { TableProps } from "antd";
 import { sendOk } from "../api/client";
-import { projectsHealth, projectsList, usersBrief } from "../api/queries";
+import { projectsHealth, projectsList } from "../api/queries";
 import type { Project } from "../api/types";
 import { formatDateTime } from "../i18n/format";
 
@@ -35,16 +35,6 @@ export default function Projects() {
   // the per-project overview owns the detail (see projectsHealth).
   const ids = useMemo(() => (projects ?? []).map((p) => p.id).join(","), [projects]);
   const health = useQuery(projectsHealth(ids));
-
-  // Project carries only owner_id; GET /api/users is the narrow list every
-  // logged-in user can call, so resolve owners through the same query
-  // ProjectDetail uses instead of hitting each project's members (N+1).
-  const users = useQuery(usersBrief());
-
-  const ownerById = useMemo(
-    () => new Map((users.data ?? []).map((u) => [u.id, u] as const)),
-    [users.data],
-  );
 
   const create = useMutation({
     mutationFn: (v: CreateForm) =>
@@ -123,14 +113,11 @@ export default function Projects() {
     },
     {
       title: t("projects.owner"),
-      render: (_, p) => {
-        const o = ownerById.get(p.owner_id);
-        return o ? (
-          <span>
-            {o.display_name} <Typography.Text type="secondary">{o.email}</Typography.Text>
-          </span>
-        ) : t("common.notApplicable");
-      },
+      render: (_, p) => (
+        <span>
+          {p.owner_display_name} <Typography.Text type="secondary">{p.owner_email}</Typography.Text>
+        </span>
+      ),
     },
     {
       title: t("common.actions"),

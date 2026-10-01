@@ -77,12 +77,12 @@ def register_auth_routes(app):
     router = APIRouter(prefix="/api/auth")
 
     @router.get("/config", response_model=AuthConfigOut)
-    async def auth_config():
+    async def get_auth_config():
         """Public mode probe: the SPA's single source of truth (spec §5.3)."""
         return AuthConfigOut(auth_mode=get_settings().auth_mode)
 
     @router.get("/me", response_model=UserOut)
-    async def me(user: CurrentUser, db: DbSession):
+    async def get_me(user: CurrentUser, db: DbSession):
         return user_out(user.user, await list_roles_for_user(db, user.user.id))
 
     if get_settings().auth_mode == "proxy":
@@ -93,7 +93,7 @@ def register_auth_routes(app):
         return
 
     @router.post("/login", response_model=LoginOut)
-    async def login(body: LoginIn, request: Request, db: DbSession):
+    async def log_in(body: LoginIn, request: Request, db: DbSession):
         _check_login_rate_limit(request, body.email)
         user = await authenticate(db, body.email, body.password)
         if user is None:
@@ -110,7 +110,7 @@ def register_auth_routes(app):
         )
 
     @router.post("/refresh", response_model=RefreshOut)
-    async def refresh(body: RefreshIn, db: DbSession):
+    async def refresh_session(body: RefreshIn, db: DbSession):
         rotated = await rotate_refresh(db, body.refresh_token)
         if rotated is None:
             raise ApiError(
@@ -125,7 +125,7 @@ def register_auth_routes(app):
         return RefreshOut(access_token=create_access_token(user), refresh_token=new_refresh)
 
     @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-    async def logout(body: RefreshIn, db: DbSession):
+    async def log_out(body: RefreshIn, db: DbSession):
         await revoke_refresh(db, body.refresh_token)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
