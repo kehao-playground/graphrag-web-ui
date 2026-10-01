@@ -4,8 +4,22 @@ import type { MatrixRow, TestRun } from "../../api/types";
 // domain/test_runs.py so the filter and the /health overview (slice ③)
 // can never disagree.
 
-// Ordered best to worst; a regression is a move to a HIGHER index.
-export const RATING_ORDER: Record<string, number> = { good: 0, fair: 1, poor: 2 };
+export type Score = "good" | "fair" | "poor";
+
+// Ordered best to worst; a regression is a move to a HIGHER index. The
+// drawer's Segmented and its 1/2/3 shortcuts follow this order too.
+export const SCORES: readonly Score[] = ["good", "fair", "poor"];
+
+export const RATING_ORDER: Record<string, number> = Object.fromEntries(
+  SCORES.map((score, i) => [score, i]),
+);
+
+// Label and tag colour per score: the one place the vocabulary is spelled.
+export const RATING_META = {
+  good: { labelKey: "workbench.ratingGood", color: "green" },
+  fair: { labelKey: "workbench.ratingFair", color: "gold" },
+  poor: { labelKey: "workbench.ratingPoor", color: "red" },
+} as const satisfies Record<Score, { labelKey: string; color: string }>;
 
 // A lineage regresses when its NEWEST rating is worse than the previous
 // run's. A missing rating on either side is not a regression — an unrated

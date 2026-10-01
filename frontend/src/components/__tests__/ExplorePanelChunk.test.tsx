@@ -27,7 +27,7 @@ test("a failed graph chunk shows the error in place; table mode still works", as
   render(
     <QueryClientProvider client={createQueryClient()}>
       <MemoryRouter>
-        <ExplorePanel projectId="p1" canUse />
+        <ExplorePanel projectId="p1" />
       </MemoryRouter>
     </QueryClientProvider>,
   );

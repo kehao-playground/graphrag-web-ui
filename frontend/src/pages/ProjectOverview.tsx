@@ -19,7 +19,7 @@ export default function ProjectOverview({ projectId }: { projectId: string }) {
   const health = useQuery(projectHealth(projectId));
 
   return (
-    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="large" style={{ width: "100%" }}>
       <Typography.Title level={4} style={{ margin: 0 }}>
         {t("overview.heading")}
       </Typography.Title>

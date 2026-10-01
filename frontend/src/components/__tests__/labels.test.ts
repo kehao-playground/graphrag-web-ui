@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { i18n } from "../../i18n";
-import { jobTypeLabel, jobTypeShortLabel, roleLabel } from "../labels";
+import { jobMethodLabel, jobTypeLabel, jobTypeShortLabel, roleLabel } from "../labels";
 
 const t = i18n.t.bind(i18n);
 
@@ -16,6 +16,12 @@ test("jobTypeShortLabel covers test_run too (R1-49)", () => {
   expect(jobTypeShortLabel("update", t)).toBe(t("jobs.typeUpdate"));
   expect(jobTypeShortLabel("test_run", t)).toBe(t("jobs.typeTestRun"));
   expect(jobTypeShortLabel("mystery", t)).toBe("mystery");
+});
+
+test("jobMethodLabel names the index methods, unknowns raw", () => {
+  expect(jobMethodLabel("standard", t)).toBe(t("jobs.methodStandard"));
+  expect(jobMethodLabel("fast", t)).toBe(t("jobs.methodFast"));
+  expect(jobMethodLabel("local", t)).toBe("local");
 });
 
 test("roleLabel localizes built-in roles only", () => {

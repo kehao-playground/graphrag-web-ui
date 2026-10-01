@@ -20,13 +20,15 @@ export default defineConfig({
     rolldownOptions: {
       output: {
         // Rolldown manual chunking (`codeSplitting` supersedes the older
-        // `advancedChunks` name in rolldown >= 1.2): keep antd and the React
-        // runtime in a single long-cacheable vendor chunk.
+        // `advancedChunks` name in rolldown >= 1.2): keep antd (with its
+        // @rc-component deps) and the React runtime in a single
+        // long-cacheable vendor chunk. Anchored on the package directory, so
+        // react-router-dom, react-i18next & co. stay out of it (R1-60).
         codeSplitting: {
           groups: [
             {
               name: "vendor",
-              test: /node_modules[\\/](react|react-dom|scheduler|antd|rc-[a-z-]+|@ant-design)/,
+              test: /node_modules[\\/](react|react-dom|scheduler|antd|@ant-design|@rc-component)[\\/]/,
             },
           ],
         },

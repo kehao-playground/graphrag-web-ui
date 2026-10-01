@@ -79,11 +79,11 @@ afterEach(() => {
   document.querySelectorAll(".ant-modal-root").forEach((el) => el.remove());
 });
 
-function mount(canUse = true, canEdit = true) {
+function mount(canEdit = true) {
   return render(
     <QueryClientProvider client={createQueryClient()}>
       <MemoryRouter>
-        <AdhocQuery projectId="p1" canUse={canUse} canEdit={canEdit} />
+        <AdhocQuery projectId="p1" canEdit={canEdit} />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -226,7 +226,7 @@ test("transport error (pre-stream 4xx / network) shows the generic message and c
 test("unmount closes the EventSource", async () => {
   const { unmount } = render(
     <QueryClientProvider client={createQueryClient()}>
-      <AdhocQuery projectId="p1" canUse canEdit />
+      <AdhocQuery projectId="p1" canEdit />
     </QueryClientProvider>,
   );
   const user = userEvent.setup();
@@ -235,11 +235,6 @@ test("unmount closes the EventSource", async () => {
   const es = await opened(0);
   unmount();
   expect(es.close).toHaveBeenCalled();
-});
-
-test("canUse=false disables 執行", () => {
-  mount(false);
-  expect(screen.getByRole("button", { name: /^執\s?行$/ })).toBeDisabled();
 });
 
 test("proxy mode: EventSource URL carries no credential", async () => {
@@ -325,7 +320,7 @@ test("with no set yet, save as question creates one inline", async () => {
 });
 
 test("save as question needs project:edit_content", async () => {
-  mount(true, false);
+  mount(false);
   await userEvent.type(screen.getByPlaceholderText(/輸入問題/), "退貨要幾天?");
   expect(screen.queryByRole("button", { name: "存成題目" })).not.toBeInTheDocument();
 });

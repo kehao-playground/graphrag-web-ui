@@ -102,7 +102,7 @@ function renderWorkbench(opts: {
   return render(
     <QueryClientProvider client={createQueryClient()}>
       <MemoryRouter initialEntries={[opts.route ?? "/projects/p1/tests"]}>
-        <Workbench projectId="p1" canUse canRunJobs canEdit={opts.canEdit ?? true} />
+        <Workbench projectId="p1" canRunJobs canEdit={opts.canEdit ?? true} />
       </MemoryRouter>
     </QueryClientProvider>,
   );

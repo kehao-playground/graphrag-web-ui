@@ -17,9 +17,8 @@ const NEW_SET = "__new__";
 // exactly as QueryPanel had it, with its rendering lifted into AnswerView
 // and a one-action save button into a question set (project:edit_content).
 // zh-TW: the save button's literal label is 存成題目.
-export default function AdhocQuery({ projectId, canUse, canEdit }: {
+export default function AdhocQuery({ projectId, canEdit }: {
   projectId: string;
-  canUse: boolean;
   canEdit: boolean;
 }) {
   const qc = useQueryClient();
@@ -63,7 +62,7 @@ export default function AdhocQuery({ projectId, canUse, canEdit }: {
 
   const run = async () => {
     const q = query.trim();
-    if (!canUse || streaming || !q) return;
+    if (streaming || !q) return;
     setChunks([]);
     setCitations([]);
     setTimings(null);
@@ -165,8 +164,8 @@ export default function AdhocQuery({ projectId, canUse, canEdit }: {
   };
   const canSave = canEdit && !busy && query.trim().length > 0;
   return (
-    <Space direction="vertical" size="large" style={{ width: "100%" }}>
-      <Space direction="vertical" size="small" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="large" style={{ width: "100%" }}>
+      <Space orientation="vertical" size="small" style={{ width: "100%" }}>
         <Select
           value={method}
           onChange={setMethod}
@@ -186,7 +185,7 @@ export default function AdhocQuery({ projectId, canUse, canEdit }: {
           disabled={busy}
         />
         <Space>
-          <Button type="primary" onClick={() => void run()} disabled={!canUse || busy || !query.trim()}>
+          <Button type="primary" onClick={() => void run()} disabled={busy || !query.trim()}>
             {t("workbench.adhocRun")}
           </Button>
           {busy && (
@@ -234,7 +233,7 @@ export default function AdhocQuery({ projectId, canUse, canEdit }: {
         onOk={() => target && saveQuestion.mutate(target)}
         onCancel={() => setSaveOpen(false)}
       >
-        <Space direction="vertical" size="small" style={{ width: "100%" }}>
+        <Space orientation="vertical" size="small" style={{ width: "100%" }}>
           <Select
             style={{ width: "100%" }}
             placeholder={t("workbench.setPlaceholder")}

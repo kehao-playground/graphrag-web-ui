@@ -75,9 +75,10 @@ cd backend && uv run pytest -m "not slow" --cov --cov-report=term-missing   # co
 cd backend && uv run --with pip-audit pip-audit --desc --skip-editable --ignore-vuln PYSEC-2026-3740   # CI `audit` job (required); ignore list lives in ci.yml, dated, with the reason
 
 # frontend (Node 24; jsdom+undici need >=22; explore graph renders via
-# react-sigma + graphology, lazy-loaded as a separate build chunk)
-cd frontend && npm test                 # vitest run (350 tests)
-cd frontend && npm run lint             # oxlint, ratcheted at 1 warning
+# react-sigma + graphology, lazy-loaded as a separate build chunk; the
+# project and admin pages are route-level chunks via components/lazyPage)
+cd frontend && npm test                 # vitest run (361 tests)
+cd frontend && npm run lint             # oxlint, --max-warnings=0 (any warning fails)
 cd frontend && npx tsc -b --noEmit
 cd frontend && npm run build
 

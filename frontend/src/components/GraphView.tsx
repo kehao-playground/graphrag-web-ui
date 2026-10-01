@@ -120,9 +120,8 @@ function SearchFocus({ target }: { target: string | null }) {
   return null;
 }
 
-export default function GraphView({ projectId, canUse = true, onOpenNode }: {
+export default function GraphView({ projectId, onOpenNode }: {
   projectId: string;
-  canUse?: boolean;
   onOpenNode?: (hrid: number) => void;
 }) {
   const { t } = useTranslation();
@@ -139,12 +138,10 @@ export default function GraphView({ projectId, canUse = true, onOpenNode }: {
   // identity is what keeps SigmaContainer from ever taking the
   // kill/re-create/camera-carry path (see GraphSync). Created lazily on the
   // first render — plain graphology, so jsdom and the browser are both safe.
-  const graphRef = useRef<Graph | null>(null);
-  if (graphRef.current === null) graphRef.current = new Graph({ multi: true });
-  const sigmaGraph = graphRef.current;
+  const [sigmaGraph] = useState(() => new Graph({ multi: true }));
 
   // Errors render in place (ArtifactQueryError), so no toast on top.
-  const graph = useQuery({ ...artifactGraph(projectId, level), enabled: canUse, meta: { silent: true } });
+  const graph = useQuery({ ...artifactGraph(projectId, level), meta: { silent: true } });
 
   const typeOptions = useMemo(() => {
     const distinct = [...new Set((graph.data?.nodes ?? []).map((n) => n.type))];
@@ -192,7 +189,6 @@ export default function GraphView({ projectId, canUse = true, onOpenNode }: {
           aria-label={t("explore.columns.level")}
           placeholder={t("explore.columns.level")}
           style={{ width: 120 }}
-          disabled={!canUse}
           value={level ?? graph.data?.level}
           options={(graph.data?.levels ?? []).map((v) => ({ value: v, label: String(v) }))}
           onChange={setLevel}
@@ -202,7 +198,6 @@ export default function GraphView({ projectId, canUse = true, onOpenNode }: {
           mode="multiple"
           placeholder={t("explore.columns.type")}
           style={{ minWidth: 180 }}
-          disabled={!canUse}
           value={types}
           options={typeOptions}
           onChange={setTypes}
@@ -212,7 +207,6 @@ export default function GraphView({ projectId, canUse = true, onOpenNode }: {
           min={0}
           max={10}
           value={minDegreeDraft}
-          disabled={!canUse}
           style={{ width: 160, margin: "0 8px" }}
           onChange={(v) => setMinDegreeDraft(v as number)}
           onChangeComplete={(v) => setMinDegree(v as number)}
@@ -222,7 +216,6 @@ export default function GraphView({ projectId, canUse = true, onOpenNode }: {
           placeholder={t("graph.searchNodesPlaceholder")}
           style={{ width: 220 }}
           allowClear
-          disabled={!canUse}
           onSearch={setSearch}
         />
       </Space>
