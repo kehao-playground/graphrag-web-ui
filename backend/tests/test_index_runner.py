@@ -90,19 +90,25 @@ async def test_failure_error_is_log_tail(tmp_path):
 
 
 async def test_cancel_sigterm_then_cancelled(tmp_path):
-    r = IndexRunner(argv_prefix=("sleep",))
+    r = IndexRunner(argv_prefix=("sh", "-c"))
     log = log_path_for(tmp_path, uuid.uuid4())
     cancelled = asyncio.Event()
     task = asyncio.create_task(
         r.run(
-            argv=["30"],
+            argv=["echo started; exec sleep 30"],
             root=tmp_path,
             log_path=log,
             job_type="index",
             cancel_requested=cancelled.is_set,
         )
     )
-    await asyncio.sleep(0.5)  # let the subprocess start
+
+    async def _started() -> None:
+        # the child's own output says it is running; a fixed sleep did not
+        while not (log.exists() and b"started" in log.read_bytes()):
+            await asyncio.sleep(0.02)
+
+    await asyncio.wait_for(_started(), timeout=10)
     cancelled.set()
     res = await asyncio.wait_for(task, timeout=10)
     assert res.status == "cancelled"

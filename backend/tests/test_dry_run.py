@@ -6,10 +6,10 @@ no audit rows. The slow test forks the real graphrag CLI twice (~15 s).
 import uuid
 
 import pytest
+from helpers import FakeInitializer
 from sqlalchemy import select
 
 from graphrag_ui.adapters.models import AuditLog
-from graphrag_ui.adapters.workspace import FakeInitializer
 from graphrag_ui.api.projects_routes import get_initializer
 from graphrag_ui.domain.role_catalog import ROLE_ID_VIEWER
 from graphrag_ui.services.projects import ws_path

@@ -290,6 +290,7 @@ class TestRun(Base):
     labels a matrix column and is what makes runs comparable."""
 
     __tablename__ = "test_runs"
+    __test__ = False  # the Test* name is not a pytest test class (R1-41)
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     project_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("projects.id", ondelete="CASCADE"), index=True
@@ -311,6 +312,7 @@ class TestResult(Base):
     run is self-contained and an edit cannot retro-label an old answer."""
 
     __tablename__ = "test_results"
+    __test__ = False  # the Test* name is not a pytest test class (R1-41)
     __table_args__ = (
         UniqueConstraint("run_id", "question_id", name="uq_test_results_run_question"),
     )

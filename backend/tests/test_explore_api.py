@@ -13,10 +13,10 @@ Parquet shape mirrors the Task 2 adapter fixture (spec §13 probe)."""
 import uuid
 
 import pandas as pd
+from helpers import FakeInitializer
 
 from graphrag_ui.adapters.db import get_session_factory
 from graphrag_ui.adapters.jobs_repo import insert_job
-from graphrag_ui.adapters.workspace import FakeInitializer
 from graphrag_ui.api.projects_routes import get_initializer
 from graphrag_ui.domain.role_catalog import ROLE_ID_VIEWER
 from graphrag_ui.services.projects import ws_path

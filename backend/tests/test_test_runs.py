@@ -14,6 +14,7 @@ from types import SimpleNamespace
 
 import pandas as pd
 import pytest
+from helpers import FakeInitializer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,7 +26,6 @@ from graphrag_ui.adapters.db import (
     reset_engine,
 )
 from graphrag_ui.adapters.models import Job, Project, Question, QuestionSet, User
-from graphrag_ui.adapters.workspace import FakeInitializer
 from graphrag_ui.api.projects_routes import get_initializer
 from graphrag_ui.config import get_settings
 from graphrag_ui.services import jobs as jobs_service

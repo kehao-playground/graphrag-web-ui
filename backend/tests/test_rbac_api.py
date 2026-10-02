@@ -3,10 +3,10 @@ viewer preflight regression, ops-only, user_admin-only, custom auditor."""
 
 import uuid
 
+from helpers import FakeInitializer
 from sqlalchemy import select
 
 from graphrag_ui.adapters.models import User
-from graphrag_ui.adapters.workspace import FakeInitializer
 from graphrag_ui.api.projects_routes import get_initializer
 from graphrag_ui.domain.role_catalog import (
     ROLE_ID_MAINTAINER,

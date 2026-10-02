@@ -9,6 +9,7 @@ import type { TableProps } from "antd";
 import { sendOk } from "../api/client";
 import { projectsHealth, projectsList } from "../api/queries";
 import type { Project } from "../api/types";
+import { onValid } from "../components/onValid";
 import { formatDateTime } from "../i18n/format";
 
 
@@ -173,7 +174,7 @@ export default function Projects() {
         cancelText={t("common.cancel")}
         confirmLoading={create.isPending}
         onCancel={() => setCreateOpen(false)}
-        onOk={() => form.validateFields().then((v) => create.mutate(v))}
+        onOk={onValid(form, (v) => create.mutate(v))}
       >
         <Form form={form} layout="vertical" initialValues={{ input_file_type: "text" }}>
           <Form.Item

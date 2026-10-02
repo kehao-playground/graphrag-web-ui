@@ -12,6 +12,7 @@ import uuid
 import pandas as pd
 import pytest
 import yaml
+from helpers import FakeInitializer, kinds_of
 
 from graphrag_ui.adapters.models import (
     IndexSnapshot,
@@ -20,7 +21,6 @@ from graphrag_ui.adapters.models import (
     Project,
     User,
 )
-from graphrag_ui.adapters.workspace import FakeInitializer
 from graphrag_ui.config import get_settings
 from graphrag_ui.services import index_snapshots, input_scan
 from graphrag_ui.services.file_listing import list_files
@@ -156,7 +156,7 @@ async def test_only_a_start_row_exists_for_a_failed_job(db_session, project_with
     await index_snapshots.promote(db_session, job)
     await db_session.commit()
 
-    kinds = await index_snapshots.kinds_of(db_session, job.id)
+    kinds = await kinds_of(db_session, job.id)
     assert kinds == {"start"}
     await db_session.refresh(project)
     assert project.baseline_snapshot_id is None
@@ -188,7 +188,7 @@ async def test_update_with_no_previous_baseline_writes_no_baseline(db_session, p
     await index_snapshots.promote(db_session, job)
     await db_session.commit()
 
-    assert await index_snapshots.kinds_of(db_session, job.id) == {"start"}
+    assert await kinds_of(db_session, job.id) == {"start"}
     await db_session.refresh(project)
     assert project.baseline_snapshot_id is None
 

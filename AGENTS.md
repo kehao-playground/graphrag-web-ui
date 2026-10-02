@@ -67,7 +67,7 @@ briefs; their Global Constraints always apply.
 #     -e UV_PROJECT_ENVIRONMENT=/opt/venv -e TESTCONTAINERS_RYUK_DISABLED=true \
 #     ghcr.io/astral-sh/uv:python3.12-bookworm \
 #     sh -c 'uv sync --frozen -q && uv run ruff check && uv run ruff format --check && uv run mypy && uv run pytest -q -m "not slow"'
-cd backend && uv run pytest -v          # 747 tests with GRAPHRAG_API_KEY (741 fast); 6 slow tests fork the real graphrag CLI (4 need the key, skipped without it); fast only: uv run pytest -m "not slow"
+cd backend && uv run pytest -v          # 802 tests with GRAPHRAG_API_KEY (796 fast); 6 slow tests fork the real graphrag CLI (4 need the key, skipped without it); fast only: uv run pytest -m "not slow"
 cd backend && uv run ruff check
 cd backend && uv run ruff format --check   # formatting is CI-enforced; `ruff format` to fix
 cd backend && uv run mypy                  # src/ must stay clean; CI-enforced
@@ -77,7 +77,7 @@ cd backend && uv run --with pip-audit pip-audit --desc --skip-editable --ignore-
 # frontend (Node 24; jsdom+undici need >=22; explore graph renders via
 # react-sigma + graphology, lazy-loaded as a separate build chunk; the
 # project and admin pages are route-level chunks via components/lazyPage)
-cd frontend && npm test                 # vitest run (361 tests)
+cd frontend && npm test                 # vitest run (374 tests)
 cd frontend && npm run lint             # oxlint, --max-warnings=0 (any warning fails)
 cd frontend && npx tsc -b --noEmit
 cd frontend && npm run build

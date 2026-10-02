@@ -1,7 +1,7 @@
 import pytest
 import yaml
+from helpers import FakeInitializer
 
-from graphrag_ui.adapters.workspace import FakeInitializer
 from graphrag_ui.api.projects_routes import get_initializer
 from graphrag_ui.domain.role_catalog import ROLE_ID_OWNER, ROLE_ID_VIEWER
 

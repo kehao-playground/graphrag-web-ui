@@ -17,11 +17,11 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 
 import pytest
+from helpers import FakeInitializer
 from sqlalchemy import event, select
 
 from graphrag_ui.adapters.db import make_engine, make_session_factory
 from graphrag_ui.adapters.models import Job, Project, ProjectFile, ProjectMember, User
-from graphrag_ui.adapters.workspace import FakeInitializer
 from graphrag_ui.config import get_settings
 from graphrag_ui.domain.permissions import Atom
 from graphrag_ui.domain.role_catalog import ROLE_ID_VIEWER

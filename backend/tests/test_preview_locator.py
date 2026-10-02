@@ -3,10 +3,10 @@
 import uuid
 
 import pytest
+from helpers import FakeInitializer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.adapters.models import Project
-from graphrag_ui.adapters.workspace import FakeInitializer
 from graphrag_ui.api.projects_routes import get_initializer
 from graphrag_ui.services.projects import ws_path
 from tests.citation_fixtures import UNIT_TEXT, stored_results

@@ -19,16 +19,24 @@ class FakeRunner:
     """Records kwargs; simulates a subprocess result without forking."""
 
     def __init__(
-        self, result: RunResult | None = None, exc: Exception | None = None, sleep_s: float = 0.05
+        self,
+        result: RunResult | None = None,
+        exc: Exception | None = None,
+        sleep_s: float = 0.05,
+        until: asyncio.Event | None = None,
     ):
         self.result = result
         self.exc = exc
         self.sleep_s = sleep_s
+        self.until = until  # when set, the run lasts until this event, not sleep_s
         self.calls: list[dict] = []
 
     async def run(self, **kw):
         self.calls.append(kw)
-        await asyncio.sleep(self.sleep_s)
+        if self.until is not None:
+            await asyncio.wait_for(self.until.wait(), timeout=30)
+        else:
+            await asyncio.sleep(self.sleep_s)
         if self.exc is not None:
             raise self.exc
         return self.result
@@ -209,7 +217,11 @@ async def test_reconcile_leaves_fresh_running(app):
 
 
 async def test_execute_survives_watch_poll_failure(app, monkeypatch):
-    fake = FakeRunner(_ok(), sleep_s=1.5)  # span ≥2 watch iterations
+    # The run lasts until a heartbeat after the failing one has landed, so
+    # the retry always precedes finish() however slow the host is (F7-01;
+    # a fixed 1.5 s run lost that race under full-suite load).
+    recovered = asyncio.Event()
+    fake = FakeRunner(_ok(), until=recovered)
     monkeypatch.setattr(runner_loop, "IndexRunner", lambda: fake)
     real_heartbeat = jobs_repo.heartbeat
     flaky_calls = {"n": 0}
@@ -218,7 +230,9 @@ async def test_execute_survives_watch_poll_failure(app, monkeypatch):
         flaky_calls["n"] += 1
         if flaky_calls["n"] == 1:
             raise RuntimeError("db blip")
-        return await real_heartbeat(session, job_id, worker_id)
+        result = await real_heartbeat(session, job_id, worker_id)
+        recovered.set()
+        return result
 
     monkeypatch.setattr(jobs_repo, "heartbeat", flaky_heartbeat)
     job_id = await _seed_job()

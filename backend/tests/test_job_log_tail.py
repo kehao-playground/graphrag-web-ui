@@ -16,6 +16,14 @@ def _done_after(n: int):
     return finished, calls
 
 
+async def _until(predicate, timeout_s: float = 5.0) -> None:
+    """Wait for the reader task to reach a state instead of sleeping a
+    fixed time and hoping it got there."""
+    async with asyncio.timeout(timeout_s):
+        while not predicate():
+            await asyncio.sleep(0.005)
+
+
 async def _collect(path, offset=0, **kw) -> list[tuple[int, bytes]]:
     finished, _ = _done_after(0)
     return [item async for item in tail_log(path, offset, finished=finished, **kw)]
@@ -57,11 +65,12 @@ async def test_a_character_half_written_by_the_job_waits_for_its_tail(tmp_path):
             got.append(item)
 
     task = asyncio.create_task(reader())
-    await asyncio.sleep(0.1)
+    await _until(lambda: got)
+    await asyncio.sleep(0.05)  # a few more polls: the half character stays held back
     assert got == [(2, b"ab")]
     with log.open("ab") as fh:
         fh.write(rule[1:] + b"\n")
-    await asyncio.sleep(0.1)
+    await _until(lambda: len(got) == 2)
     stop.set()
     await asyncio.wait_for(task, timeout=2)
     assert got == [(2, b"ab"), (6, rule + b"\n")]

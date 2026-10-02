@@ -1,5 +1,22 @@
 import { afterAll, afterEach } from "vitest";
 import "@testing-library/jest-dom/vitest";
+import { configure } from "@testing-library/react";
+import { message, notification } from "antd";
+
+// findBy*/waitFor default to 1 s. The full run starts ~26 isolated workers
+// on a busy host, where a first render (antd + the query client) can take
+// longer than that; a pane heading then "never appears" in a test that
+// passes alone every time (F1-01). A real miss still fails, 4 s later.
+configure({ asyncUtilTimeout: 5000 });
+
+// antd's message/notification are global singletons whose toasts outlive
+// the render that raised them (3 s). Left alone, a toast from one test is
+// still on screen in the next, and a getByText for the same copy finds two
+// (F30-03).
+afterEach(() => {
+  message.destroy();
+  notification.destroy();
+});
 
 // jsdom lacks matchMedia; AntD's responsive observer needs it
 if (typeof window.matchMedia !== "function") {

@@ -16,13 +16,13 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
+from helpers import FakeInitializer
 from sqlalchemy import select
 
 # TestRun/TestResult are referenced through the module on purpose: pytest
 # tries to collect any module-level name starting with "Test".
 from graphrag_ui.adapters import models
 from graphrag_ui.adapters.models import Job, Project
-from graphrag_ui.adapters.workspace import FakeInitializer
 from graphrag_ui.api.projects_routes import get_initializer
 from graphrag_ui.domain.role_catalog import ROLE_ID_EDITOR, ROLE_ID_VIEWER
 from graphrag_ui.domain.test_runs import count_regressions

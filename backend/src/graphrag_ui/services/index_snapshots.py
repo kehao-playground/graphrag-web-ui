@@ -286,11 +286,6 @@ async def entries_of(session: AsyncSession, snapshot_id: uuid.UUID) -> dict[str,
     return {name: sha for name, sha in res.all()}
 
 
-async def kinds_of(session: AsyncSession, job_id: uuid.UUID) -> set[str]:
-    res = await session.execute(select(IndexSnapshot.kind).where(IndexSnapshot.job_id == job_id))
-    return set(res.scalars().all())
-
-
 async def _start_row(session: AsyncSession, job_id: uuid.UUID) -> IndexSnapshot | None:
     return (
         await session.execute(
