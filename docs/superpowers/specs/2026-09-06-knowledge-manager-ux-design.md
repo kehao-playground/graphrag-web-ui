@@ -770,6 +770,15 @@ covers all three alongside the upload freeze.
 
 ### 7.2 Layering: a service owns the batch, an adapter owns I/O
 
+*Errata (2026-10-02, fix wave F36):* module and function names in this
+section and in §7.4 and §10 are as designed. Fix wave F27 split
+`services/test_runs.py` into `test_runs.py` (enqueue and read models),
+`test_run_worker.py` (the per-question loop — `execute_test_run` — and
+`workspace_config_revision`) and `ratings.py`; where this text says
+`services/test_runs.py` iterates, loads configuration or digests it,
+read `services/test_run_worker.py`. `_prepare_query` / `_execute_query`
+are public as `query.prepare_query` / `query.execute_query`. See §14.
+
 The first design put question iteration, result persistence and
 cancellation in `adapters/test_runner.py`. That is use-case and
 transaction orchestration, which AGENTS.md places in `services/`.
@@ -1681,3 +1690,17 @@ Three vertical slices, each shippable on its own:
 
 Stopping after any slice leaves a coherent product. Each gets its own
 implementation plan under `docs/superpowers/plans/`.
+
+## 14. Errata (2026-10-02, fix wave F36)
+
+Earlier fix waves amended this spec where they changed it (§5.1, §5.3,
+§6, §8, §9.1–§9.3, each marked with its wave). What remains is naming
+drift from later refactors, recorded here rather than by rewriting the
+review-round history above.
+
+| section | stated | as built | source |
+|---|---|---|---|
+| §7.2, §7.4, §10 | `services/test_runs.py` runs the batch and computes `workspace_config_revision` | the worker is `services/test_run_worker.py` (`execute_test_run`, `workspace_config_revision`); `test_runs.py` keeps enqueue and the read models; ratings live in `services/ratings.py` | F27 (R1-08) |
+| §7.2, §7.4, §10 | private `_prepare_query` / `_execute_query` | public `query.prepare_query` / `query.execute_query` | F27 |
+| §8 | `GET /api/projects/{id}/jobs` gains an optional `type` filter | the filter is repeatable and the jobs page asks `?type=index&type=update`; `test_run` rows stay on the workbench, which has its own cancel and progress (decision D2) | F10, F29 |
+| §8 | (question-set and test-run routes) | the six problem codes these routes emit are catalogued in the i18n spec §4.2 | R1-63 |

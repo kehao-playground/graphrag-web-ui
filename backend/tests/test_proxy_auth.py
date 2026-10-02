@@ -292,6 +292,42 @@ async def test_resolver_rejects_missing_or_malformed_email(db_session, proxy_env
         )
 
 
+@pytest.mark.parametrize(
+    ("domain", "accepted"),
+    [
+        ("corp.local", False),
+        ("corp.test", False),
+        ("corp.localhost", False),
+        ("corp.invalid", False),
+        ("corp.onion", False),
+        ("corp.arpa", False),
+        # Not on email-validator's special-use list: an IdP that issues
+        # .internal addresses provisions normally (proxy spec §9 errata).
+        ("corp.internal", True),
+    ],
+)
+async def test_resolver_special_use_domains(db_session, proxy_env, monkeypatch, domain, accepted):
+    import email_validator
+
+    from graphrag_ui.api.errors import ApiError
+
+    # conftest drops "local" from the list for the suite's @test.local
+    # fixtures; put it back so this test sees the production rejection.
+    if "local" not in email_validator.SPECIAL_USE_DOMAIN_NAMES:
+        monkeypatch.setattr(
+            email_validator,
+            "SPECIAL_USE_DOMAIN_NAMES",
+            [*email_validator.SPECIAL_USE_DOMAIN_NAMES, "local"],
+        )
+    request = make_request({"X-Proxy-Secret": SECRET, "X-Forwarded-Email": f"user@{domain}"})
+    if accepted:
+        assert (await resolve_proxy_user(request, db_session)).email == f"user@{domain}"
+    else:
+        with pytest.raises(ApiError) as e:
+            await resolve_proxy_user(request, db_session)
+        assert e.value.status_code == 401
+
+
 async def test_resolver_provisions_and_returns_user(db_session, proxy_env):
     user = await resolve_proxy_user(
         make_request(
