@@ -260,7 +260,7 @@ async def test_graph_route_precedence_and_shape(client, app):
     body = r.json()
     assert set(body) == {"level", "levels", "nodes", "edges", "stale", "truncated", "node_limit"}
     assert body["levels"] == [0, 1]
-    assert body["level"] == 1  # default = deepest level present
+    assert body["level"] == 0  # default = the level assigning the most entities (V-10)
     assert len(body["nodes"]) == 3
     assert body["edges"] == [{"source": "Alan Turing", "target": "Ada Lovelace", "weight": 4.0}]
     assert body["stale"] is False
@@ -286,9 +286,9 @@ async def test_graph_is_capped_by_graph_node_limit(client, app, monkeypatch):
 
 async def test_graph_explicit_level(client, app):
     pid, alice, _, _ = await _indexed_project(client, app)
-    r = await client.get(f"/api/projects/{pid}/artifacts/graph", headers=alice, params={"level": 0})
+    r = await client.get(f"/api/projects/{pid}/artifacts/graph", headers=alice, params={"level": 1})
     assert r.status_code == 200, r.text
-    assert r.json()["level"] == 0
+    assert r.json()["level"] == 1
 
 
 async def test_detail_full_row_including_description(client, app):

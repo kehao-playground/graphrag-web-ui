@@ -9,7 +9,8 @@ import { methodLabel } from "../components/tests/methods";
 import { formatDateTime } from "../i18n/format";
 
 // The knowledge-base health overview (spec §9.3): one action card that is
-// one ordered check, four stat tiles, and two recent-activity mini-cards.
+// one ordered check, three stat tiles, and two recent-activity mini-cards.
+// The last index lives on its card only, beside any failed attempt (V-05).
 // Everything on this page comes from /health — the same query the sidebar
 // badges use, so the two views can never disagree on the counts.
 export default function ProjectOverview({ projectId }: { projectId: string }) {
@@ -48,12 +49,6 @@ function OverviewBody({ projectId, data }: { projectId: string; data: ProjectHea
       <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
         <Stat label={t("overview.statDocuments")} value={t("overview.countDocuments", { count: data.files.total })} />
         <Stat label={t("overview.statPending")} value={t("overview.countPending", { count: pending })} />
-        <Stat
-          label={t("overview.statLastIndex")}
-          value={data.last_index
-            ? formatDateTime(data.last_index.finished_at, i18n.language)
-            : t("overview.neverIndexed")}
-        />
         <Stat
           label={t("overview.statRatings")}
           value={run

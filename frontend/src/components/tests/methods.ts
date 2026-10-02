@@ -24,10 +24,17 @@ export function methodOptions(t: TFunction) {
 // A run's identity (R4-27): method and start time, the same string in the
 // matrix column, the diff side and the drawer title. The index job the run
 // was anchored to is not identity — two runs can share it — so it is shown
-// only as runAnchor's tooltip.
-export function runLabel(run: TestRun, t: TFunction, lang: string): string {
-  const started = run.started_at ? formatShortDateTime(run.started_at, lang) : "—";
-  return `${methodLabel(run.method, t)} · ${started}`;
+// only as runAnchor's tooltip. `peers` are the runs shown beside it: when
+// one of them would get the same minute-precision label, the start time
+// carries seconds so the two stay distinct (V-08).
+export function runLabel(
+  run: TestRun, t: TFunction, lang: string, peers: readonly TestRun[] = [],
+): string {
+  const at = (r: TestRun, seconds: boolean) =>
+    `${methodLabel(r.method, t)} · ${r.started_at ? formatShortDateTime(r.started_at, lang, seconds) : "—"}`;
+  const label = at(run, false);
+  const clash = peers.some((p) => p.id !== run.id && at(p, false) === label);
+  return clash ? at(run, true) : label;
 }
 
 export function runAnchor(run: TestRun, t: TFunction): string | null {

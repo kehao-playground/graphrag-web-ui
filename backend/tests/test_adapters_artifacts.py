@@ -81,21 +81,35 @@ def test_get_row_full_columns_and_missing(ws):
     assert get_row(ws, "entities", 99) is None
 
 
-def test_graph_colors_via_max_level_and_drops_dangling_edges(ws):
-    data = graph(ws)  # default level = MAX(level) = 1 → e3 in community 1
-    assert data["levels"] == [0, 1] and data["level"] == 1
+def test_graph_defaults_to_the_best_covered_level_and_drops_dangling_edges(ws):
+    # V-10: level 0 assigns e1, e2; level 1 (the finest) only e3 → level 0.
+    data = graph(ws)
+    assert data["levels"] == [0, 1] and data["level"] == 0
     nodes = {n["title"]: n for n in data["nodes"]}
     assert len(nodes) == 3  # ALL entities are nodes regardless of community
-    assert nodes["Ada Lovelace"]["community"] == 1
-    assert nodes["Alan Turing"]["community"] is None  # not in any level-1 community
+    assert nodes["Alan Turing"]["community"] == 0
+    assert nodes["Ada Lovelace"]["community"] is None  # not in any level-0 community
     # edge r2 targets a title absent from entities → dropped; r1 survives
     assert [(e["source"], e["target"]) for e in data["edges"]] == [("Alan Turing", "Ada Lovelace")]
 
 
 def test_graph_explicit_level(ws):
-    data = graph(ws, level=0)  # level 0 community 0 owns e1, e2
+    data = graph(ws, level=1)  # level 1 community 1 owns e3 only
     nodes = {n["title"]: n for n in data["nodes"]}
-    assert nodes["Alan Turing"]["community"] == 0
+    assert nodes["Ada Lovelace"]["community"] == 1
+    assert nodes["Alan Turing"]["community"] is None
+
+
+def test_graph_default_level_ties_go_to_the_coarser_level(ws):
+    comm = ws / "output" / "communities.parquet"
+    df = pd.read_parquet(comm)
+    # Both levels now assign two entities; an entity listed twice counts once.
+    df["entity_ids"] = [["e1", "e2"], ["e3", "e1", "e3"]]
+    df.to_parquet(comm)
+    assert graph(ws)["level"] == 0
+    df["entity_ids"] = [["e1"], ["e2", "e3"]]
+    df.to_parquet(comm)
+    assert graph(ws)["level"] == 1  # the finer level wins only on coverage
 
 
 def test_not_indexed(ws):
@@ -322,3 +336,18 @@ def test_reads_share_one_duckdb_database(ws, monkeypatch):
     get_row(ws, "entities", 1)
     graph(ws)
     resolve_document_titles(ws, {"x"})
+
+
+def test_a_rewritten_parquet_is_read_fresh(ws):
+    """F37-01: an index run rewrites output/*.parquet in place. The shared
+    database must not serve the previous file's cached bytes, which a
+    rewrite within the same mtime second would otherwise return (stale
+    rows, or duckdb's "Out of buffer")."""
+    path = ws / "output" / "entities.parquet"
+    rows, total = list_rows(ws, "entities", limit=10, offset=0)
+    assert total == 3
+    df = pd.read_parquet(path)
+    df = pd.concat([df, df.head(1).assign(id="e4", human_readable_id=4, title="Grace Hopper")])
+    df.to_parquet(path)
+    rows, total = list_rows(ws, "entities", limit=10, offset=0)
+    assert total == 4 and rows[-1]["title"] == "Grace Hopper"

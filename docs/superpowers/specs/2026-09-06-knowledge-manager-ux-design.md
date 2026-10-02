@@ -1396,7 +1396,9 @@ the partial answer (amended by fix wave F16).
   1. `active_job` → a job is running; link to its log
      (`jobs?log=<id>`, which opens the log drawer); a running test run
      links to the workbench instead, since the jobs page lists only
-     index and update jobs.
+     index and update jobs. *(F37, V-04)*: the card is *info* — a
+     running job is the normal state, and an error colour competed with
+     real failures on the same card.
   2. `files.total == 0` → nothing to index yet; upload documents. Every
      project starts here, so the card is *info*, not an error (R4-04).
   3. `api_key_missing` → a key `settings.yaml` references is absent from

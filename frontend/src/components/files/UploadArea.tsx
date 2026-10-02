@@ -113,7 +113,7 @@ export default function UploadArea({ projectId, accept, maxFileBytes, frozen }: 
     >
       <p className="ant-upload-text">{t("files.uploadHint")}</p>
       <p className="ant-upload-hint">
-        {t("files.acceptHint", { accept })}
+        {t("files.acceptHint", { accept: accept.split(",").join(t("common.listSeparator")) })}
         {maxFileBytes !== undefined && ` · ${t("files.limitHint", { max: humanBytes(maxFileBytes) })}`}
       </p>
     </Upload.Dragger>

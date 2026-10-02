@@ -223,6 +223,33 @@ test("transport error (pre-stream 4xx / network) shows the generic message and c
   expect(es.close).toHaveBeenCalled();
 });
 
+// V-06: a failure stays in the answer area instead of a toast that fades,
+// and a model-side failure points at the settings that cause it.
+test("a failed query stays inline and points at the model settings", async () => {
+  mount();
+  const es = await startStream();
+  es.emit("error", JSON.stringify({ detail: "query failed", code: "query_failed" }));
+  // By class, not role: a fading toast from an earlier test is an alert too.
+  const alert = (await screen.findByText("查詢失敗")).closest<HTMLElement>(".ant-alert")!;
+  expect(within(alert).getByText(/API 金鑰/)).toBeInTheDocument();
+  expect(within(alert).getByRole("link", { name: "前往設定" }))
+    .toHaveAttribute("href", "/projects/p1/settings");
+  // Not a transient toast.
+  expect(document.querySelector(".ant-message-notice-error")).toBeNull();
+  // The next run clears it.
+  await userEvent.click(screen.getByRole("button", { name: /^執\s?行$/ }));
+  await opened(1);
+  expect(document.querySelector(".ant-alert")).toBeNull();
+});
+
+test("a refusal that is not a model failure adds no settings hint", async () => {
+  mount();
+  const es = await startStream();
+  es.emit("error", JSON.stringify({ detail: "x", code: "not_indexed" }));
+  const alert = (await screen.findByText(/尚未建立索引/)).closest<HTMLElement>(".ant-alert")!;
+  expect(within(alert).queryByRole("link")).not.toBeInTheDocument();
+});
+
 test("unmount closes the EventSource", async () => {
   const { unmount } = render(
     <QueryClientProvider client={createQueryClient()}>

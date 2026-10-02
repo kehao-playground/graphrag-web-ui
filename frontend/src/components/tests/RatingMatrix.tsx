@@ -66,7 +66,7 @@ export default function RatingMatrix({ runs, rows, regressionsOnly, onRegression
       render: (_, row) => rowQuestionText(row),
     },
     ...runs.map((run, i) => {
-      const label = runLabel(run, t, i18n.language);
+      const label = runLabel(run, t, i18n.language, runs);
       return {
         title: <Tooltip title={runAnchor(run, t)}><span>{label}</span></Tooltip>,
         key: run.id,

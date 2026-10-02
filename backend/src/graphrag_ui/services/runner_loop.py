@@ -199,6 +199,13 @@ async def _execute(job_id: uuid.UUID) -> None:
             exit_code=res.exit_code,
             error=res.error,
             stats=res.stats,
+            # The last workflow can finish after the last beat (V-03): the
+            # final stats are the run's true count.
+            progress=(
+                workflow_progress(res.stats, progress_total)
+                if progress_total is not None and res.stats is not None
+                else None
+            ),
             on_before_commit=(
                 None
                 if job is None

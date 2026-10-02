@@ -32,7 +32,8 @@ export interface NextAction {
 
 // The action card is ONE ordered check (spec §9.3):
 // 1. a running job outranks everything — all later states describe a
-//    snapshot it is about to replace; the link opens its live log;
+//    snapshot it is about to replace; the link opens its live log. It is
+//    info: running is the normal state, not a failure (V-04);
 // 2. no documents at all: every project starts here, so it is an info
 //    prompt to upload, not an index of nothing (R4-04);
 // 3. a key settings.yaml needs is still a placeholder: any index would
@@ -51,7 +52,7 @@ export function nextAction(health: ActionHealth): NextAction {
   if (health.active_job) {
     // A test run is off the jobs page (decision D2): the workbench shows it.
     const target = health.active_job.type === "test_run" ? "tests" : `jobs?log=${health.active_job.id}`;
-    return { key: "activeJob", severity: "error", target };
+    return { key: "activeJob", severity: "info", target };
   }
   if (health.files.total === 0) {
     return { key: "noDocuments", severity: "info", target: "files" };

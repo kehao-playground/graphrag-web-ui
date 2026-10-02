@@ -286,6 +286,29 @@ test("tag selected adds the chosen tags to every selected file", async () => {
   await waitFor(() => expect(listReads()).toBeGreaterThan(reads));
 });
 
+test("adding a tag closes the dropdown so the actions stay visible", async () => {
+  renderPanel();
+  await userEvent.click(await screen.findByRole("checkbox", { name: /notes.txt/ }));
+  await userEvent.click(screen.getByRole("button", { name: "標記所選…" }));
+  const dialog = await findModal("標記 1 份文件");
+  const box = within(dialog).getByRole("combobox");
+  await userEvent.type(box, "pol");
+  await waitFor(() => expect(box).toHaveAttribute("aria-expanded", "true"));
+  // Picking an option runs the same onChange as Enter (which jsdom does
+  // not drive through rc-select); a multi-select stays open by default.
+  await userEvent.click(await screen.findByText("policy", { selector: ".ant-select-item-option-content" }));
+  expect(await within(dialog).findByTitle("policy")).toBeInTheDocument();
+  await waitFor(() => expect(box).toHaveAttribute("aria-expanded", "false"));
+  // Typing again reopens it.
+  await userEvent.keyboard("p");
+  await waitFor(() => expect(box).toHaveAttribute("aria-expanded", "true"));
+});
+
+test("the upload hint lists the accepted extensions with the locale separator", async () => {
+  renderPanel();
+  expect(await screen.findByText(/僅接受 \.txt、\.md/)).toBeInTheDocument();
+});
+
 test("tag selected can remove tags, and names the files that failed", async () => {
   tagFailures = ["draft.md"];
   renderPanel();

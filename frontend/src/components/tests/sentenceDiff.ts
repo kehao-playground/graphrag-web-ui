@@ -12,8 +12,9 @@ export interface DiffSegment {
 // delimiter AND the whitespace that follows it stay with the sentence that
 // earned them. Carrying the whitespace matters: `split` on a lookbehind
 // would consume it, and English prose would render in the diff pane with
-// sentences jammed together ("A one.B two.").
-const SENTENCE = /.*?[.!?。！？]+\s*|[^.!?。！？]+$/gsu;
+// sentences jammed together ("A one.B two."). A line break ends a sentence
+// too: a heading or a list item is one even without a full stop (V-09).
+const SENTENCE = /.*?(?:[.!?。！？]+\s*|\n\s*)|.+$/gsu;
 
 function sentences(text: string): string[] {
   // An empty answer yields no sentences, not one empty sentence — otherwise

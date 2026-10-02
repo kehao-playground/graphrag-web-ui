@@ -45,6 +45,10 @@ def _cursor() -> Iterator[duckdb.DuckDBPyConnection]:
     with _db_lock:
         if _db is None:
             _db = duckdb.connect(":memory:")
+            # An index run rewrites output/*.parquet in place; the external
+            # file cache would serve the old bytes to a read in the same
+            # mtime second (F37-01).
+            _db.execute("SET enable_external_file_cache = false")
         cur = _db.cursor()
     try:
         yield cur
@@ -156,8 +160,10 @@ def graph(root: Path, level: int | None = None, node_limit: int | None = None) -
     """Knowledge graph: entities as nodes; edges only between known titles.
 
     Community coloring comes from communities.entity_ids at the chosen
-    level (default: the deepest level present). Dangling relationship
-    endpoints (a title missing from entities) are dropped.
+    level. The default is the level that assigns the most distinct
+    entities, ties to the coarser one (V-10): the finest level can leave
+    most of a small corpus uncoloured. Dangling relationship endpoints (a
+    title missing from entities) are dropped.
 
     At most ``node_limit`` nodes are returned, highest ``degree`` first, with
     ``truncated`` saying whether anything was cut — the WebGL view cannot
@@ -175,14 +181,20 @@ def graph(root: Path, level: int | None = None, node_limit: int | None = None) -
     com_path, _ = _parquet(root, "communities")
 
     with _cursor() as con:
-        levels = [
-            int(r[0])
-            for r in con.execute(
-                "SELECT DISTINCT level FROM read_parquet(?) ORDER BY level",
+        # One row per level with the distinct entities it assigns.
+        coverage = [
+            (int(lvl), int(n))
+            for lvl, n in con.execute(
+                "SELECT level, len(list_distinct(flatten(list(entity_ids))))"
+                " FROM read_parquet(?) GROUP BY level ORDER BY level",
                 [str(com_path)],
             ).fetchall()
         ]
-        chosen = level if level is not None else (levels[-1] if levels else 0)
+        levels = [lvl for lvl, _ in coverage]
+        if level is not None:
+            chosen = level
+        else:
+            chosen = min(coverage, key=lambda c: (-c[1], c[0]))[0] if coverage else 0
         count_row = con.execute("SELECT COUNT(*) FROM read_parquet(?)", [str(ent_path)]).fetchone()
         assert count_row is not None, "COUNT(*) always yields one row"
         truncated = node_limit is not None and int(count_row[0]) > node_limit

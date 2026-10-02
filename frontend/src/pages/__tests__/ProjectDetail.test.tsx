@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { vi, beforeEach } from "vitest";
 import { QueryClientProvider } from "@tanstack/react-query";
+import { message } from "antd";
 import { createQueryClient } from "../../api/queryClient";
 import { Navigate, Route, RouterProvider, createMemoryRouter, createRoutesFromElements } from "react-router-dom";
 import ProjectDetail, { ProjectPane } from "../ProjectDetail";
@@ -371,7 +372,12 @@ test("the project edit action needs project:manage (R3-08)", async () => {
 
 test("a denied project offers a way back to the list (R4-37)", async () => {
   projectStatus = 403
+  const toast = vi.spyOn(message, "error")
   renderApp({ route: "/projects/p1/overview" })
   expect(await screen.findByText("沒有權限檢視此頁面")).toBeInTheDocument()
   expect(screen.getByRole("button", { name: "回到專案列表" })).toBeInTheDocument()
+  // The page says it; no error toast repeats it (V-11). The cache's
+  // onError runs before the page renders the error.
+  expect(toast).not.toHaveBeenCalled()
+  toast.mockRestore()
 })

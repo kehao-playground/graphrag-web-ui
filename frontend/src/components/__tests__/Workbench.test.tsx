@@ -112,11 +112,11 @@ test("the launch dialog states question count and method before committing", asy
   renderWorkbench();
   await userEvent.click(await screen.findByRole("button", { name: "重跑整組" }));
   // The count comes from GET question-sets/{sid}/questions (20 in the
-  // fixture); the method is the raw identifier the run will record.
-  // zh-TW: 客服常問 20 題 is the fixture set's selected name the regex must
+  // fixture); the method is named by the same localized label the matrix
+  // columns show (V-07), the raw id stays on the wire.
+  // zh-TW: 客服常問 20 題 is the fixture set's selected name the text must
   // not match.
-  expect(await screen.findByText(/執行 20 題/)).toBeInTheDocument();
-  expect(screen.getByText(/local/)).toBeInTheDocument();
+  expect(await screen.findByText("將以「區域」方法執行 20 題")).toBeInTheDocument();
   // Committing POSTs the selected set + method to /test-runs.
   await userEvent.click(screen.getByRole("button", { name: "開始執行" }));
   await waitFor(() =>
@@ -250,6 +250,7 @@ test("two selected cells open the side-by-side diff", async () => {
   expect(await screen.findByRole("heading", { name: /並排比較/ })).toBeInTheDocument();
   // zh-TW: 需附發票。 exists only in run-3's answer; run-4 dropped it.
   expect(await screen.findByText("需附發票。")).toBeInTheDocument();
+  expect(screen.queryByText(/\*\*|\[Data:/)).not.toBeInTheDocument();
   // Sides are named like the matrix columns — method and localized start
   // time (R1-54, R4-27) — not by the index job id both runs may share.
   const dialog = screen.getByRole("dialog");

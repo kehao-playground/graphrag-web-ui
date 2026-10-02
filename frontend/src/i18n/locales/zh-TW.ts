@@ -217,7 +217,6 @@ export default {
     loadFailed: "無法載入知識庫健康狀態",
     statDocuments: "文件總數",
     statPending: "待索引",
-    statLastIndex: "上次索引",
     statRatings: "評分概況",
     countDocuments: "{{count}} 份",
     countPending: "{{count}} 份",
@@ -546,6 +545,7 @@ export default {
     hintBasic: "只對文字區塊做向量搜尋，通常數秒內完成。",
     elapsed: "已經過 {{seconds}} 秒",
     cancelled: "已取消查詢",
+    checkSettings: "請檢查設定中的模型與 API 金鑰。",
   },
   workbench: {
     // F29: run identity, workbench cancel.

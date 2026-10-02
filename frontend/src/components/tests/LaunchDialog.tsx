@@ -4,6 +4,7 @@ import { Modal, Typography, message } from "antd";
 import { sendOk } from "../../api/client";
 import { jobsPreflight, testRunMatrix } from "../../api/queries";
 import type { QueryMethod } from "../../api/types";
+import { methodLabel } from "./methods";
 
 // The run launch confirmation: it states the question count pre-commit
 // (spec §7.3) — the caller passes the picked set's loaded list state.
@@ -48,11 +49,10 @@ export default function LaunchDialog({ projectId, setId, method, open, questionC
       ) : questionCount === null ? (
         <Typography.Text type="secondary">{t("common.loading")}</Typography.Text>
       ) : (
-        // The raw method token is what the run records (RunOut.method)
-        // and what the matrix columns will show, so the dialog states
-        // the identifier, not the localized label.
+        // The localized label, as the matrix columns show it (runLabel);
+        // the raw id is what the request sends (V-07).
         <Typography.Text>
-          {t("workbench.launchSummary", { count: questionCount, method })}
+          {t("workbench.launchSummary", { count: questionCount, method: methodLabel(method, t) })}
         </Typography.Text>
       )}
     </Modal>
