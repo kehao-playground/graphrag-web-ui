@@ -581,6 +581,13 @@ proxyAuth:
   never be provisioned. Same trap `.env.example` already warns about
   for `BOOTSTRAP_ADMIN_EMAIL`; the warning now applies to IdP-issued
   addresses too.
+  *Errata (2026-10-02, fix wave F36, R2-38):* half right. email-validator
+  2.3.0's special-use list is `.arpa`, `.invalid`, `.local`,
+  `.localhost`, `.onion` and `.test` — those 401. `.internal` is not on
+  it and provisions normally. The suite's `conftest.py` drops `local`
+  from the list so the `@test.local` fixtures validate;
+  `test_resolver_special_use_domains` puts it back and pins both
+  halves (six rejected, `.internal` accepted).
 - **Logout**: `/oauth2/sign_out` with no `rd` (decision 6). Any `rd`
   pointing back into the app re-authenticates against a live IdP
   session and undoes the logout.
@@ -655,3 +662,12 @@ Deploy checks:
   admin-list caveats from §9). Same PR.
 - `openapi.json` regenerated (+ `/api/auth/config`), then
   `npm run gen:types`; both artifacts diffed in CI as usual.
+
+## Errata (2026-10-02, fix wave F36)
+
+Corrected where they stand; this is the index.
+
+| section | stated | as built | row |
+|---|---|---|---|
+| §7.1 | overlay upstream `http://web:80` | `http://web:8080` (nginx-unprivileged), checked in CI against nginx's `listen` — amended by fix wave F3 | R3-02 |
+| §9 | `EmailStr` rejects `.local` and `.internal` | rejects `.arpa`/`.invalid`/`.local`/`.localhost`/`.onion`/`.test`; `.internal` is accepted; pinned by a test that runs without the suite's `.local` relaxation | R2-38 |

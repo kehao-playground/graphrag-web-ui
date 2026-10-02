@@ -135,14 +135,14 @@ CREATE UNIQUE INDEX jobs_one_active_per_project
 - `/api/projects/{id}/files`:上傳/列表/刪除 → `input/`(格式須符合專案 `input_file_type`;單檔與總量上限、專案配額可設定)
 - `/api/projects/{id}/settings`:
   - `GET` 回傳 `{content, content_hash}`(hash 由磁碟上的實際檔案內容計算)
-  - `PUT` 帶 `expected_hash`;與磁碟現況不符 → 409 + 回傳目前內容供前端 diff。**不使用 DB `updated_at` 做樂觀鎖**,因為檔案可能被 CLI 從旁改動(§3 的零綁定保證)
+  - `PUT` 帶 `expected_hash`;與磁碟現況不符 → 409 + 回傳目前內容供前端比對(*(2026-10-02 F36 勘誤)*:前端並列顯示「目前內容」與「我的版本」兩份全文,不做逐行 diff——決策 D6,R3-26)。**不使用 DB `updated_at` 做樂觀鎖**,因為檔案可能被 CLI 從旁改動(§3 的零綁定保證)
   - 寫入成功時自動存一份 `settings_versions`
   - `GET .../settings/versions`:版本歷史,新到舊分頁回傳(修正波 F15,R3-10)
 - `/api/projects/{id}/env`:**per-key 操作**,不做整份覆寫
   - `GET` 回傳 key 清單與遮罩值(`sk-****`),永不回明文
   - `PATCH {key: value}` 設定/更新單一 key;`DELETE /env/{key}` 移除
   - 這樣避免「前端拿遮罩值整份 PUT 回來,把真 key 覆寫成 `sk-****`」
-- `/api/projects/{id}/jobs`:POST 啟動(index/update + method)、歷史列表(新到舊分頁,`type` 可重複篩選;修正波 F15,R3-10——原先靜默只回最新 50 筆)
+- `/api/projects/{id}/jobs`:POST 啟動(index/update + method)、歷史列表(新到舊分頁,`type` 可重複篩選;修正波 F15,R3-10——原先靜默只回最新 50 筆)。任務頁只問 `?type=index&type=update`,`test_run` 不列入,由測試工作台自帶取消與進度(決策 D2,修正波 F10/F29)
 - **列表慣例(決策 D1,修正波 F15,R1-45)**:分頁列表一律回 `{items, total}`,以 `limit`(1–200,預設 50)+ `offset`(≥ 0)分頁,`total` 為符合篩選條件的總筆數(不受 limit/offset 影響)。目前採用者:jobs、settings versions。其餘列表待其前端呼叫端下次修改時遷移:回傳裸陣列者(projects、members、roles、users)改為 `{items, total}`;audit 與 artifacts 的 `{rows, total}` 為舊拼法,同樣屆時改名為 `items`
 - **錯誤回應契約(修正波 F15,R3-32)**:`openapi.json` 在每個 operation 上宣告 `4XX` → `ApiErrorOut`(`{detail, code, params?}`,i18n spec §4.1),`422` → `ValidationErrorOut`(`{detail: [{type, loc, msg}], code: "validation_failed"}`,取代 FastAPI 的 `HTTPValidationError`);有專屬形狀的狀態碼另行宣告(settings PUT 的 409 → `SettingsConflictOut`)。前端的錯誤型別由此產生,不再手寫
 - `POST /api/projects/{id}/dry-run`:同步執行 `graphrag index --dry-run`,不進隊列,直接回傳驗證結果
@@ -155,13 +155,13 @@ CREATE UNIQUE INDEX jobs_one_active_per_project
   - `GET .../artifacts/{table}/{hrid}`:單行全欄(詳情 Drawer 用)
   - `GET .../artifacts/graph?level=`:`{nodes:[{title,type,degree,frequency,community}], edges:[{source,target,weight}]}`;community 由 `communities(level)` 的 `entity_ids` 反查(entities 表無 community 欄,§13 實測),預設 level=MAX(level),懸空邊剃除。*(2026-10-01 F31 修訂)*:節點依 `degree` 降冪最多 `GRAPH_NODE_LIMIT` 個,回應帶 `truncated`/`node_limit`;截斷、community 反查與邊過濾(兩端都須留存)都在 duckdb 內完成,記憶體與延遲隨上限而非語料成長(R1-78)
   - *(2026-10-01 F32 修訂)* `GET /api/artifact-tables`(任何已登入使用者;與專案無關):回傳 domain 登錄表 `{tables:[{name, columns, type_filter, community_filter}]}`,探索頁的列表欄位與篩選器由此而來,前端只保留表名的在地化標籤,不再鏡像登錄表(R1-114)
-  - 專案有 running 索引任務時,回應標記 `stale: true`,前端顯示「索引進行中,結果可能不完整」;無 `output/` 索引輸出 → **409** + zh-TW 錯誤訊息(與 query 路徑前例一致)
+  - 專案有 running 索引任務時,回應標記 `stale: true`,前端顯示「索引進行中,結果可能不完整」;無 `output/` 索引輸出 → **409** `not_indexed`(與 query 路徑前例一致;*(2026-10-02 F36 勘誤)*:錯誤 `detail` 為英文,前端依錯誤碼查 i18n 目錄在地化,見 i18n spec §4,R3-31)
 - `GET /api/health`:輕量 liveness(僅檢查行程與 DB);`GET /api/ready`:readiness,含 graphrag 版本與 workspace 掛載檢查。**graphrag 版本在啟動時偵測一次後快取**,不在每次 probe fork 子程序
 
 ### 6.2 設定檔編輯器(雙模式)
 
-- **表單模式**:常用區塊(LLM、embedding、chunking、storage、vector_store)結構化表單
-- **YAML 模式**:原始碼編輯;寫入前做 YAML schema 驗證
+- **表單模式**:常用區塊(LLM、embedding、chunking、storage、vector_store)結構化表單。*(2026-10-02 F36 勘誤)*:實際提供 completion 模型、embedding 模型、chunking 三組可編輯欄位,另以唯讀方式顯示 `input.type` / `input.file_pattern`;storage 與 vector_store 區塊**延後、不在計畫內**(存放路徑受工作區限制,見下條,表單編輯的價值低)——決策 D6,R3-26
+- **YAML 模式**:原始碼編輯;寫入前做 YAML schema 驗證。*(2026-10-02 F36 勘誤)*:寫入時實際檢查的是大小上限、YAML 語法(須為 mapping)、`${VAR}` 只能引用工作區 `.env`(修正波 F1)、以及工作區限制——storage/reporting/cache 的 `base_dir`、lancedb `db_uri`、prompt 路徑須是工作區內的相對路徑,storage 型別只允許 file/memory、vector store 只允許 lancedb,`input.type` 鎖定(400 `settings_path_escape` / `settings_input_locked`,修正波 F2,R2-03);完整的 graphrag 設定模型檢查交給 dry-run(R3-31)
 - 兩種模式皆可觸發驗證,一律走 `graphrag index --dry-run`(`graphrag update` **沒有** `--dry-run` 選項)
 - 每次保存留版本,可回復;回復也是一次帶 `expected_hash` 的寫入
 
@@ -209,8 +209,8 @@ async def local_search(config, entities, communities, community_reports,
 - **引用(citations)需要自行解析**:API 只回 `(response, context_data)`,答案內文是 `[Data: Entities (12, 34); Reports (5)]` 這類行內標記,沒有現成的 citation 物件。實作需 parse 標記 → 對 `context_data` 的 DataFrame join 回實體/關係/報告的實際內容 → 組成 `citations`。**這是 Phase 4 最大的一塊工作量**(2026-08-22 實測:basic 模式標記為 `[Data: Sources (2)]`、context_data 是 `{"sources": DataFrame[id, text]}` 的 dict;串流版只 yield 純文字 chunk、**沒有 context_data** → citations 由組完的答案文字解析 + join 快取層的 DataFrame)
 - **串流**:預設走對應的 streaming 端點,經 SSE 推給前端,避免 ingress read timeout
 - LLM key 從專案 `.env` 載入,不進 DB
-- **vector store 隔離**:預設 LanceDB 落在專案 `output/` 下沒有問題;若團隊改用 Azure AI Search / CosmosDB,container name 會跨專案相撞 → 設定編輯器對 vector store container name 做 per-project 唯一性校驗
-- 回應統一結構:`{answer, context, citations, timings}`;錯誤帶日誌摘錄
+- **vector store 隔離**:預設 LanceDB 落在專案 `output/` 下沒有問題;若團隊改用 Azure AI Search / CosmosDB,container name 會跨專案相撞 → 設定編輯器對 vector store container name 做 per-project 唯一性校驗。*(2026-10-02 F36 勘誤)*:未實作也不再需要——修正波 F2 的工作區限制只允許 `vector_store.type: lancedb`,且 `db_uri` 須在工作區內,跨專案相撞的情境已不存在;日後若開放遠端 vector store,唯一性校驗須一併補上(R3-26)
+- 回應統一結構:`{answer, context, citations, timings}`;錯誤帶日誌摘錄。*(2026-10-02 F36 勘誤)*:錯誤只回固定訊息與錯誤碼(`query_failed`、`query_config_failed`、`query_interrupted`),例外尾段只留在伺服器日誌——供應商錯誤內文、URL 與工作區路徑不得外洩給專案成員(R2-07,R3-31)
 
 ### 6.5 檔案輸入格式
 
@@ -218,7 +218,7 @@ GraphRAG 的 `input.type` 是單一型別 + `input.file_pattern`(regex),一個 r
 
 - 專案建立時選定 `input_file_type`(text / csv / json),寫入 `projects` 並同步 settings.yaml
 - 上傳白名單依專案設定收斂(text → txt/md;csv → csv;json → json)
-- 變更格式需在設定編輯器明確操作,並提示既有 `input/` 內容需清理
+- 變更格式需在設定編輯器明確操作,並提示既有 `input/` 內容需清理。*(2026-10-02 F36 勘誤)*:格式在**建立時鎖定**,之後不可變更——`input.type` 由工作區限制釘住(寫入不同值回 400 `settings_input_locked`,修正波 F2),設定編輯器不提供變更;要換格式就另建專案(README 已載明,決策 D6,R3-26)。`input.file_pattern` 仍可編輯(只能在專案自己的檔案中挑選)
 
 ## 7. 前端設計
 
@@ -226,9 +226,9 @@ GraphRAG 的 `input.type` 是單一型別 + `input.file_pattern`(regex),一個 r
 - **頁面**:登入、專案列表、專案詳情(tab:Overview / Files / Settings / Jobs / Query / Explore)、Admin 使用者管理
 - **日誌 viewer**:自動跟隨 + 暫停;斷線以 `Last-Event-ID` 續傳。*(2026-09-30 F28 修訂)*:不做虛擬捲動——SSE 片段先緩衝,每個 animation frame 以一個 text node 附加到 `<pre>`,長日誌不再整段重繪(R1-85);往上捲即暫停跟隨,「跟隨最新」回到尾端(R3-19);瀏覽器自動重連時顯示「正在重新連線」,重連被拒(票證逾期的 401 等,EventSource 進入 CLOSED)時顯示警示與「重新連線」,換發新票證(access token 逾期時順帶 refresh)再以 `?offset=<最後 event id>` 續傳(R2-32,F33)
 - **查詢介面**:SSE 串流逐字顯示,答案下方以可展開卡片呈現 citations(對應 §6.4 解析結果)
-- **設定編輯器**:409 衝突時顯示 diff 與「重新載入 / 覆寫」兩個明確選項
+- **設定編輯器**:409 衝突時顯示 diff 與「重新載入 / 覆寫」兩個明確選項。*(2026-10-02 F36 勘誤)*:只有 `settings_conflict` 開啟衝突對話框,並列兩份全文而非 diff(決策 D6);`project_indexing` 的 409 以提示呈現並凍結編輯(修正波 F9,R4-01)
 - **Explore tab(Phase 5,2026-08-22 定案:雙模式)**:Ant Segmented 切換「圖譜 | 資料表」。圖譜 = react-sigma + graphology(WebGL,萬級節點)+ forceatlas2 佈局,依 community 著色(穩定分類色板),控制項:level 下拉(顯示伺服器選定的層級)、type 過濾、min_degree 滑桿(預設 ≥1 濾孤點)、節點搜尋高亮聚焦(只改高亮,不重新佈局;佈局只在資料、level、type、min_degree 變動時重跑)、社群圖例(節點數前 8 大社群 + 「其他社群」+「未分群」)、縮放/重設視角控制、標籤只畫在達到大小門檻的節點上、點擊節點開啟該實體的明細 Drawer(與資料表共用);API 依 `GRAPH_NODE_LIMIT` 截斷(見 §6.1 graph 端點),其餘過濾交前端。資料表 = 表名下拉(6 表)+ 共用篩選 + Ant Table 伺服器端分頁(每頁 10/20/50/100)+ 行點擊 Drawer 顯示全文/列表/JSON 欄位(明細讀取失敗時在 Drawer 內顯示錯誤;型錄外欄位顯示原始欄名)。stale 時 Explore 頂部 Alert 提示;專案尚未建立索引(`not_indexed`)時兩種模式都以空狀態顯示該句並連到任務頁(F18 修訂)
-- **目錄結構**:feature 導向(`features/projects`、`features/jobs`…),共用元件放 `shared/`
+- **目錄結構**:feature 導向(`features/projects`、`features/jobs`…),共用元件放 `shared/`。*(2026-10-02 F36 勘誤)*:實際為 `pages/`(路由層級頁面,專案與 admin 頁為 lazy chunk)+ `components/`(面板;較大的面板依領域拆子目錄 `files/`、`jobs/`、`project/`、`settings/`、`tests/`)+ `api/`(client、`queries.ts` 的 query factory、產生的型別)+ `i18n/` + `stores/`(auth 的 Zustand store),未採 `features/` / `shared/`(R3-31)
 
 ## 8. 部署
 
@@ -268,23 +268,38 @@ GraphRAG 的 `input.type` 是單一型別 + `input.file_pattern`(regex),一個 r
 
 ## 9. 代碼組織(Clean Architecture 精神)
 
-原則:**依賴方向由外向內;graphrag 與基礎設施細節隔離在 adapter 後面**。不追求嚴格分層儀式,取其精神:
+原則:**依賴方向由外向內;graphrag 與基礎設施細節隔離在 adapter 後面**。不追求嚴格分層儀式,取其精神。
+
+*(2026-10-02 F36 改寫,R1-64)*:原稿的目錄樹與「domain/services 不 import SQLAlchemy、透過 interface 注入」兩點與實作不符,本節改寫為實際結構。**規範性的版本以 `AGENTS.md`「Architecture Rules」為準**,本節只做說明;分層規則由 `backend/tests/test_layering.py`(AST 掃描每個 import,含函式內延遲 import)強制執行,新增違規即測試失敗。
 
 ```
 backend/
+  migrations/          # alembic(env.py、versions/);容器啟動時 upgrade head
   src/graphrag_ui/
-    domain/          # 純邏輯:Job 狀態機、權限規則、設定驗證(無 IO)
-    services/        # 使用案例:ProjectService、JobService…(介面注入)
-    adapters/        # 實作:Postgres repos、FS workspace、GraphragCLI、
-                     #   GraphragQuery、DuckDB artifacts
-    api/             # FastAPI routes、schemas、auth(JWT)
-    runner/          # asyncio 任務執行器
-    migrations/      # alembic
+    main.py            # app 組裝、lifespan(runner 迴圈、保留清理)、logging 設定
+    config.py          # 環境變數(名稱固定,見 AGENTS.md)
+    domain/            # 純邏輯:job 狀態與 argv、權限 atom、設定工作區限制、
+                       #   citation 標記解析、檔案索引狀態(只 import 標準庫與 domain)
+    services/          # 使用案例:projects、files(+ input_scan、file_listing、
+                       #   file_preview、file_tags)、settings、jobs、runner_loop、
+                       #   query、citations、test_runs(+ test_run_worker、ratings)、
+                       #   auth、roles、retention…;擁有交易邊界
+    adapters/          # models.py(ORM)、db.py(lazy engine)、jobs_repo.py、
+                       #   workspace.py(graphrag init/dry-run CLI)、index_runner.py
+                       #   (index/update CLI 子程序)、workspace_env.py(子程序環境白名單、
+                       #   工作區 .env)、graphrag_search.py(唯一的 in-process graphrag
+                       #   import 點)、artifacts.py(duckdb)、frame_cache.py、job_logs.py
+    api/               # FastAPI routes(每個資源一個 *_routes.py)、schemas.py、deps.py
+                       #   (身分、require_project)、errors.py(服務錯誤 → HTTP)、
+                       #   middleware.py、openapi.py
 ```
 
-- domain/services 不 import FastAPI、SQLAlchemy、graphrag;透過 interface 由 adapters 實作
-- Graphrag 整合(CLI 參數映射、api 呼叫、citation 解析)全部收在 `adapters/graphrag/`,版本升級的影響範圍被隔離
-- DB schema 一律經 alembic migration,不手動改
+- `domain/`:無 I/O,只 import 標準庫與其他 `domain` 模組(不得 import fastapi / sqlalchemy / graphrag)
+- `services/`:不得 import FastAPI / Starlette、不得 raise `HTTPException`、不得 import `api`。**可以**直接使用 SQLAlchemy session 與 `adapters.models` 的 ORM 類別——原稿的「透過 interface 由 adapters 實作」未採用:只有一個實作的 repository interface 正是本節 smell 清單中的「過度抽象」。services 擁有交易邊界:`audit()` 只 add,由 service commit;`flush → 外部工作 → commit`,失敗即 rollback。例外:runner 迴圈在 `adapters/jobs_repo.py` 的寫入(`claim_next`、`heartbeat`、`set_progress`、`finish`)自行 commit 短交易,請求路徑不得依賴此行為
+- `adapters/`:不得 import `services` 或 `api`。所有 graphrag 接觸點都在這裡,但不在 `adapters/graphrag/` 子目錄,而是平鋪的檔案:indexing 與 init/dry-run 走 CLI 子程序(`index_runner.py`、`workspace.py`),in-process 的 `graphrag.api` **只**由 `graphrag_search.py` import(import 時隔離環境變數——litellm 在 import 時會 `load_dotenv`);duckdb 只在 adapters 內
+- `api/`:把服務錯誤轉成 HTTP(`api/errors.SERVICE_ERROR_STATUS`,一個 app 層級 handler);只可 import `adapters.models` / `adapters.db`(ORM 型別與 session factory),以及 projects routes 注入的 workspace initializer,其餘一律經 services
+- runner 不是獨立的 `runner/` 套件,而是 `services/runner_loop.py`(由 `main.py` 的 lifespan 啟動);migrations 在 `backend/migrations/`,不在 `src/` 內
+- DB schema 一律經 alembic migration,不手動改;`adapters/db.py` 的 engine 為 lazy,模組 import 時不得建立
 
 ### 每輪迭代的 code smell 檢查(流程要求)
 
@@ -298,10 +313,10 @@ backend/
 
 - 任務失敗:exit code + stderr 進 `jobs.error`;exit 137 標註疑似 OOM
 - API/pod 重啟:reconciler 以 heartbeat 逾時收斂孤兒任務(見 6.3)
-- 設定並行編輯衝突:409 + 前端 diff 提示(以檔案 hash 判定,涵蓋 CLI 從旁改動)
+- 設定並行編輯衝突:409 + 前端比對提示(以檔案 hash 判定,涵蓋 CLI 從旁改動;並列兩份全文,見 §7)
 - 上傳:格式白名單、大小上限、專案配額、path traversal 全程防護(所有檔案 API 以 project root 為基準做規範化檢查)
 - `.env` 秘密永不回明文;per-key 更新避免誤覆寫
-- 查詢逾時/LLM 錯誤:結構化錯誤 + 日誌摘錄
+- 查詢逾時/LLM 錯誤:結構化錯誤(錯誤碼 + 固定訊息;日誌摘錄只留在伺服器日誌,見 §6.4)
 - graphrag CLI 缺失/過舊:readiness 反映,前端於啟動任務時前置檢查並提示
 - **營運日誌(修正波 F24,決策 D7,R3-11)**:api 行程啟動時設定一次 logging——root logger 為 INFO,每行帶時間與等級(`%(asctime)s %(levelname)s %(name)s: %(message)s`),不新增 `LOG_LEVEL` 環境變數;httpx、LiteLLM 與 in-process 的 graphrag logger 壓到 WARNING。job 生命週期各記一行:enqueued(含發起者 id)、claimed(worker)、started、spawned(pid)、cancel requested、finished(status、exit code、耗時),reconcile 收斂的每個 job 與總數為 WARNING;每日保留清理記錄刪除的日誌數、起始快照數與 `update_output` 目錄數;bootstrap admin 建立亦記一行
 
@@ -340,7 +355,7 @@ backend/
 |---|---|---|---|
 | 1 | `graphrag update` 的輸出落點 | **已由原始碼確認**:`DEFAULT_UPDATE_OUTPUT_BASE_DIR="update_output"`,`run_pipeline` 建立 `update_output/<timestamp>/{delta,previous}`(previous 為舊索引備份)後 merge 回 `output/`。仍需以真實語料確認 merge 後 `output/` 完整性與失敗中途的恢復行為,否則 Phase 4/5 會讀到過期資料 | **Phase 3(Indexing)開工前**,以真實小語料實測 |
 | 2 | stats 檔位置與增量寫入節奏 | `jobs.stats` 與進度條依賴;index 的 `output/stats.json` 已由原始碼確認,update 的落點與 merge 後回寫行為待實測 | 同上 |
-| 3 | 目標 graphrag 版本鎖定 | CLI 介面與 `graphrag.api` 簽章皆隨版本變動;需在 pyproject 鎖定並記錄於此 | **已鎖定 `graphrag==3.1.0`**(Phase 1,2026-08-19):`backend/pyproject.toml` pin `==3.1.0`。最新版 3.1.1 因 `graphrag-vectors` 硬依賴 `lancedb~=0.34.0`(無 macOS x86_64 wheel、無 sdist)無法在 Intel Mac 開發機安裝,故取 3.1.x 線中可跨平台安裝的最新版(lancedb 0.24.1 有 mac x86_64/arm64 + linux wheel) |
+| 3 | 目標 graphrag 版本鎖定 | CLI 介面與 `graphrag.api` 簽章皆隨版本變動;需在 pyproject 鎖定並記錄於此 | **已鎖定 `graphrag==3.1.0`**(Phase 1,2026-08-19):`backend/pyproject.toml` pin `==3.1.0`。最新版 3.1.1 因 `graphrag-vectors` 硬依賴 `lancedb~=0.34.0`(無 macOS x86_64 wheel、無 sdist)無法在 Intel Mac 開發機安裝,故取 3.1.x 線中可跨平台安裝的最新版(lancedb 0.24.1 有 mac x86_64/arm64 + linux wheel)。*(2026-10-02 F36 勘誤,R3-31)*:現行釘選為 **`graphrag==3.1.2`**(最新穩定版);它拉進 `lancedb>=0.37`,同樣沒有 macOS x86_64 wheel,因此 Intel Mac 上的後端檢查改在 Docker 內執行(指令見 `AGENTS.md`「Commands」)。`[tool.uv] override-dependencies` 把 nltk 提到 `>=3.10.3`、litellm 提到 `1.92.2`(安全公告;graphrag 升版且範圍涵蓋時移除),CI `audit` 工作為必要檢查,無修正版且不可達的公告以註明日期的 `--ignore-vuln` 豁免(決策 D8,修正波 F26/F31)。升版前須重驗 `graphrag_input/input_config.py` 的鍵名 |
 | 4 | indexing 記憶體峰值(以團隊實際語料量測) | 決定容器 limits 與查詢快取上限的分配 | Phase 3 |
 
 ### 2026-08-21 Phase 3 開工前實測(真實語料,graphrag 3.1.0,gpt-4o-mini)
@@ -360,3 +375,22 @@ backend/
 | 2 | 圖譜 join 需求 | **relationships.source/target 直接是實體 title(非 id)**→ 邊零 join;**entities 無 community 欄** → 著色必須經 `communities.entity_ids` 反查,且社群有 level 層級(預設最細 level) |
 | 3 | 大欄位 | documents 同時有 `text` 與 `raw_data` 兩個全文欄、community_reports 有 `full_content`/`findings`(list[dict])→ 列表端點必須列投影;list 欄(parquet list 型)序列化為 JSON 陣列 |
 | 4 | 讀取路徑決策 | pandas+FrameCache 整表載入會與查詢路徑互搶 1GB 預算且 documents 大欄位爆表 → **DuckDB 直查 parquet**(SQL 分頁/篩選/投影 pushdown),需求方 2026-08-22 照推薦定案 |
+
+## 14. 勘誤與實作現況(2026-10-02,修正波 F36)
+
+品質審查(`docs/superpowers/reviews/`)發現本文件有幾處已被實作超越。依 hygiene spec B2 的文件政策,本文件保留原文作為歷史紀錄,在原處以 *(2026-10-02 F36 勘誤)* 標註實際做法;本節為索引。修正波 F1–F35 先前已在原處標註的修訂(§5 稽核規則、§6.1 列表與錯誤契約、§6.3 進度、§8 部署、§8.4 session 等)不重複列出。
+
+| 章節 | 原文 | 現況 | 來源 |
+|---|---|---|---|
+| §5 | `users.role`、`project_members.role`(owner/editor/viewer)與權限矩陣 | 由可組合角色取代(permission atom、內建與自訂角色),見 `2026-08-30-rbac-composable-roles-design.md`;本節矩陣僅為歷史 | RBAC spec |
+| §6.1、§7、§10 | 設定 409 時前端顯示 diff | 並列兩份全文 | D6、R3-26 |
+| §6.1 | 無索引輸出時 409 + zh-TW 訊息 | 409 `not_indexed`,英文 `detail`,前端依錯誤碼在地化 | R3-31 |
+| §6.2 | 表單模式含 storage、vector_store;寫入前做 schema 驗證 | 表單只有模型、embedding、chunking(input 唯讀),storage/vector_store 延後不做;寫入時檢查語法、placeholder 與工作區限制,完整模型檢查交給 dry-run | D6、R3-26、F1、F2 |
+| §6.4 | vector store container name 唯一性校驗 | 不需要:只允許工作區內的 lancedb | R3-26、F2 |
+| §6.4、§10 | 錯誤帶日誌摘錄 | 固定訊息 + 錯誤碼,摘錄只進伺服器日誌 | R2-07、R3-31 |
+| §6.5 | 可在設定編輯器變更輸入格式 | 建立時鎖定(`settings_input_locked`),要換格式就另建專案 | D6、R3-26 |
+| §7 | `features/` + `shared/` 目錄結構 | `pages/` + `components/<領域>/` + `api/` + `i18n/` + `stores/` | R3-31 |
+| §9 | 目錄樹、services 不 import SQLAlchemy、`adapters/graphrag/` | 整節改寫為實際結構,規範以 `AGENTS.md` 為準 | R1-64 |
+| §13 #3 | 釘選 `graphrag==3.1.0` | `==3.1.2`,Intel Mac 改在 Docker 跑檢查;nltk/litellm override,`audit` 為必要檢查 | R3-31、D8 |
+
+審查分流時記錄的決策 D1–D8(`docs/superpowers/reviews/backlog.md` 開頭)在本文件的落點:D1 §6.1 列表慣例;D2 §6.1 jobs;D3 §5 `audit_log`;D4 §8.4;D5 §8.4;D6 §6.1/§6.2/§6.4/§6.5/§7;D7 §10 營運日誌;D8 §13 #3。
