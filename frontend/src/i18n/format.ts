@@ -25,6 +25,10 @@ export const formatDateTime = (value: string, lang: string) =>
   });
 
 // Month, day and minute: narrow headers where the year is noise but two
-// runs on the same day must still differ (matrix and diff labels).
-export const formatShortDateTime = (value: string, lang: string) =>
-  format(value, lang, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+// runs on the same day must still differ (matrix and diff labels). With
+// `seconds`, two runs in the same minute differ too (V-08).
+export const formatShortDateTime = (value: string, lang: string, seconds = false) =>
+  format(value, lang, {
+    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+    ...(seconds ? { second: "2-digit" } : {}),
+  });

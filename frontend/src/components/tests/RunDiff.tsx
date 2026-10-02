@@ -5,6 +5,7 @@ import { Alert, Modal, Skeleton, Space, Tag, Tooltip, Typography } from "antd";
 import type { TestResult, TestRun } from "../../api/types";
 import { runResults } from "../../api/queries";
 import { runAnchor, runLabel } from "./methods";
+import { plainText } from "./markdownText";
 import { sentenceDiff } from "./sentenceDiff";
 import type { DiffSegment } from "./sentenceDiff";
 
@@ -21,8 +22,9 @@ export interface DiffSide {
 const LEFT_ONLY = { background: "#fff1f0" };
 const RIGHT_ONLY = { background: "#f6ffed" };
 
-function Pane({ run, result, segments, side }: {
+function Pane({ run, peers, result, segments, side }: {
   run: TestRun;
+  peers: readonly TestRun[];
   result: TestResult;
   segments: DiffSegment[];
   side: "left" | "right";
@@ -35,7 +37,7 @@ function Pane({ run, result, segments, side }: {
   return (
     <div style={{ flex: 1, minWidth: 0 }}>
       <Tooltip title={runAnchor(run, t)}>
-        <Typography.Text strong>{runLabel(run, t, i18n.language)}</Typography.Text>
+        <Typography.Text strong>{runLabel(run, t, i18n.language, peers)}</Typography.Text>
       </Tooltip>
       <Typography.Paragraph type="secondary" style={{ whiteSpace: "pre-wrap" }}>
         {result.question_text}
@@ -63,8 +65,10 @@ function Pane({ run, result, segments, side }: {
 // the drawer uses, so opening a diff right after rating through the drawer
 // costs no extra request. Errors render in the modal, not as a toast. The
 // modal is open exactly while a pair is set.
-export default function RunDiff({ pair, onClose }: {
+export default function RunDiff({ pair, peers = [], onClose }: {
   pair: { left: DiffSide; right: DiffSide } | null;
+  // The matrix's runs, so each side reads exactly as its column (V-08).
+  peers?: readonly TestRun[];
   onClose: () => void;
 }) {
   const { t } = useTranslation();
@@ -83,7 +87,8 @@ export default function RunDiff({ pair, onClose }: {
   const rr = right ? (rq.data?.results.find((r) => r.id === right.resultId) ?? null) : null;
 
   const segments = useMemo(
-    () => (lr && rr ? sentenceDiff(lr.answer ?? "", rr.answer ?? "") : []),
+    // On the text the drawer renders, not the Markdown source (V-09).
+    () => (lr && rr ? sentenceDiff(plainText(lr.answer ?? ""), plainText(rr.answer ?? "")) : []),
     [lr, rr],
   );
 
@@ -115,8 +120,8 @@ export default function RunDiff({ pair, onClose }: {
             <Tag color="green">{t("workbench.diffRightOnly")}</Tag>
           </Space>
           <div style={{ display: "flex", gap: 16 }}>
-            <Pane run={left!.run} result={lr} segments={segments} side="left" />
-            <Pane run={right!.run} result={rr} segments={segments} side="right" />
+            <Pane run={left!.run} peers={peers} result={lr} segments={segments} side="left" />
+            <Pane run={right!.run} peers={peers} result={rr} segments={segments} side="right" />
           </div>
         </>
       )}

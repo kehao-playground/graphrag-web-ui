@@ -33,3 +33,10 @@ test("inter-sentence whitespace survives the diff", () => {
   expect(out.map((s) => s.text)).toEqual(["Same. Text."]);
   expect(sentenceDiff("A one. B two.", "A one. B changed.")[0].text).toBe("A one. ");
 });
+
+// V-09: the compare modal diffs what the drawer renders, so a heading or a
+// list item is its own sentence even without a full stop.
+test("a line break ends a sentence", () => {
+  const out = sentenceDiff("Grace Hopper\nShe wrote a compiler.", "Grace Hopper\nShe built a compiler.");
+  expect(out.filter((s) => s.side === "both").map((s) => s.text.trim())).toEqual(["Grace Hopper"]);
+});

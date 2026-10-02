@@ -121,6 +121,7 @@ async def finish(
     exit_code: int | None = None,
     error: str | None = None,
     stats: dict | None = None,
+    progress: dict[str, int] | None = None,
     on_before_commit: Callable[[AsyncSession], Awaitable[None]] | None = None,
 ) -> bool:
     """Write the terminal state, guarded on the row still being active.
@@ -129,11 +130,15 @@ async def finish(
     terminal: reconcile_stale finished it under a slow worker, whose result
     is then discarded by design (R1-77). A failing on_before_commit does not
     take the terminal write down with it (R1-90): the status is re-written
-    alone, with the promotion failure recorded in `error`."""
+    alone, with the promotion failure recorded in `error`. `progress`, when
+    given, replaces the last heartbeat's count with the run's final one
+    (V-03)."""
     if status not in TERMINAL_STATUSES:
         msg = f"non-terminal finish status: {status}"
         raise ValueError(msg)
     values = {"status": status, "exit_code": exit_code, "error": error, "stats": stats}
+    if progress is not None:
+        values["progress"] = progress
     if not await _terminal_update(session, job_id, values):
         # Nothing was written; commit (not rollback) so the caller's
         # instances are not expired under an AsyncSession.

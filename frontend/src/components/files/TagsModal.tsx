@@ -47,6 +47,9 @@ export default function TagsModal({ projectId, target, catalog, onClose }: {
   // The caller mounts the modal only while it is open, so the initial
   // value is always the current row's tags.
   const [value, setValue] = useState<string[]>(target?.kind === "row" ? target.current : []);
+  // The dropdown closes once a tag is added (Enter, a comma or a click):
+  // left open, it covers the footer's actions. Typing again reopens it.
+  const [open, setOpen] = useState(false);
 
   const tags = [...new Set(value.map((v) => v.trim()).filter((v) => v !== ""))];
   const tooLong = tags.some((v) => v.length > MAX_TAG);
@@ -124,7 +127,10 @@ export default function TagsModal({ projectId, target, catalog, onClose }: {
         placeholder={t("files.tagsPlaceholder")}
         tokenSeparators={[","]}
         value={value}
-        onChange={setValue}
+        onChange={(next) => { setValue(next); setOpen(false); }}
+        open={open}
+        onOpenChange={setOpen}
+        onSearch={(text) => { if (text !== "") setOpen(true); }}
         options={catalog.map((tag) => ({ label: tag.name, value: tag.name }))}
       />
       {tooLong && (

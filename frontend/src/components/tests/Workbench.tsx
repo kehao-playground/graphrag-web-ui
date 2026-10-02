@@ -260,12 +260,13 @@ export default function Workbench({ projectId, canRunJobs, canEdit }: {
             key={drawerFor ? `${drawerFor.runId}:${drawerFor.resultId}` : "closed"}
             projectId={projectId}
             run={(matrix.data?.runs ?? []).find((r) => r.id === drawerFor?.runId) ?? null}
+            peers={matrix.data?.runs}
             resultId={drawerFor?.resultId ?? null}
             onClose={() => setDrawerFor(null)}
             onRated={() => void invalidateMatrix()}
           />
 
-          <RunDiff pair={diff} onClose={() => setDiff(null)} />
+          <RunDiff pair={diff} peers={matrix.data?.runs} onClose={() => setDiff(null)} />
         </>
       )}
 

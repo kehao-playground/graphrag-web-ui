@@ -78,7 +78,9 @@ export const RESULTS_RUN3 = {
       answer: "保固一年。", citations: null, timings: null, error: null,
       completed_at: "2026-09-03T10:05:00Z", rating: null },
     { id: "res-3b", question_id: "q-3", position: 4, question_text: "Q3 退貨流程幾天",
-      answer: "七天內可退。需附發票。", citations: null, timings: null, error: null,
+      // Markdown and a citation marker: the diff compares the rendered
+      // text, so neither shows in the compare modal (V-09).
+      answer: "七天內可退。**需附發票** [Data: Sources (1)]。", citations: null, timings: null, error: null,
       completed_at: "2026-09-03T10:06:00Z", rating: null },
     { id: "res-3c", question_id: "q-5", position: 6, question_text: "Q5 企業採購窗口",
       answer: "客服信箱。", citations: null, timings: null, error: null,

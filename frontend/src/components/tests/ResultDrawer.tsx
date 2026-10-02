@@ -26,7 +26,7 @@ import type { Score } from "./ratings";
 // the previous PUT lands is dropped, so nothing is rated twice or skipped;
 // a key pressed while the run's results still load is held and applied once
 // they arrive (R4-41).
-export default function ResultDrawer({ projectId, run, resultId, onClose, onRated }: {
+export default function ResultDrawer({ projectId, run, peers = [], resultId, onClose, onRated }: {
   // run beyond the plan's { resultId, onClose, onRated }: results are only
   // readable per run (GET /test-runs/{rid}/results), and that same ordered
   // list is what "advance to the next result" walks. The title names it.
@@ -34,6 +34,8 @@ export default function ResultDrawer({ projectId, run, resultId, onClose, onRate
   // locator binds to the project's files.
   projectId: string;
   run: TestRun | null;
+  // The matrix's runs, so the title reads exactly as the column (V-08).
+  peers?: readonly TestRun[];
   resultId: string | null;
   onClose: () => void;
   onRated: () => void;
@@ -143,7 +145,7 @@ export default function ResultDrawer({ projectId, run, resultId, onClose, onRate
       onClose={onClose}
       onKeyDown={onKeyDown}
       title={run
-        ? `${t("workbench.resultTitle")} · ${runLabel(run, t, i18n.language)}`
+        ? `${t("workbench.resultTitle")} · ${runLabel(run, t, i18n.language, peers)}`
         : t("workbench.resultTitle")}
       extra={<Typography.Text type="secondary">{t("common.escToClose")}</Typography.Text>}
     >

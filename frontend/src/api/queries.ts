@@ -42,6 +42,9 @@ export const projectsList = () => queryOptions({
 export const projectById = (pid: string) => queryOptions({
   queryKey: ["projects", pid],
   queryFn: () => apiJson<Project>(`/api/projects/${pid}`, "projects.loadFailed"),
+  // ProjectDetail renders every failure in place (403/404 page, or an
+  // alert), so a toast would only repeat it (V-11).
+  ...QUIET,
 });
 
 export const projectMembers = (pid: string) => queryOptions({

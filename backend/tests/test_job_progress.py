@@ -183,3 +183,20 @@ async def test_a_beat_replaces_that_seconds_cancel_poll(db_session, monkeypatch,
     await db_session.refresh(job)
     assert job.status == "cancelled"
     assert polls["n"] == 0
+
+
+async def test_finish_writes_progress_from_the_final_stats(db_session, monkeypatch, _workspaces):
+    """V-03: the last workflow can finish after the last beat; the terminal
+    write takes progress from the run's final stats, not the last tick."""
+    job = await _running_job(db_session, type_="index")
+    final = {"workflows": {str(i): {} for i in range(10)}}
+
+    class QuickRunner:
+        async def run(self, **kwargs):
+            return RunResult(status="succeeded", exit_code=0, error=None, stats=final)
+
+    monkeypatch.setattr(runner_loop, "IndexRunner", QuickRunner)
+    await runner_loop._execute(job.id)
+    await db_session.refresh(job)
+    assert job.status == "succeeded"
+    assert job.progress == {"done": 10, "total": 10}

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { Button, Input, Modal, Select, Space, Typography, message } from "antd";
+import { Link } from "react-router-dom";
+import { Alert, Button, Input, Modal, Select, Space, Typography, message } from "antd";
 import type { Citation, QueryMethod, QuestionSet, QueryTimings } from "../../api/types";
 import { apiJson, messageOfBody, sendOk, sseUrl } from "../../api/client";
 import { questionSets } from "../../api/queries";
@@ -12,6 +13,11 @@ import { methodOptions } from "./methods";
 const RESPONSE_TYPE = "multiple paragraphs";
 // The save dialog's pseudo-option: create a set and save into it.
 const NEW_SET = "__new__";
+// Failures the model configuration causes (a bad key, a wrong model): the
+// inline error points at the settings that fix them (V-06).
+const SETTINGS_CODES = new Set(["query_failed", "query_config_failed"]);
+
+type Failure = { text: string; code: string | null };
 
 // The workbench's ad-hoc mode (spec §9.2): the interactive SSE path, kept
 // exactly as QueryPanel had it, with its rendering lifted into AnswerView
@@ -29,6 +35,9 @@ export default function AdhocQuery({ projectId, canEdit }: {
   const [citations, setCitations] = useState<Citation[]>([]);
   const [timings, setTimings] = useState<QueryTimings | null>(null);
   const [streaming, setStreaming] = useState(false);
+  // The last run's failure, kept in the answer area until the next run: a
+  // toast fades and leaves a blank page with no next step (V-06).
+  const [failure, setFailure] = useState<Failure | null>(null);
   // Wall-clock start of the running query, for the elapsed counter (R4-11).
   const [startedAt, setStartedAt] = useState(0);
   const [now, setNow] = useState(0);
@@ -66,6 +75,7 @@ export default function AdhocQuery({ projectId, canEdit }: {
     setChunks([]);
     setCitations([]);
     setTimings(null);
+    setFailure(null);
     setStreaming(true);
     const t0 = Date.now();
     setStartedAt(t0);
@@ -80,7 +90,7 @@ export default function AdhocQuery({ projectId, canEdit }: {
       }, "query.failedRetry");
     } catch (err) {
       if (!cancelledRef.current) {
-        message.error(err instanceof Error ? err.message : t("query.failedRetry"));
+        setFailure({ text: err instanceof Error ? err.message : t("query.failedRetry"), code: null });
         setStreaming(false);
       }
       return;
@@ -119,7 +129,10 @@ export default function AdhocQuery({ projectId, canEdit }: {
       }
       // Error frames share the HTTP envelope: a known code localizes
       // (e.g. query_interrupted), else the detail verbatim, else the fallback.
-      message.error(messageOfBody(body, "query.failedRetry"));
+      setFailure({
+        text: messageOfBody(body, "query.failedRetry"),
+        code: typeof body.code === "string" ? body.code : null,
+      });
       setStreaming(false);
       es.close();
     });
@@ -209,6 +222,20 @@ export default function AdhocQuery({ projectId, canEdit }: {
           </Button>
         )}
       </Space>
+
+      {failure && (
+        <Alert
+          type="error"
+          showIcon
+          message={failure.text}
+          description={failure.code !== null && SETTINGS_CODES.has(failure.code) && (
+            <>
+              {t("query.checkSettings")}{" "}
+              <Link to={`/projects/${projectId}/settings`}>{t("overview.linkSettings")}</Link>
+            </>
+          )}
+        />
+      )}
 
       <AnswerView
         projectId={projectId}

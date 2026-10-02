@@ -152,3 +152,27 @@ test("a run column names method and time, with the index anchor on hover", async
   await userEvent.hover(header);
   expect(await screen.findByText("索引版本 #13")).toBeInTheDocument();
 });
+
+// V-08: two runs started within one minute would share a minute-precision
+// label; the clash adds seconds so headers and cell labels stay distinct.
+test("runs started in the same minute get distinct labels", () => {
+  const [a, b] = [MATRIX.runs[2], MATRIX.runs[3]];
+  const runs = [
+    { ...a, started_at: "2026-09-03T10:00:05Z" },
+    { ...b, started_at: "2026-09-03T10:00:41Z" },
+  ];
+  render(
+    <RatingMatrix
+      runs={runs}
+      rows={[{ ...MATRIX.rows[0], cells: MATRIX.rows[0].cells.slice(2) }]}
+      regressionsOnly={false}
+      onRegressionsOnly={() => {}}
+      onCell={() => {}}
+    />,
+  );
+  const headers = screen.getAllByRole("columnheader").slice(1).map((h) => h.textContent);
+  expect(new Set(headers).size).toBe(2);
+  expect(headers[0]).toMatch(/:05/);
+  const cells = screen.getAllByRole("button").map((c) => c.getAttribute("aria-label"));
+  expect(new Set(cells).size).toBe(2);
+});

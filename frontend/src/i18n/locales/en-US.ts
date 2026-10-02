@@ -212,7 +212,6 @@ const enUS = {
     loadFailed: "Unable to load knowledge-base health",
     statDocuments: "Documents",
     statPending: "Pending index",
-    statLastIndex: "Last index",
     statRatings: "Rating summary",
     countDocuments: "{{count}}",
     countPending: "{{count}}",
@@ -554,6 +553,8 @@ const enUS = {
     hintBasic: "Plain vector search over text chunks — usually seconds.",
     elapsed: "{{seconds}} s elapsed",
     cancelled: "Query cancelled",
+    // Under a failed query whose cause is usually the model settings (V-06).
+    checkSettings: "Check the model settings and the API key in Settings.",
   },
   workbench: {
     // F29: run identity, workbench cancel.

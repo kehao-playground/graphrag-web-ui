@@ -32,6 +32,8 @@ test("an active job outranks everything and opens that job's log", () => {
   }));
   expect(a.key).toBe("activeJob");
   expect(a.target).toBe("jobs?log=j1");
+  // A running job is the normal state, not a failure (V-04).
+  expect(a.severity).toBe("info");
 });
 
 // Test runs are off the jobs page (decision D2); the workbench shows them.
@@ -230,6 +232,16 @@ test("English copy names the running job and the last index in one sentence each
   expect(screen.getByText(/^Index, finished /)).toBeInTheDocument();
   // A tile shows the bare count under its label, not "6 documents".
   expect(screen.getByText("6")).toBeInTheDocument();
+  await i18n.changeLanguage("zh-TW");
+});
+
+// V-05: the last index has one home, the card, which also carries the
+// failed-attempt line; no tile repeats its time under another label.
+test("the last index is shown once", async () => {
+  await i18n.changeLanguage("en-US");
+  renderOverview();
+  expect(await screen.findAllByText("Last index")).toHaveLength(1);
+  expect(screen.getAllByText(/^Index, finished /)).toHaveLength(1);
   await i18n.changeLanguage("zh-TW");
 });
 
