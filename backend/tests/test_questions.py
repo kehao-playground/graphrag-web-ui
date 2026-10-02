@@ -14,13 +14,13 @@ tests re-pin these assertions through the API.
 import uuid
 
 import pytest
+from helpers import FakeInitializer
 from sqlalchemy import select
 
 # TestRun/TestResult are referenced through the module on purpose: pytest
 # tries to collect any module-level name starting with "Test".
 from graphrag_ui.adapters import models
 from graphrag_ui.adapters.models import AuditLog, Job, Project, Question
-from graphrag_ui.adapters.workspace import FakeInitializer
 from graphrag_ui.api.projects_routes import get_initializer
 from tests.test_projects import _activate, _setup_two_users
 

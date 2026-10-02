@@ -8,10 +8,10 @@ missing-file path (empty list) is the pre-PATCH state in every test.
 import uuid
 
 import pytest
+from helpers import FakeInitializer
 from sqlalchemy import select
 
 from graphrag_ui.adapters.models import AuditLog, Project
-from graphrag_ui.adapters.workspace import FakeInitializer
 from graphrag_ui.api.projects_routes import get_initializer
 from graphrag_ui.config import get_settings
 from graphrag_ui.domain.role_catalog import ROLE_ID_VIEWER

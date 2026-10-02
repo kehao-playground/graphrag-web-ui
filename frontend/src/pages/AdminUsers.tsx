@@ -9,6 +9,7 @@ import { sendOk } from "../api/client";
 import { adminUsers, roleCatalog } from "../api/queries";
 import type { User } from "../api/types";
 import { roleLabel } from "../components/labels";
+import { onValid } from "../components/onValid";
 import { useAuth } from "../stores/auth";
 
 interface CreateForm {
@@ -166,7 +167,7 @@ export default function AdminUsers() {
         cancelText={t("common.cancel")}
         confirmLoading={create.isPending}
         onCancel={() => { setCreateOpen(false); createForm.resetFields(); }}
-        onOk={() => createForm.validateFields().then((v) => create.mutate(v))}
+        onOk={onValid(createForm, (v) => create.mutate(v))}
       >
         <Form form={createForm} layout="vertical">
           <Form.Item
@@ -218,15 +219,13 @@ export default function AdminUsers() {
         cancelText={t("common.cancel")}
         confirmLoading={patch.isPending}
         onCancel={() => setEditTarget(undefined)}
-        onOk={() =>
-          editForm.validateFields().then((v) => {
-            if (!editTarget) return;
-            // Your own row forbids role changes on the backend — the form's roles are display-only, never submitted
-            patch.mutate(editTarget.id === me?.id
-              ? { id: editTarget.id, display_name: v.display_name }
-              : { id: editTarget.id, ...v });
-          })
-        }
+        onOk={onValid(editForm, (v) => {
+          if (!editTarget) return;
+          // Your own row forbids role changes on the backend — the form's roles are display-only, never submitted
+          patch.mutate(editTarget.id === me?.id
+            ? { id: editTarget.id, display_name: v.display_name }
+            : { id: editTarget.id, ...v });
+        })}
       >
         <Form form={editForm} layout="vertical">
           <Form.Item
@@ -258,9 +257,7 @@ export default function AdminUsers() {
         cancelText={t("common.cancel")}
         confirmLoading={resetPassword.isPending}
         onCancel={() => { setResetTarget(undefined); resetForm.resetFields(); }}
-        onOk={() =>
-          resetForm.validateFields().then((v) => resetTarget && resetPassword.mutate({ id: resetTarget.id, ...v }))
-        }
+        onOk={onValid(resetForm, (v) => resetTarget && resetPassword.mutate({ id: resetTarget.id, ...v }))}
       >
         <Form form={resetForm} layout="vertical">
           <Form.Item

@@ -6,6 +6,7 @@ import { apiJson } from "../../api/client";
 import { projectById, projectsList } from "../../api/queries";
 import type { Member, Project } from "../../api/types";
 import { formatDateTime } from "../../i18n/format";
+import { onValid } from "../onValid";
 
 // The project facts the old overview tab showed (spec §4 moves them to
 // the members pane, where ProjectInfoDescriptions now lives). A manager
@@ -69,7 +70,7 @@ function EditProjectModal({ p, open, onClose }: { p: Project; open: boolean; onC
       cancelText={t("common.cancel")}
       confirmLoading={save.isPending}
       onCancel={onClose}
-      onOk={() => form.validateFields().then((v) => save.mutate(v))}
+      onOk={onValid(form, (v) => save.mutate(v))}
       destroyOnHidden
     >
       <Form

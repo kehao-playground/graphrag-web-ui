@@ -76,6 +76,19 @@ def test_configured_workflows_reads_the_settings_key(tmp_path):
     assert configured_workflows(tmp_path) is None  # best-effort, never raises
 
 
+async def _progress_when(progress_now, expected: dict, timeout_s: float = 10.0):
+    """Poll until the row shows `expected`; return what it shows at that
+    point or at the deadline. Waiting on the value itself instead of a
+    fixed sleep keeps a slow host from reading the row before the watch
+    loop's next beat has written it."""
+    deadline = time.monotonic() + timeout_s
+    while True:
+        progress = await progress_now()
+        if progress == expected or time.monotonic() >= deadline:
+            return progress
+        await asyncio.sleep(0.02)
+
+
 @pytest.fixture
 async def _workspaces(monkeypatch, tmp_path):
     monkeypatch.setenv("WORKSPACES_DIR", str(tmp_path))
@@ -104,12 +117,10 @@ async def test_watch_loop_ticks_workflow_progress_from_stats_json(
 
     class StepRunner:
         async def run(self, **kwargs):
-            await asyncio.sleep(0.3)
-            seen.append(await progress_now())
+            seen.append(await _progress_when(progress_now, {"done": 0, "total": 10}))
             stats = {"workflows": {"load_input_documents": {}, "create_base_text_units": {}}}
             stale.write_text(json.dumps(stats))
-            await asyncio.sleep(0.3)
-            seen.append(await progress_now())
+            seen.append(await _progress_when(progress_now, {"done": 2, "total": 10}))
             return RunResult(status="succeeded", exit_code=0, error=None, stats=None)
 
     monkeypatch.setattr(runner_loop, "IndexRunner", StepRunner)
@@ -126,9 +137,13 @@ async def test_progress_total_follows_a_settings_workflows_override(
     root.mkdir(parents=True, exist_ok=True)
     (root / "settings.yaml").write_text("workflows: [a, b, c]\n")
 
+    async def progress_now():
+        await db_session.refresh(job)
+        return job.progress
+
     class SlowRunner:
         async def run(self, **kwargs):
-            await asyncio.sleep(0.3)
+            await _progress_when(progress_now, {"done": 0, "total": 3})
             return RunResult(status="succeeded", exit_code=0, error=None, stats=None)
 
     monkeypatch.setattr(runner_loop, "IndexRunner", SlowRunner)

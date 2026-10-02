@@ -391,3 +391,19 @@ async def test_display_name_longer_than_the_column_is_a_422(client):
     assert r.status_code == 422
     r = await client.patch(f"/api/admin/users/{uid}", headers=hdr, json={"display_name": ""})
     assert r.status_code == 422
+
+
+async def test_unknown_user_ids_are_user_not_found_over_http(client):
+    """R2-34: the users routes' 404 mapping, not only the service error."""
+    import uuid
+
+    hdr = await _admin_token(client)
+    unknown = uuid.uuid4()
+    r1 = await client.patch(f"/api/admin/users/{unknown}", headers=hdr, json={"display_name": "X"})
+    r2 = await client.post(
+        f"/api/admin/users/{unknown}/reset-password",
+        headers=hdr,
+        json={"new_password": "new-pass-12345"},
+    )
+    for r in (r1, r2):
+        assert (r.status_code, r.json()["code"]) == (404, "user_not_found"), r.text

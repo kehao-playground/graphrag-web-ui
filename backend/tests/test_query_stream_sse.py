@@ -11,8 +11,8 @@ import json
 
 import pandas as pd
 import pytest
+from helpers import FakeInitializer
 
-from graphrag_ui.adapters.workspace import FakeInitializer
 from graphrag_ui.api.projects_routes import get_initializer
 from graphrag_ui.config import get_settings
 from graphrag_ui.domain.role_catalog import ROLE_ID_VIEWER

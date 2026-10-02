@@ -70,14 +70,6 @@ class FrameCache:
         self._insert(key, validity, df)
         return df
 
-    def frames_bytes(self) -> int:
-        return self._bytes
-
-    def invalidate(self, root: Path) -> None:
-        root_str = str(root)
-        for key in [k for k in self._entries if k[0] == root_str]:
-            self._remove(key)
-
     @staticmethod
     def _validity(path: Path) -> tuple | None:
         try:

@@ -70,7 +70,7 @@ async def test_budget_evicts_oldest_lru(root: Path) -> None:
     c = await cache.get(root, "communities")
     assert a is not None and b is not None and c is not None
     # Oldest (text_units) evicted; total within budget + largest single frame.
-    assert cache.frames_bytes() <= int(frame_bytes * 1.5) + frame_bytes
+    assert cache._bytes <= int(frame_bytes * 1.5) + frame_bytes
     assert (await cache.get(root, "text_units")) is not a  # reloaded
 
 
@@ -83,26 +83,11 @@ async def test_insert_overwrite_releases_superseded_bytes(root: Path) -> None:
     replacement = pd.DataFrame({"id": [1], "text": ["x" * 100], "pad": ["y" * 100]})
     replacement_bytes = int(replacement.memory_usage(deep=True).sum())
     # replacement differs from the loaded frame, so the asserts below bite
-    assert cache.frames_bytes() != replacement_bytes
+    assert cache._bytes != replacement_bytes
     cache._insert((str(root), "text_units"), (None,), replacement)
     # Only the replacement entry remains in the accounting.
-    assert cache.frames_bytes() == replacement_bytes
+    assert cache._bytes == replacement_bytes
     assert cache._entries[(str(root), "text_units")][1] is replacement
-
-
-async def test_invalidate_drops_root_entries(root: Path, tmp_path: Path) -> None:
-    other = tmp_path / "other"
-    _write_parquet(other / "output" / "text_units.parquet")
-    cache = FrameCache(budget_bytes=10_000_000)
-    first = await cache.get(root, "text_units")
-    other_frame = await cache.get(other, "text_units")
-    cache.invalidate(root)
-    again = await cache.get(root, "text_units")
-    # Root was evicted and reloaded; only the other root's frame survived.
-    assert again is not first
-    assert cache.frames_bytes() == int(other_frame.memory_usage(deep=True).sum()) + int(
-        again.memory_usage(deep=True).sum()
-    )
 
 
 async def test_missing_file_raises_not_indexed(tmp_path: Path) -> None:
@@ -115,8 +100,8 @@ async def test_missing_file_raises_not_indexed(tmp_path: Path) -> None:
 async def test_frame_sizes_are_measured_once_per_insert(
     root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """R1-103: deep memory_usage walks every object cell; eviction and
-    invalidation reuse the size taken at insert."""
+    """R1-103: deep memory_usage walks every object cell; eviction reuses
+    the size taken at insert."""
     calls = {"n": 0}
     real = frame_cache_module._frame_bytes
 
@@ -130,8 +115,7 @@ async def test_frame_sizes_are_measured_once_per_insert(
     for table in ("text_units", "entities", "communities"):  # third evicts the first
         await cache.get(root, table)
     assert calls["n"] == 3
-    cache.invalidate(root)
-    assert calls["n"] == 3 and cache.frames_bytes() == 0
+    assert cache._bytes == 2 * one  # the evicted frame's size came off without a re-measure
 
 
 async def test_a_miss_stats_the_file_once(root: Path, monkeypatch: pytest.MonkeyPatch) -> None:

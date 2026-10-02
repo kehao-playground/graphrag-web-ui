@@ -221,7 +221,7 @@ test("the files entry links to the state filter the overview uses", async () => 
   renderApp({ route: "/projects/p1/files?state=new,modified" })
   // Under full-suite load the routed files pane takes ~2 s to list; the
   // default 1 s find timed out on main too (F1-01, stop-gap until F35).
-  expect(await screen.findByText("draft.md", undefined, { timeout: 5000 })).toBeInTheDocument()
+  expect(await screen.findByText("draft.md")).toBeInTheDocument()
   expect(screen.queryByText("notes.txt")).not.toBeInTheDocument()
 })
 

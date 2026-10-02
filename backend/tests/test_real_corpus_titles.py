@@ -23,10 +23,14 @@ import time
 import yaml
 from real_corpus_fixtures import (
     pytestmark,  # noqa: F401  (pytest consumes module attribute)
+    real_corpus_app,  # noqa: F401  (titles_client resolves this dep by name)
     ws_root,  # used as a value by the workspace helpers below
 )
 from real_corpus_fixtures import (
-    real_corpus_client as titles_client,  # noqa: F401  (guard's canonical binding)
+    real_corpus_client as query_client,  # noqa: F401  (guard's canonical binding)
+)
+from real_corpus_fixtures import (
+    real_corpus_client as titles_client,  # noqa: F401  (pytest fixture: test param shadows)
 )
 
 from graphrag_ui.adapters.artifacts import read_document_titles

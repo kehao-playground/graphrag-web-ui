@@ -1,5 +1,6 @@
-"""Shared fixtures/marks for the three real-corpus slow modules (spec A6):
-test_real_corpus_query, test_real_corpus_jobs, test_real_corpus_explore.
+"""Shared fixtures/marks for the four real-corpus slow modules (spec A6):
+test_real_corpus_query, test_real_corpus_jobs, test_real_corpus_explore,
+test_real_corpus_titles.
 
 Each module binds these under its local names (query_app/runner_app style
 aliases) so existing test bodies stay untouched; test_real_corpus_guard.py

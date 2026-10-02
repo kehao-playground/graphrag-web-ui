@@ -121,25 +121,6 @@ class GraphragInitInitializer:
             raise WorkspaceInitError(msg)
 
 
-class FakeInitializer:
-    """Unit tests: create the dir and a minimal settings.yaml, no CLI fork.
-    Writes the same $-escaped file_pattern as the real initializer so the
-    real CLI can still load the workspace."""
-
-    async def init(self, root: Path, input_file_type: str) -> None:
-        (root / "input").mkdir(parents=True, exist_ok=True)
-        (root / "settings.yaml").write_text(
-            yaml.safe_dump(
-                {
-                    "input": {
-                        "type": input_file_type,
-                        "file_pattern": _escaped_pattern(input_file_type),
-                    }
-                }
-            )
-        )
-
-
 async def dry_run(root: Path) -> dict:
     """`graphrag index --root <root> --dry-run` via asyncio.to_thread, timeout 180s.
 

@@ -3,6 +3,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from helpers import FakeInitializer
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.exc import OperationalError
 
@@ -14,7 +15,6 @@ from graphrag_ui.adapters.models import (
     QuestionSet,
     User,
 )
-from graphrag_ui.adapters.workspace import FakeInitializer
 from graphrag_ui.api import health_routes
 from graphrag_ui.api.projects_routes import get_initializer
 from graphrag_ui.config import get_settings

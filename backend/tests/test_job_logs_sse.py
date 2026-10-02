@@ -8,12 +8,14 @@ import asyncio
 import json
 import uuid
 
+from helpers import FakeInitializer
+
 from graphrag_ui.adapters.db import get_session_factory
 from graphrag_ui.adapters.index_runner import log_path_for
 from graphrag_ui.adapters.jobs_repo import finish
-from graphrag_ui.adapters.workspace import FakeInitializer
 from graphrag_ui.api.projects_routes import get_initializer
 from graphrag_ui.domain.role_catalog import ROLE_ID_VIEWER
+from graphrag_ui.services import jobs as jobs_service
 from graphrag_ui.services.projects import ws_path
 
 
@@ -113,20 +115,34 @@ async def test_sse_resume_from_last_event_id(client, app):
     assert '"offset": 10' in body
 
 
-async def test_sse_live_follows_file_until_terminal(client, app):
+async def test_sse_live_follows_file_until_terminal(client, app, monkeypatch):
     """Data written after the stream started must still be delivered; the stream ends once the job reaches a terminal state and the file is drained."""
     hdr = await _owner(client, app)
     pid, job = await _queued_job(client, hdr, "SSEL")
     log = _log_of(pid, job["id"])
     log.write_bytes(b"first\n")
 
+    # Append only once the server has read the first chunk, so "second" is
+    # provably picked up by the live follow, not by the initial read (a
+    # fixed sleep left that to timing). The signal comes from the server
+    # side: httpx's ASGITransport hands the client the body only at the end.
+    first_read = asyncio.Event()
+    real_tail = jobs_service.tail_log
+
+    async def signalling_tail(*args, **kwargs):
+        async for item in real_tail(*args, **kwargs):
+            yield item
+            first_read.set()
+
+    monkeypatch.setattr(jobs_service, "tail_log", signalling_tail)
     task = asyncio.create_task(_stream_body(client, f"/api/jobs/{job['id']}/logs", headers=hdr))
-    await asyncio.sleep(0.3)  # let the stream deliver the first chunk
+    await asyncio.wait_for(first_read.wait(), timeout=10)
     with log.open("ab") as fh:
         fh.write(b"second\n")
     await _finish(job["id"])
     body = await asyncio.wait_for(task, timeout=10)
     assert json.dumps("first\n") in body
+    assert "id: 6" in body  # "first" went out as its own frame, before the append
     assert json.dumps("second\n") in body
     assert "event: done" in body
     assert '"offset": 13' in body
