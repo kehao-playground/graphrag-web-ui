@@ -35,23 +35,26 @@ jobs:
     env:
       GRAPHRAG_API_KEY: ${{ secrets.GRAPHRAG_API_KEY }}
     steps:
+      - uses: actions/checkout@v7
+      # after checkout: backend/, the default working-directory, exists from here
       - name: Require the API key
         run: |
           if [ -z "$GRAPHRAG_API_KEY" ]; then
             echo "::error::GRAPHRAG_API_KEY secret is not set; the key-gated tests would skip"
             exit 1
           fi
-      - uses: actions/checkout@v7
       # testcontainers needs docker — the GitHub ubuntu runner has it built in
       - uses: astral-sh/setup-uv@v10.2.0
         with:
           python-version: "3.12"
       - run: uv sync --dev
-      - run: uv run pytest -v -m slow -rs --junitxml=slow-junit.xml
+      - id: pytest
+        run: uv run pytest -v -m slow -rs --junitxml=slow-junit.xml
       # A skip here means a gate fired that should not have (the key above,
-      # or a new skipif): treat it as a failure, not a quiet green.
+      # or a new skipif): treat it as a failure, not a quiet green. Runs
+      # whenever pytest ran, pass or fail, so the counts are in the log.
       - name: Fail on skipped tests
-        if: always()
+        if: ${{ !cancelled() && steps.pytest.outcome != 'skipped' }}
         run: |
           uv run python - <<'EOF'
           import sys
