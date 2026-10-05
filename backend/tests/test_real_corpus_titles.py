@@ -69,10 +69,13 @@ CSV_BODY = (
     "First light was achieved after a decade of construction in the Atacama\n"
 )
 
+# Named, linked entities in every row (like the text and csv corpora): with
+# generic nouns only, the model sometimes extracts no relationship and
+# graphrag aborts the index ("No relationships detected"), as it did on CI.
 JSON_BODY = (
-    '[{"text": "Container ships measure capacity in twenty-foot equivalent units"}\n'
-    ',{"text": "The largest vessels exceed twenty thousand of those units"}\n'
-    ',{"text": "Beam width limits which ports and canals such ships can use"}]\n'
+    '[{"text": "Maersk operates the container ship Emma Maersk from the Port of Rotterdam"}\n'
+    ',{"text": "Odense Steel Shipyard in Denmark built the Emma Maersk for Maersk in 2006"}\n'
+    ',{"text": "The Port of Rotterdam links Maersk routes to the Suez Canal and Singapore"}]\n'
 )
 
 
