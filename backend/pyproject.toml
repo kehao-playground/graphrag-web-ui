@@ -11,7 +11,7 @@ dependencies = [
     "duckdb>=1.5.5",
     "email-validator>=2.2.0",
     "fastapi>=0.141.1",
-    "graphrag==3.1.2",
+    "graphrag==3.2.0",
     # Imported directly (query, citations, frame cache); declared so a
     # graphrag bump cannot silently move the API this code relies on.
     "pandas>=3.0.6,<4",
@@ -43,13 +43,10 @@ dev = [
 ]
 
 [tool.uv]
-# graphrag 3.1.2 declares nltk~=3.9.0, which holds nltk on 3.9.4 and its
+# graphrag 3.2.0 declares nltk~=3.9.0, which holds nltk on 3.9.4 and its
 # advisories (R1-14). 3.10 is API-compatible for graphrag's use (punkt,
 # TextBlob tagging); drop this once graphrag widens its range.
-# graphrag-llm 3.1.2 pins litellm==1.92.0 (CVE-2026-84377, a LiteLLM proxy
-# flaw; we use only the SDK). 1.92.2 is the same minor's patch release with
-# the fix (F31-01); drop this once graphrag moves its pin past it.
-override-dependencies = ["nltk>=3.10.3", "litellm==1.92.2"]
+override-dependencies = ["nltk>=3.10.3"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

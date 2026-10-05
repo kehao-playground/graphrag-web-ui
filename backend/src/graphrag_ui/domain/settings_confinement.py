@@ -70,6 +70,12 @@ def is_confined(value: str) -> bool:
     return normalized != ".." and not normalized.startswith("../")
 
 
+def is_bare_file_name(value: str) -> bool:
+    """A single path component: what graphrag 3.2's SQLiteCache accepts as
+    `cache.database_name`, joined onto the (confined) cache storage."""
+    return value not in ("", ".", "..") and "/" not in value and "\\" not in value
+
+
 def _section(data: Any, keys: Iterable[str]) -> Any:
     node = data
     for key in keys:
@@ -99,6 +105,9 @@ def confinement_violations(data: Any) -> list[str]:
             out.append(f"{prefix}.type")
         elif kind == "file" and _path_violation(section, "base_dir"):
             out.append(f"{prefix}.base_dir")
+    database_name = _section(data, ("cache", "database_name"))
+    if isinstance(database_name, str) and not is_bare_file_name(database_name):
+        out.append("cache.database_name")
     vector_store = _section(data, ("vector_store",))
     if isinstance(vector_store, dict):
         if vector_store.get("type", "lancedb") not in _VECTOR_STORE_TYPES:
