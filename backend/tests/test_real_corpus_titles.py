@@ -24,7 +24,7 @@ import yaml
 from real_corpus_fixtures import (
     pytestmark,  # noqa: F401  (pytest consumes module attribute)
     real_corpus_app,  # noqa: F401  (titles_client resolves this dep by name)
-    ws_root,  # used as a value by the workspace helpers below
+    ws_root,  # noqa: F401  (pytest fixture: the test param shadows it)
 )
 from real_corpus_fixtures import (
     real_corpus_client as query_client,  # noqa: F401  (guard's canonical binding)
@@ -99,16 +99,17 @@ async def _run_to_terminal(client, headers, job_id, timeout_s=900):
         await asyncio.sleep(2)
 
 
-async def _indexed_workspace(client, admin, name: str, input_file_type: str, files: dict):
+async def _indexed_workspace(client, admin, root, name: str, input_file_type: str, files: dict):
     """Create a project (real graphrag init forks), upload `files`, set the
     env key + cheap real-endpoint models, run a standard index to terminal.
-    Returns the workspace path."""
+    Returns the workspace path. `root` is the test's injected ws_root — the
+    module-level name is the fixture function, not a path."""
     pid = (
         await client.post(
             "/api/projects", headers=admin, json={"name": name, "input_file_type": input_file_type}
         )
     ).json()["id"]
-    ws = (ws_root / pid).resolve()
+    ws = (root / pid).resolve()
     for fname, text in files.items():
         await _upload(client, admin, pid, fname, text)
     r = await client.patch(
@@ -147,7 +148,7 @@ async def test_title_recovery_pinned_against_real_cli(titles_client, ws_root):  
     admin = await _setup_two_users(client)
 
     # --- text: titles are the bare basenames (text.py:38) ---
-    ws = await _indexed_workspace(client, admin, "Titles text", "text", TEXT_DOCS)
+    ws = await _indexed_workspace(client, admin, ws_root, "Titles text", "text", TEXT_DOCS)
     titles = read_document_titles(ws)
     assert titles is not None
     assert sorted(titles) == sorted(TEXT_DOCS)
@@ -155,14 +156,18 @@ async def test_title_recovery_pinned_against_real_cli(titles_client, ws_root):  
 
     # --- csv: one file, three rows -> "rows.csv (0..2)", which the row-
     #     suffix rule strips back to the filename ---
-    ws = await _indexed_workspace(client, admin, "Titles csv", "csv", {"rows.csv": CSV_BODY})
+    ws = await _indexed_workspace(
+        client, admin, ws_root, "Titles csv", "csv", {"rows.csv": CSV_BODY}
+    )
     titles = read_document_titles(ws)
     assert titles is not None
     assert sorted(titles) == ["rows.csv (0)", "rows.csv (1)", "rows.csv (2)"]
     assert recover_filenames(titles, frozenset({"rows.csv"})) == frozenset({"rows.csv"})
 
     # --- json: an array of three objects takes the same suffixed shape ---
-    ws = await _indexed_workspace(client, admin, "Titles json", "json", {"rows.json": JSON_BODY})
+    ws = await _indexed_workspace(
+        client, admin, ws_root, "Titles json", "json", {"rows.json": JSON_BODY}
+    )
     titles = read_document_titles(ws)
     assert titles is not None
     assert sorted(titles) == ["rows.json (0)", "rows.json (1)", "rows.json (2)"]
