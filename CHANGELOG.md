@@ -1,11 +1,29 @@
 # Changelog
 
-Notable changes to GraphRAG Web UI, newest first. The project has no
-version tags yet; entries are grouped by the feature slice that shipped
-them, with the date the slice landed on `main`. The format follows
+Notable changes to GraphRAG Web UI, newest first. Releases are git tags
+(`v0.1.0` is the first); within a release, entries are grouped by the
+feature slice that shipped them, with the date the slice landed on
+`main`. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
+
+## [0.1.0] — 2026-10-05
+
+The first tagged release: everything from the foundation to the quality
+review below.
+
+### Toolchain and dependencies (2026-10-05)
+
+- **Node 26** everywhere: the web image, CI and the local-development
+  docs (was 24).
+- **graphrag 3.2.0** (was 3.1.2), with litellm 1.100.1 and lancedb 0.38.
+  The settings keys the app writes are unchanged. 3.2.0 adds an opt-in
+  `sqlite` cache; its `cache.database_name` must be a bare file name,
+  like every other path setting confined to the workspace (400
+  `settings_path_escape`).
+- SQLAlchemy 2.1, FastAPI 0.142, Starlette 1.7, uvicorn 0.54, and patch
+  bumps across both stacks. No API contract change.
 
 ### Quality review — fix waves F1–F37 (2026-09-22 → 2026-10-02)
 
@@ -117,3 +135,5 @@ Operator- and API-facing changes:
 - Bilingual (zh-TW/English) interface.
 - Foundation: projects, uploads, index/update jobs with live logs,
   four query modes over SSE, explore tables and WebGL graph view.
+
+[0.1.0]: https://github.com/kehao-playground/graphrag-web-ui/releases/tag/v0.1.0
