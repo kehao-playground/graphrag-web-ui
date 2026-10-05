@@ -52,7 +52,7 @@ graph TB
             L2 --> L4["adapters/ — 儲存庫、檔案系統、graphrag"]
         end
         PG[("postgres 16<br/>使用者 · 專案 · 任務 · 稽核")]
-        subgraph GR["graphrag 3.1.2（釘選）—— 兩個接觸點都在 adapters/"]
+        subgraph GR["graphrag 3.2.0（釘選）—— 兩個接觸點都在 adapters/"]
             CLI["graphrag CLI 子程序<br/>init · index · update"]
             LIB["graphrag.api in-process<br/>local · global · drift · basic"]
         end
@@ -194,7 +194,7 @@ flowchart LR
 
 ## 已知注意事項
 
-- graphrag 固定在 `==3.1.2`（最新穩定版）。其相依套件 `graphrag-vectors`
+- graphrag 固定在 `==3.2.0`（最新穩定版）。其相依套件 `graphrag-vectors`
   會拉入 `lancedb>=0.37`，而該版本沒有 macOS x86_64 wheel —— 在 Intel Mac 上
   `uv sync` 會失敗，請改在 Linux 容器內執行後端檢查（作法見
   [`AGENTS.md`](../../AGENTS.md)）。CI（Linux）與 Apple Silicon Mac 不受影響。

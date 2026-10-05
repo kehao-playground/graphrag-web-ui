@@ -67,7 +67,7 @@ briefs; their Global Constraints always apply.
 #     -e UV_PROJECT_ENVIRONMENT=/opt/venv -e TESTCONTAINERS_RYUK_DISABLED=true \
 #     ghcr.io/astral-sh/uv:python3.12-bookworm \
 #     sh -c 'uv sync --frozen -q && uv run ruff check && uv run ruff format --check && uv run mypy && uv run pytest -q -m "not slow"'
-cd backend && uv run pytest -v          # 812 tests with GRAPHRAG_API_KEY (806 fast); 6 slow tests fork the real graphrag CLI (4 need the key, skipped without it); fast only: uv run pytest -m "not slow"
+cd backend && uv run pytest -v          # 818 tests with GRAPHRAG_API_KEY (812 fast); 6 slow tests fork the real graphrag CLI (4 need the key, skipped without it); fast only: uv run pytest -m "not slow"
 cd backend && uv run ruff check
 cd backend && uv run ruff format --check   # formatting is CI-enforced; `ruff format` to fix
 cd backend && uv run mypy                  # src/ must stay clean; CI-enforced
@@ -97,14 +97,15 @@ helm template deploy/helm/graphrag-ui > /dev/null
 ## Working Rules
 
 - TDD: failing test first, minimal implementation, green before commit.
-- graphrag is pinned (`==3.1.2`, latest stable); do not bump without
+- graphrag is pinned (`==3.2.0`, latest stable); do not bump without
   checking `graphrag_input/input_config.py` key names (`input.type`,
   `input.file_pattern` is a regex) — wrong keys are silently ignored
   (`extra="allow"`), so always read back and assert after writing
-  `settings.yaml`. graphrag 3.1.2 declares `nltk~=3.9.0`; `[tool.uv]
-  override-dependencies` lifts nltk to `>=3.10.3` for its advisories,
-  and litellm (pinned `==1.92.0` by graphrag-llm) to the `1.92.2` patch
-  release — on a graphrag bump, drop each override the new range admits.
+  `settings.yaml`. graphrag 3.2.0 declares `nltk~=3.9.0`; `[tool.uv]
+  override-dependencies` lifts nltk to `>=3.10.3` for its advisories —
+  on a graphrag bump, drop each override the new range admits. A bump
+  that adds a settings field naming a path must extend
+  `domain/settings_confinement.py` (3.2.0: `cache.database_name`).
 - Dependency advisories: the CI `audit` job is required. An advisory
   with no fixed release that is not reachable here goes on its
   `--ignore-vuln` list with a dated reason; anything else is fixed

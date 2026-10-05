@@ -75,6 +75,19 @@ def test_the_nested_cache_storage_is_checked():
     assert confinement_violations(data) == ["cache.storage.base_dir"]
 
 
+def test_a_sqlite_cache_inside_its_storage_passes():
+    data = _with("cache", type="sqlite", database_name="cache.db")
+    assert confinement_violations(data) == []
+
+
+@pytest.mark.parametrize("value", ["../cache.db", "/tmp/cache.db", "sub/cache.db", "..", "a\\b.db"])
+def test_a_sqlite_database_name_must_be_a_bare_file_name(value):
+    # graphrag 3.2's SQLiteCache refuses these at index time; refusing them
+    # at the settings write gives a 400 instead of a failed job.
+    data = _with("cache", type="sqlite", database_name=value)
+    assert confinement_violations(data) == ["cache.database_name"]
+
+
 @pytest.mark.parametrize("kind", ["blob", "cosmosdb", "custom.my.Storage"])
 def test_remote_and_unknown_storage_backends_are_violations(kind):
     assert confinement_violations(_with("output_storage", type=kind)) == ["output_storage.type"]

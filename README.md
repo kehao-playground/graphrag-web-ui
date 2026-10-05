@@ -51,7 +51,7 @@ graph TB
             L2 --> L4["adapters/ — repos, FS, graphrag"]
         end
         PG[("postgres 16<br/>users · projects · jobs · audit")]
-        subgraph GR["graphrag 3.1.2 (pinned) — both touchpoints in adapters/"]
+        subgraph GR["graphrag 3.2.0 (pinned) — both touchpoints in adapters/"]
             CLI["graphrag CLI subprocess<br/>init · index · update"]
             LIB["graphrag.api in-process<br/>local · global · drift · basic"]
         end
@@ -213,7 +213,7 @@ from *Change password* in the sidebar menu.
 
 ## Known caveats
 
-- graphrag is pinned to `==3.1.2` (latest stable). Its `graphrag-vectors` dependency
+- graphrag is pinned to `==3.2.0` (latest stable). Its `graphrag-vectors` dependency
   pulls `lancedb>=0.37`, which ships no macOS x86_64 wheel — on Intel Macs `uv sync`
   fails, so run the backend gates in a Linux container there (recipe in
   [`AGENTS.md`](AGENTS.md)). CI (Linux) and Apple-silicon Macs are unaffected. Do not
