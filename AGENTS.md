@@ -68,6 +68,7 @@ briefs; their Global Constraints always apply.
 #     ghcr.io/astral-sh/uv:python3.12-bookworm \
 #     sh -c 'uv sync --frozen -q && uv run ruff check && uv run ruff format --check && uv run mypy && uv run pytest -q -m "not slow"'
 cd backend && uv run pytest -v          # 818 tests with GRAPHRAG_API_KEY (812 fast); 6 slow tests fork the real graphrag CLI (4 need the key, skipped without it); fast only: uv run pytest -m "not slow"
+gh workflow run slow --ref <branch>     # CI `slow` workflow: the 6 slow tests with the GRAPHRAG_API_KEY repo secret, failing on any skip; also weekly and on main after a pyproject/uv.lock change — run it on a graphrag bump before merging
 cd backend && uv run ruff check
 cd backend && uv run ruff format --check   # formatting is CI-enforced; `ruff format` to fix
 cd backend && uv run mypy                  # src/ must stay clean; CI-enforced

@@ -1,0 +1,64 @@
+name: slow
+
+# The six slow tests fork the real graphrag CLI; four of them also call the
+# model and skip without GRAPHRAG_API_KEY, so the main ci workflow (no key)
+# never runs them. That left a broken test unnoticed from F35 until a manual
+# paid run on 2026-10-05. This workflow runs them with the repository secret:
+# weekly, after a dependency change lands on main, and on demand
+# (`gh workflow run slow --ref <branch>` before merging a graphrag bump).
+# Each run costs a few cents on gpt-4o-mini / text-embedding-3-small.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 2 * * 1" # Mondays 02:17 UTC
+  push:
+    branches: [main]
+    paths:
+      - backend/pyproject.toml
+      - backend/uv.lock
+
+concurrency:
+  group: slow-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  real-graphrag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      GRAPHRAG_API_KEY: ${{ secrets.GRAPHRAG_API_KEY }}
+    steps:
+      - name: Require the API key
+        run: |
+          if [ -z "$GRAPHRAG_API_KEY" ]; then
+            echo "::error::GRAPHRAG_API_KEY secret is not set; the key-gated tests would skip"
+            exit 1
+          fi
+      - uses: actions/checkout@v7
+      # testcontainers needs docker — the GitHub ubuntu runner has it built in
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: "3.12"
+      - run: uv sync --dev
+      - run: uv run pytest -v -m slow -rs --junitxml=slow-junit.xml
+      # A skip here means a gate fired that should not have (the key above,
+      # or a new skipif): treat it as a failure, not a quiet green.
+      - name: Fail on skipped tests
+        if: always()
+        run: |
+          uv run python - <<'EOF'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          suite = ET.parse("slow-junit.xml").getroot().find("testsuite")
+          tests, skipped = int(suite.get("tests")), int(suite.get("skipped"))
+          print(f"slow tests: {tests} collected, {skipped} skipped")
+          sys.exit(1 if tests == 0 or skipped else 0)
+          EOF
