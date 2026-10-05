@@ -102,9 +102,9 @@ A trustworthy baseline comes from a full `index` run; an `update` never
 creates one, so existing projects read every file as `new` until someone runs
 a full index.
 
-### Tests — the retrieval-testing loop
+### Retrieval tests — the retrieval-testing loop
 
-The **Tests** tab is the retrieval-testing loop. A knowledge manager saves a
+The **Retrieval tests** tab is the retrieval-testing loop. A knowledge manager saves a
 question set once — sets are created, renamed and archived in the rating
 matrix, and an ad-hoc answer joins a set (or starts one) in one action — then
 **re-runs the whole set** against the current index as a background job.
@@ -172,17 +172,20 @@ healthy.
 
    ![Project files](docs/assets/screenshots/en/project-files.png)
 
-7. **Set the LLM key** — Project Settings → Env: set `GRAPHRAG_API_KEY` (per-project,
-   stored in the workspace `.env`, read back masked). Without it, indexing jobs fail.
+7. **Set the LLM key** — Settings → Environment variables: set `GRAPHRAG_API_KEY`
+   (per-project, stored in the workspace `.env`, read back masked). Without it, indexing
+   jobs fail; until it is set, the overview and Settings flag the key `graphrag init`
+   left as a placeholder.
 
    ![Project settings](docs/assets/screenshots/en/project-settings.png)
 
 8. **Index** — Jobs → run an index job (method `fast` or `standard`). Caveat from
    real-corpus testing: on tiny corpora the `fast` method can fail ("Graph Pruning failed.
-   No entities remain.") — use `standard` for the first run on small test corpora. Follow
-   progress in the live log viewer.
-9. **Query** — all four modes (`local`, `global`, `drift`, `basic`) stream over SSE with
-   inline citations.
+   No entities remain.") — use `standard` for the first run on small test corpora. A
+   running job shows "N of M workflows done" in the jobs table; its live log viewer
+   follows the output.
+9. **Query** — from the Retrieval tests tab: all four modes (`local`, `global`, `drift`,
+   `basic`) stream over SSE with inline citations.
 10. **Explore** — artifact tables (entities / relationships / communities / documents /
     community_reports / text_units) and the WebGL Graph view.
 
