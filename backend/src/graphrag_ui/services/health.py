@@ -18,6 +18,7 @@ import uuid
 from collections.abc import Sequence
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from graphrag_ui.adapters.models import (
@@ -139,8 +140,8 @@ async def _last_finished_indexes(
     )
     if succeeded_only:
         stmt = stmt.where(Job.status == "succeeded")
-    stmt = stmt.order_by(Job.project_id, Job.finished_at.desc(), Job.id.desc()).distinct(
-        Job.project_id
+    stmt = stmt.order_by(Job.project_id, Job.finished_at.desc(), Job.id.desc()).ext(
+        distinct_on(Job.project_id)
     )
     return {job.project_id: job for job in (await session.execute(stmt)).scalars()}
 

@@ -254,7 +254,7 @@ def manager_holders_stmt(
     user_id: uuid.UUID | None = None,
     exclude_user_id: uuid.UUID | None = None,
     exclude_role_id: uuid.UUID | None = None,
-) -> Select[tuple[uuid.UUID]]:
+) -> Select[uuid.UUID]:
     """Ids of ACTIVE users holding users:manage through a role, optionally
     only `user_id`, and/or ignoring one user and/or one role as a SOURCE of
     the atom (spec §6.2). Matching is by atom, never by role name — a user
