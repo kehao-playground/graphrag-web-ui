@@ -138,9 +138,9 @@ healthy.
 
 ## Quickstart (15 minutes)
 
-1. **Prerequisites** — Docker + Docker Compose. Node **24** and Python 3.12 + uv are only
+1. **Prerequisites** — Docker + Docker Compose. Node **26** and Python 3.12 + uv are only
    needed for local development (the frontend test stack — jsdom/undici — needs Node ≥ 22;
-   CI pins 24).
+   CI pins 26).
 2. **Configure** — `cp .env.example .env`, then set the three compose-enforced variables:
 
    - `JWT_SECRET` — the JWT signing key. `.env.example` ships it **empty**: it is
@@ -277,7 +277,7 @@ uv sync
 uv run pytest -m "not slow"
 ```
 
-Frontend (Node 24):
+Frontend (Node 26):
 
 ```
 cd frontend

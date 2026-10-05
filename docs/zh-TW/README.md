@@ -126,9 +126,9 @@ flowchart LR
 
 ## 快速開始（15 分鐘）
 
-1. **必要條件** —— Docker + Docker Compose。Node **24** 與 Python 3.12 + uv
+1. **必要條件** —— Docker + Docker Compose。Node **26** 與 Python 3.12 + uv
    僅在本機開發時需要（前端測試堆疊 jsdom/undici 需要 Node ≥ 22；
-   CI 固定使用 24）。
+   CI 固定使用 26）。
 2. **設定** —— `cp .env.example .env`，接著設定三個 compose 強制變數：
 
    - `JWT_SECRET` —— JWT 簽署金鑰。`.env.example` 刻意留**空**：此值為必填、
@@ -251,7 +251,7 @@ uv sync
 uv run pytest -m "not slow"
 ```
 
-前端（Node 24）：
+前端（Node 26）：
 
 ```
 cd frontend
