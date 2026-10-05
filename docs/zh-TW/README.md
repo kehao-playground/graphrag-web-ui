@@ -3,7 +3,7 @@
 > 本文件為 [README.md](../../README.md) 的正體中文鏡像，英文版為權威版本。
 
 [Microsoft GraphRAG](https://github.com/microsoft/graphrag) 的團隊網頁控制台：管理
-專案、上傳語料、執行索引工作、查詢知識圖譜 —— 支援 local / global /
+專案、上傳語料、執行索引任務、查詢知識圖譜 —— 支援 local / global /
 drift / basic 四種搜尋模式，全部透過 SSE 串流並附行內引用。可瀏覽 parquet
 產物（entities、relationships、communities、documents、community reports、text units），
 並在互動式 WebGL 圖譜檢視中探索圖形。它取代了 GraphRAG CLI
@@ -21,7 +21,7 @@ drift / basic 四種搜尋模式，全部透過 SSE 串流並附行內引用。�
 - **後端** —— FastAPI，分層為 `api` / `services` / `domain` / `adapters`。
   **graphrag 僅有兩個接觸點，且皆侷限於 `adapters/`：**
   - 索引以子程序執行 graphrag CLI —— 專案建立時執行 `graphrag init`，
-    之後執行 `graphrag index` / `graphrag update` 工作（`adapters/index_runner.py`、
+    之後執行 `graphrag index` / `graphrag update` 任務（`adapters/index_runner.py`、
     `adapters/workspace.py`）。
   - 查詢/搜尋在隔離保護的模組內以 in-process 方式呼叫
     `graphrag.api`（`adapters/graphrag_search.py` —— 之所以隔離，是因為
@@ -51,7 +51,7 @@ graph TB
             L2 --> L3["domain/ — 純邏輯"]
             L2 --> L4["adapters/ — 儲存庫、檔案系統、graphrag"]
         end
-        PG[("postgres 16<br/>使用者 · 專案 · 工作 · 稽核")]
+        PG[("postgres 16<br/>使用者 · 專案 · 任務 · 稽核")]
         subgraph GR["graphrag 3.1.2（釘選）—— 兩個接觸點都在 adapters/"]
             CLI["graphrag CLI 子程序<br/>init · index · update"]
             LIB["graphrag.api in-process<br/>local · global · drift · basic"]
@@ -78,7 +78,7 @@ flowchart LR
     P["建立專案"] --> I["graphrag init<br/>生成 settings.yaml"]
     I --> W[("專案工作區<br/>（GraphRAG 根目錄）")]
     U["上傳語料"] -->|"檔案落入 input/"| W
-    W -->|"讀 input/ 與 .env"| X["索引工作（子程序）<br/>graphrag index / update"]
+    W -->|"讀 input/ 與 .env"| X["索引任務（子程序）<br/>graphrag index / update"]
     X -->|"parquet 產物寫入 output/"| W
     W -->|"讀 output/ 與 .env"| Q["查詢 — graphrag.api in-process<br/>四種模式，SSE 串流"]
     W --> E["探索 — duckdb 唯讀 output/ parquet"]
@@ -92,19 +92,19 @@ flowchart LR
 舊內容；只有完整重建才會清除）。此檢視可搜尋檔名、依狀態與標籤過濾、
 加標籤、預覽與批次刪除。
 
-當 `index`/`update` 工作在佇列中或執行中時，專案的輸入與設定會被**凍結**：
+當 `index`/`update` 任務在佇列中或執行中時，專案的輸入與設定會被**凍結**：
 上傳、刪除、批次刪除、`settings.yaml` 寫入與 `.env` 編輯都會以 HTTP 409
-被拒絕，直到工作結束 —— 索引器的快照因而確實等同於上傳的內容。
+被拒絕，直到任務結束 —— 索引器的快照因而確實等同於上傳的內容。
 
 可信的基準來自完整的 `index` 執行；`update` 不會建立基準，既有專案在
 有人執行完整索引前，每個檔案都會顯示為 `new`。
 
-### 測試 —— 檢索測試迴圈
+### 檢索測試 —— 檢索測試迴圈
 
-**測試**分頁是檢索測試的迴圈。知識管理者先存好一組題組 —— 題組在評分
+**檢索測試**分頁是檢索測試的迴圈。知識管理者先存好一組題組 —— 題組在評分
 矩陣中建立、重新命名與封存，臨時查詢的答案也可以一鍵存入題組（或順手建立
-新題組）—— 然後把**整組題目**當成背景工作，對目前的索引
-**重跑一次**。執行的題目清單在工作加入佇列時就已固定，因此工作排隊期間
+新題組）—— 然後把**整組題目**當成背景任務，對目前的索引
+**重跑一次**。執行的題目清單在任務加入佇列時就已固定，因此任務排隊期間
 的編輯不會改變實際執行的內容。答案由人工評分（`good` / `fair` /
 `poor`，外加評註），在評分矩陣中進行：列是題目譜系，欄是最新的幾次
 執行（預設 5 次），「只看退步的」只保留最新評分比上次執行差的題目。
@@ -158,16 +158,18 @@ flowchart LR
 
    ![專案檔案](../assets/screenshots/zh/project-files.png)
 
-7. **設定 LLM 金鑰** —— 專案設定 → 環境：設定 `GRAPHRAG_API_KEY`（每專案
-   各自持有，存於工作區 `.env`，回讀時遮罩顯示）。缺少此金鑰，索引工作會失敗。
+7. **設定 LLM 金鑰** —— 設定 → 環境變數：設定 `GRAPHRAG_API_KEY`（每專案
+   各自持有，存於工作區 `.env`，回讀時遮罩顯示）。缺少此金鑰，索引任務會失敗；
+   在設定之前，總覽與設定頁會標示 `graphrag init` 留下的佔位值。
 
    ![專案設定](../assets/screenshots/zh/project-settings.png)
 
-8. **索引** —— 工作 → 執行一項索引工作（method 為 `fast` 或 `standard`）。
+8. **索引** —— 任務 → 執行一項索引任務（method 為 `fast` 或 `standard`）。
    來自真實語料測試的提醒：在極小語料上，`fast` 方法可能會失敗
    （「Graph Pruning failed. No entities remain.」）—— 小型測試語料的首次
-   執行請改用 `standard`。可在即時日誌檢視器中追蹤進度。
-9. **查詢** —— 四種模式（`local`、`global`、`drift`、`basic`）全部以 SSE
+   執行請改用 `standard`。執行中的任務會在任務表格顯示「已完成 N / M 個工作流程」，
+   即時日誌檢視器則跟著輸出捲動。
+9. **查詢** —— 在檢索測試分頁：四種模式（`local`、`global`、`drift`、`basic`）全部以 SSE
    串流回應，並附行內引用。
 10. **探索** —— 產物資料表（entities / relationships / communities / documents /
     community_reports / text_units）與 WebGL 圖譜檢視。
@@ -233,10 +235,10 @@ flowchart LR
   `docker compose -f docker-compose.yml -f compose.port.yml up -d` —— UI 便在
   `http://localhost:18080`。使用 proxy-auth overlay 時，改覆寫 `auth` 服務的埠，並把
   `OAUTH2_PROXY_REDIRECT_URL` 設成相符的網址。
-- **每份 index 工作日誌開頭的「LiteLLM:WARNING … could not pre-load
+- **每份 index 任務日誌開頭的「LiteLLM:WARNING … could not pre-load
   bedrock/sagemaker response stream shape」** —— 無害：graphrag 的 LLM 層
   （litellm）會在 import 時探測選用的 AWS（botocore）整合。兩個 graphrag
-  接觸點都預設 `LITELLM_LOG=ERROR`，讓這些雜訊不再進入工作日誌；需要
+  接觸點都預設 `LITELLM_LOG=ERROR`，讓這些雜訊不再進入任務日誌；需要
   除錯 LLM 呼叫時，自行 export `LITELLM_LOG`（例如 `DEBUG`）即可覆蓋。
 
 ## 本機開發

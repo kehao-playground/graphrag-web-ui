@@ -7,6 +7,54 @@ them, with the date the slice landed on `main`. The format follows
 
 ## Unreleased
 
+### Quality review — fix waves F1–F37 (2026-09-22 → 2026-10-02)
+
+A four-part review (architecture, correctness and security, functionality
+and operations, UX) produced 268 findings; 266 are fixed, and 2 were closed
+as won't-fix (full record: `docs/superpowers/reviews/backlog.md`).
+Operator- and API-facing changes:
+
+- **Breaking — graphrag configuration trust boundary.** `${VAR}` placeholders in
+  a project's `settings.yaml` resolve from that project's `.env` **only**, never
+  from the API process environment. The indexing subprocess gets an allowlisted
+  environment, and process-level names (`PATH`, `PYTHON*`, `*_PROXY`, CA bundles)
+  are refused as `.env` keys. Storage, cache, reporting, vector-store and prompt
+  paths must stay inside the workspace (400 `settings_path_escape`), and
+  `input.type` is locked at creation (400 `settings_input_locked`). **Ops
+  action:** rotate `JWT_SECRET` in every deployment that has had non-admin users.
+- **Breaking — startup checks.** The API refuses to start when
+  `BOOTSTRAP_ADMIN_PASSWORD` is the `.env.example` placeholder or shorter than
+  12 characters.
+- **Breaking — API contract.** The jobs list and settings versions are paged
+  (`limit`/`offset`) and answer `{items, total}`. The jobs list leaves out
+  `test_run` jobs unless asked (`?type=`). Error bodies carry a `code`, 422s
+  are `{detail, code: validation_failed}`, and operationIds are the handler
+  names. Regenerate any client built from `openapi.json`.
+- **Sessions.** Refresh-token rotation is atomic. A sign-in's refresh chain ends
+  after 30 days, however often it is renewed (alembic migration). Live streams
+  sign in with a one-minute single-stream ticket. `ACCESS_TOKEN_MINUTES` and
+  `REFRESH_TOKEN_DAYS` are documented.
+- **Indexing.** A project's first index no longer reports every file as
+  `skipped`. Citations link to documents on every query path. Running jobs
+  show workflow progress, and job logs follow the output live, with
+  auto-scroll that pauses and reconnects. A placeholder API key is flagged
+  before indexing. A job is refused when the project is over quota, and
+  *Clear cache* empties graphrag's cache.
+- **Audit.** Every state-changing route writes an audit row. New actions:
+  `job.enqueued`, `job.cancelled`, `user.password_changed`.
+- **Deployment.** Uploads above 1 MiB work through the shipped nginx and the
+  Helm ingress. The proxy-auth overlay boots. The default Helm install pulls
+  a working PostgreSQL image. `/api/ready` answers 503 when a check fails.
+  Compose services restart on their own, and the api has a health check.
+  The Helm chart gains a startup probe and storage-class and existing-claim
+  options. Tokens are redacted from access logs. The README gains an
+  *Operations* section covering upgrades, backup/restore, logs, sizing and
+  session lifetimes.
+- **Interface.** Question sets can be created, renamed and archived from the
+  UI. Settings form mode shows the model fields. The overview names the next
+  action. zh-TW terminology is consistent throughout. Many smaller UX fixes
+  come from two full walkthroughs in both languages.
+
 ### Knowledge manager — slice 3: citation-to-document loop (2026-09-11)
 
 - `Sources` citations now carry a `source_name`, resolved **with the
