@@ -289,13 +289,13 @@ npm run screenshots   # 寫入 docs/assets/screenshots/{en,zh}/
 再讓 chart 指向它們：
 
 ```
-docker build -t registry.example.com/graphrag-ui/api:0.1.0 backend
-docker build -t registry.example.com/graphrag-ui/web:0.1.0 frontend
-docker push registry.example.com/graphrag-ui/api:0.1.0
-docker push registry.example.com/graphrag-ui/web:0.1.0
+docker build -t registry.example.com/graphrag-ui/api:0.1.1 backend
+docker build -t registry.example.com/graphrag-ui/web:0.1.1 frontend
+docker push registry.example.com/graphrag-ui/api:0.1.1
+docker push registry.example.com/graphrag-ui/web:0.1.1
 helm upgrade --install graphrag deploy/helm/graphrag-ui -n graphrag --create-namespace \
-  --set api.image.repository=registry.example.com/graphrag-ui/api --set api.image.tag=0.1.0 \
-  --set web.image.repository=registry.example.com/graphrag-ui/web --set web.image.tag=0.1.0 \
+  --set api.image.repository=registry.example.com/graphrag-ui/api --set api.image.tag=0.1.1 \
+  --set web.image.repository=registry.example.com/graphrag-ui/web --set web.image.tag=0.1.1 \
   --set jwtSecret=$(openssl rand -hex 32) …
 ```
 

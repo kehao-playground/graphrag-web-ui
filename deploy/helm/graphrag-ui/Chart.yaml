@@ -2,8 +2,8 @@ apiVersion: v2
 name: graphrag-ui
 description: GraphRAG Web UI — FastAPI 後端(含 graphrag runner 子程序)與 React/nginx 前端
 type: application
-version: 0.1.0
-appVersion: "0.1.0"
+version: 0.1.1
+appVersion: "0.1.1"
 dependencies:
   - name: postgresql
     repository: https://charts.bitnami.com/bitnami

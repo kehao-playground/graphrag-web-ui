@@ -8,7 +8,7 @@
 # QUERY_CACHE_MB / QUERY_RATE_LIMIT_PER_HOUR / GRAPH_NODE_LIMIT / ACCESS_TOKEN_MINUTES / REFRESH_TOKEN_DAYS
 
 api:
-  image: {}            # repository/tag, e.g. { repository: registry.example.com/graphrag-ui/api, tag: "0.1.0" }; empty = default name for local testing
+  image: {}            # repository/tag, e.g. { repository: registry.example.com/graphrag-ui/api, tag: "0.1.1" }; empty = default name for local testing
   replicas: 1          # fixed at 1 (spec §8.2): the runner is tied to the workspace PVC (RWO); no horizontal scaling
   strategy: Recreate   # RWO PVC: during a rolling update two pods would fight over the same workspace; Recreate is mandatory
   terminationGracePeriodSeconds: 120  # lets in-flight indexing jobs finish or be cleanly marked interrupted (spec §8.2)
