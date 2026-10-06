@@ -8,6 +8,28 @@ feature slice that shipped them, with the date the slice landed on
 
 ## Unreleased
 
+## [0.1.1] — 2026-10-06
+
+A patch release for two dependency advisories published after 0.1.0.
+Upgrade from 0.1.0 by rebuilding both images; no configuration,
+migration or API change.
+
+### Security
+
+- multidict 6.8.0 → 6.9.1 (CVE-2026-104874: a remotely driven memory
+  leak in items-view set operations; transitive, via aiohttp/litellm).
+- source-map-js 1.2.1 → 1.2.2 (event-loop denial of service through
+  indexed source-map section offsets; build-time, via vite/postcss and
+  jsdom).
+
+### Changed
+
+- CI: a `slow` workflow runs the six real-graphrag tests with a model key
+  weekly, on `main` after a backend dependency change, and on demand
+  (`gh workflow run slow --ref <branch>`); it fails on any skipped test.
+- The README screenshots are recaptured on this release (the upload hint
+  lists extensions with the locale's separator).
+
 ## [0.1.0] — 2026-10-05
 
 The first tagged release: everything from the foundation to the quality
@@ -136,4 +158,5 @@ Operator- and API-facing changes:
 - Foundation: projects, uploads, index/update jobs with live logs,
   four query modes over SSE, explore tables and WebGL graph view.
 
+[0.1.1]: https://github.com/kehao-playground/graphrag-web-ui/releases/tag/v0.1.1
 [0.1.0]: https://github.com/kehao-playground/graphrag-web-ui/releases/tag/v0.1.0
