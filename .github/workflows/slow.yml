@@ -44,7 +44,7 @@ jobs:
             exit 1
           fi
       # testcontainers needs docker — the GitHub ubuntu runner has it built in
-      - uses: astral-sh/setup-uv@v10.2.0
+      - uses: astral-sh/setup-uv@v10.3.0
         with:
           python-version: "3.12"
       - run: uv sync --dev
