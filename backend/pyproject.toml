@@ -7,22 +7,22 @@ requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.20.0",
     "argon2-cffi>=25.1.0",
-    "asyncpg>=0.31.0",
+    "asyncpg>=0.32.0",
     "duckdb>=1.5.6",
     "email-validator>=2.2.0",
-    "fastapi>=0.142.2",
-    "graphrag==3.2.0",
+    "fastapi>=0.143.3",
+    "graphrag==3.3.0",
     # Imported directly (query, citations, frame cache); declared so a
     # graphrag bump cannot silently move the API this code relies on.
     "pandas>=3.0.6,<4",
-    "pydantic-settings>=2.15.0",
+    "pydantic-settings>=2.16.0",
     "pyjwt>=2.14.0",
     "python-dotenv>=1.2.4",
     "python-multipart>=0.0.32",
     "pyyaml>=6.0.3",
     "sqlalchemy[asyncio]>=2.1.1",
     # main.py imports starlette.routing.Match directly; fastapi pins it tightly.
-    "starlette>=1.7.0",
+    "starlette>=1.8.0",
     "uvicorn[standard]>=0.54.0",
 ]
 
@@ -38,7 +38,7 @@ dev = [
     "pytest-cov>=7.0.0",
     "pytest-asyncio>=1.4.0",
     "mypy>=2.4.0",
-    "ruff>=0.16.9",
+    "ruff>=0.17.1",
     "testcontainers[postgres]>=4.15.0",
 ]
 
